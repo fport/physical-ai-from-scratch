@@ -1,9 +1,9 @@
-/* Dark theme: black background, hairlines, monospace headings, neon green accent. */
+/* Dark theme: black background, hairlines, monospace headings, orange accent. */
 
 :root {
-	--fa-green: #5ef08a;
-	--fa-green-dim: #2fbf5f;
-	--fa-green-deep: #0d2a17;
+	--fa-accent: #ff8a3d;
+	--fa-accent-dim: #e8701f;
+	--fa-accent-deep: #2b1507;
 	--fa-line: #242424;
 	--fa-panel: #0e0e0e;
 
@@ -11,9 +11,9 @@
 	--sl-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 	--fa-font-pixel: 'Silkscreen', 'JetBrains Mono', monospace;
 
-	--sl-color-accent-low: var(--fa-green-deep);
-	--sl-color-accent: var(--fa-green-dim);
-	--sl-color-accent-high: var(--fa-green);
+	--sl-color-accent-low: var(--fa-accent-deep);
+	--sl-color-accent: var(--fa-accent-dim);
+	--sl-color-accent-high: var(--fa-accent);
 	--sl-color-white: #f2f2f2;
 	--sl-color-gray-1: #e4e4e4;
 	--sl-color-gray-2: #c4c4c4;
@@ -36,15 +36,15 @@
 }
 
 :root[data-theme='light'] {
-	--fa-green: #13863f;
-	--fa-green-dim: #1a9e4b;
-	--fa-green-deep: #dcf7e5;
+	--fa-accent: #c2560c;
+	--fa-accent-dim: #d9650f;
+	--fa-accent-deep: #fdebdc;
 	--fa-line: #e3e3e3;
 	--fa-panel: #f7f7f5;
 
-	--sl-color-accent-low: var(--fa-green-deep);
-	--sl-color-accent: var(--fa-green-dim);
-	--sl-color-accent-high: #0b5c2a;
+	--sl-color-accent-low: var(--fa-accent-deep);
+	--sl-color-accent: var(--fa-accent-dim);
+	--sl-color-accent-high: #8a3a05;
 	--sl-color-white: #111111;
 	--sl-color-gray-1: #1f1f1f;
 	--sl-color-gray-2: #3a3a3a;
@@ -67,7 +67,7 @@
 	font-size: 1.6rem;
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
-	color: var(--fa-green);
+	color: var(--fa-accent);
 }
 header.header {
 	border-bottom: 1px solid var(--fa-line);
@@ -77,7 +77,7 @@ header.header {
 .sidebar-path {
 	font-family: var(--sl-font-mono);
 	font-size: 1.35rem;
-	color: var(--fa-green);
+	color: var(--fa-accent);
 	margin: 0.25rem 0 1rem;
 	letter-spacing: -0.01em;
 }
@@ -96,26 +96,36 @@ nav.sidebar a {
 	border-radius: 0.25rem;
 }
 nav.sidebar a:hover {
-	color: var(--fa-green);
+	color: var(--fa-accent);
 }
 nav.sidebar a[aria-current='page'],
 nav.sidebar a[aria-current='page']:hover {
 	background: transparent;
-	color: var(--fa-green);
+	color: var(--fa-accent);
 	font-weight: 600;
-	box-shadow: inset 2px 0 0 var(--fa-green);
+	box-shadow: inset 2px 0 0 var(--fa-accent);
 }
 nav.sidebar a.coming-soon {
 	color: var(--sl-color-gray-4);
 }
 nav.sidebar a.coming-soon[aria-current='page'] {
-	color: var(--fa-green);
+	color: var(--fa-accent);
 }
 nav.sidebar .sl-badge {
 	font-family: var(--sl-font-mono);
 	font-size: 0.62rem;
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
+}
+nav.sidebar .sl-badge.success {
+	color: var(--fa-accent);
+	background: var(--fa-accent-deep);
+	border-color: var(--fa-accent-dim);
+}
+nav.sidebar .sl-badge.caution {
+	color: var(--sl-color-gray-2);
+	background: var(--sl-color-gray-6);
+	border-color: var(--sl-color-gray-5);
 }
 
 /* --- headings --- */
@@ -154,7 +164,7 @@ h1#_top {
 	color: var(--sl-color-white);
 }
 .sl-markdown-content a:not(.sl-link-card, .sl-link-button) {
-	color: var(--fa-green);
+	color: var(--fa-accent);
 	text-underline-offset: 3px;
 	text-decoration-thickness: 1px;
 }
@@ -168,7 +178,7 @@ h1#_top {
 /* Lesson motto (first blockquote) */
 .sl-markdown-content > blockquote:first-child,
 .sl-markdown-content blockquote {
-	border-inline-start: 2px solid var(--fa-green);
+	border-inline-start: 2px solid var(--fa-accent);
 	background: transparent;
 	color: var(--sl-color-gray-1);
 	font-style: normal;
@@ -210,7 +220,7 @@ h1#_top {
 	box-shadow: none;
 }
 .sl-link-card:hover {
-	border-color: var(--fa-green-dim);
+	border-color: var(--fa-accent-dim);
 	background: var(--fa-panel);
 }
 .sl-link-card .title {
@@ -222,27 +232,23 @@ h1#_top {
 	color: var(--sl-color-gray-3);
 }
 .sl-link-card:hover .icon {
-	color: var(--fa-green);
+	color: var(--fa-accent);
 }
 .starlight-aside {
 	border-radius: 0.4rem;
 	border: 1px solid var(--fa-line);
-	border-inline-start: 2px solid var(--fa-aside, var(--fa-green));
+	border-inline-start: 2px solid var(--fa-aside, var(--fa-accent));
 	background: var(--fa-panel);
 	color: var(--sl-color-gray-2);
 }
 .starlight-aside--note,
 .starlight-aside--tip {
-	--fa-aside: var(--fa-green);
-	--sl-color-asides-text-accent: var(--fa-green);
+	--fa-aside: var(--fa-accent);
+	--sl-color-asides-text-accent: var(--fa-accent);
 }
 .starlight-aside--caution {
-	--fa-aside: #f5b83d;
-	--sl-color-asides-text-accent: #f5b83d;
-}
-:root[data-theme='light'] .starlight-aside--caution {
-	--fa-aside: #b07400;
-	--sl-color-asides-text-accent: #9a6500;
+	--fa-aside: var(--sl-color-gray-4);
+	--sl-color-asides-text-accent: var(--sl-color-gray-2);
 }
 .starlight-aside__title {
 	font-family: var(--sl-font-mono);
@@ -255,9 +261,9 @@ h1#_top {
 	border-radius: 0.4rem;
 }
 .sl-link-button.primary {
-	background: var(--fa-green);
-	border-color: var(--fa-green);
-	color: #041a0b;
+	background: var(--fa-accent);
+	border-color: var(--fa-accent);
+	color: #1f0c00;
 }
 
 /* --- landing page --- */
@@ -266,7 +272,7 @@ h1#_top {
 }
 .hero h1#_top {
 	font-size: clamp(2.4rem, 6vw, 4.2rem);
-	color: var(--fa-green);
+	color: var(--fa-accent);
 	max-width: 18ch;
 	line-height: 1.08;
 }
@@ -284,7 +290,7 @@ starlight-toc h2 {
 	letter-spacing: 0.08em;
 }
 starlight-toc a[aria-current='true'] {
-	color: var(--fa-green);
+	color: var(--fa-accent);
 }
 
 @media (max-width: 50rem) {
