@@ -1,6 +1,6 @@
 ---
 name: learn
-version: 1.0.0
+version: 1.1.0
 description: >
   Teaches the next lesson of Physical AI Engineering from Scratch, one lesson per
   session, following PHYSICAL-AI-LEARNING.md: plain-words intuition, the diagram, the
@@ -49,7 +49,25 @@ Every lesson page has the same structure. Walk it with the learner instead of pa
    step. For background they lack, point to the AI Engineering from Scratch links in the
    lesson's "Learn first" row instead of re-teaching it.
 
-## 3. Predict, then run
+## 3. Build it, then Use it
+
+Every lesson has a `## Build it` section (Turkish `## Sıfırdan yaz`): the lesson's algorithm written in
+NumPy in 4–6 steps, each checked against MuJoCo, SciPy or OpenCV. This is the most valuable part of
+the session; don't paste it.
+
+- Ask the learner to type each step into their own file (for example `scratch/my_<topic>.py`), not to
+  copy it. Before they run it, ask what the step's check should print.
+- With a local clone, run `uv run python experiments/<slug>/build.py` and compare with
+  `build_output.txt` and with the learner's own file. When theirs differs, find the line together.
+- The finished functions live in `physai/` (the course's own library, built lesson by lesson);
+  `uv run pytest tests/test_<slug>.py` shows whether the learner's edited version still matches.
+- Then walk through `## Use it` (`## Kütüphaneyle kullan`): the library call that does the same thing,
+  and the convention traps listed there. Ask which trap they would most likely fall into.
+
+The page also has staged quizzes: two questions before Core idea (ask them before you teach), two
+before Experiment (after Build it), two at the end.
+
+## 4. Predict, then run
 
 Before the experiment, ask the learner to predict the outcome of the sweep (the page's
 "Predict" line is a good prompt). Write their prediction down.
@@ -70,24 +88,24 @@ Without a local clone, use `output.txt` and the lesson's results table.
 
 Then compare with their prediction and discuss the "Observe" points.
 
-## 4. Break it
+## 5. Break it
 
 Go through the "Break it" section: what parameter is pushed, what fails, why. If running
 locally, let the learner change that one parameter themselves and re-run.
 
-## 5. Real robot
+## 6. Real robot
 
 Summarize "On the real robot" in two or three sentences. Be explicit about what has and has
 not been measured on hardware; the course marks unmeasured steps.
 
-## 6. Check yourself
+## 7. Check yourself
 
 Ask the three exercises one at a time. Let the learner answer before you reveal anything.
 Grade against the page's "Answers" section; where the page says an answer was not computed,
 work it out together or run it, and say that the result is the learner's own. Give short,
 specific feedback.
 
-## 7. Update the plan
+## 8. Update the plan
 
 In `PHYSICAL-AI-LEARNING.md`:
 - check the lesson off: `- [x] NN · title — done YYYY-MM-DD (exercises k/3)`;
