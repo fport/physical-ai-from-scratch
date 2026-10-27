@@ -1,0 +1,34 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Reward terms vs the Experiment's reward functions, 1000 random steps ==
+sparse 0.0e+00, pbrs 4.4e-16, closeness 0.0e+00, action rate 0.0e+00
+closeness at d = 0, 2, 5, 30.8 mm: 1.000, 0.620, 0.238, 0.452
+
+== Step 2. Shaping telescopes: sum_t gamma^t F_t = gamma^T Phi(s_T) - Phi(s_0), Phi = -20 d ==
+   scripted IK: d  55.2 ->   0.2 mm, sum gamma^t F_t = +1.104336, gamma^T Phi_T - Phi_0 = +1.104336, diff 2.2e-16
+random actions: d  55.2 -> 147.0 mm, sum gamma^t F_t = +1.055855, gamma^T Phi_T - Phi_0 = +1.055855, diff 4.4e-16
+loop 10 cm -> 5 cm -> 10 cm, gamma 1.00: shaping earned +0.0000 (= (gamma^2 - 1) Phi = +0.0000)
+loop 10 cm -> 5 cm -> 10 cm, gamma 0.95: shaping earned +0.1950 (= (gamma^2 - 1) Phi = +0.1950)
+
+== Step 3. A corridor of 11 cells, 1 cm apart; cell 10 is the target and ends the episode ==
+reward                         greedy action in cells 0..9   value of cell 0
+sparse: 1 on arrival             >>>>>>>>>>             0.630
+sparse + gamma Phi' - Phi        >>>>>>>>>>             2.630
+sparse + 0.5 per step closer     >>>>>>>>><             6.768
+closeness 1 - tanh(d/5cm)        >>>>>>>>>o            12.251
+(> right, < left, o stay)
+shaped - sparse values, cells 0..9: max |difference - (-Phi(s))| = 3.3e-16
+
+== Step 4. The termination hack in numbers ==
+scripted IK, closeness reward, ends on success: written return 2.28, mean length 10.1 steps
+parking at 30.8 mm for 80 steps: 0.452 per step, written return 36.13; discounted value of parking forever r / (1 - gamma) = 9.03
+entering the ball pays at most 1.00 once, then nothing
+
+== Step 5. Action-rate penalty vs the task term, scripted IK, 100 episodes ==
+per step: mean d = 11.9 mm, mean ||a_t - a_t-1||^2 = 0.0082
+w = 0.03: penalty / task term = 0.02
+w = 0.1 : penalty / task term = 0.07
+w = 0.3 : penalty / task term = 0.21
+w = 1.0 : penalty / task term = 0.68
+w = 3.0 : penalty / task term = 2.05
+Go2 config: action_rate = -0.01 times dt 0.02 s -> 0.0002 per step

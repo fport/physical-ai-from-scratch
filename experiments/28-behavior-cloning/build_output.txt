@@ -1,0 +1,17 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | PyTorch 2.14.1
+
+== Step 1. Normalization statistics, 20 demonstrations ==
+2280 frames, 10 inputs (5 joints, jaw, cube xyz, clock), 6 actions
+mean   -0.010  -0.256   0.221   1.375   1.623   0.731   0.221   0.014   0.036   2.260
+std     0.204   0.508   0.387   0.202   0.204   0.505   0.035   0.045   0.032   1.316
+max |ours - lesson 27| = 0.0e+00
+
+== Step 2. Forward pass: NumPy vs torch.nn.Sequential (float64, random weights) ==
+500 inputs: max |mlp_forward - torch| = 4.4e-16
+
+== Step 3. Training: ours vs lesson 27's train_mlp, then the full run ==
+200 steps, same seed: max |weights ours - lesson 27| = 0.0e+00
+4000 steps, seed 0: open-loop RMSE on episodes 100-119 = 0.883 deg (predicting the mean action: 23.753 deg)
+
+== Step 4. Closed loop: 20 test positions (seed 28), 6 s each ==
+success 20/20, Wilson 95% [0.84, 1.00]; outcomes: held 20

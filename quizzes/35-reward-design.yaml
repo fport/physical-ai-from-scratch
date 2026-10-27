@@ -1,6 +1,7 @@
-# Lesson 35 · Reward design. Every answer is supported by the lesson page or
-# experiments/35-reward-design/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 35 · Reward design. Every answer is supported by the lesson page,
+# experiments/35-reward-design/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: The reward is the positive closeness $1 - \tanh(d/5\,\text{cm})$ and the episode ends the moment $d < 2$ cm. What did the trained arm learn?
     tr: Reward pozitif yakınlık terimi $1 - \tanh(d/5\,\text{cm})$ ve episode $d < 2$ cm olduğu anda bitiyor. Eğitilen kol ne öğrendi?
   options:
@@ -14,7 +15,53 @@
   why:
     en: 'Part B: 95/300 success, and run without termination the same policy ends at a median 30.8 mm away. Its written return (22.67) beats the scripted IK that reaches every target (2.28).'
     tr: 'B bölümü: 95/300 başarı; termination olmadan çalıştırılınca aynı policy medyan 30,8 mm uzakta bitiyor. Yazılı return''ü (22,67), her hedefe ulaşan scripted IK''yı (2,28) geçiyor.'
-- q:
+- stage: pre
+  q:
+    en: Every step of an episode costs a penalty (a negative reward), and falling over ends the episode. What might the agent learn?
+    tr: Bir episode'un her adımı bir ceza (negatif ödül) getiriyor ve düşmek episode'u bitiriyor. Ajan ne öğrenebilir?
+  options:
+    - en: To fall early, because ending the episode stops the penalties.
+      tr: Erken düşmeyi, çünkü episode'u bitirmek cezaları durdurur.
+    - en: To stay up as long as possible, because falling is always bad.
+      tr: Mümkün olduğunca uzun ayakta kalmayı, çünkü düşmek her zaman kötüdür.
+    - en: Nothing different; termination does not affect the return.
+      tr: Farklı bir şey değil; termination return'ü etkilemez.
+  answer: 0
+  why:
+    en: After a terminal state every reward is 0, so with $r < 0$ per step ending is a gain. The Go2 config clips negative totals at zero for exactly this, "avoids early termination problems".
+    tr: Terminal state'ten sonra her ödül 0'dır; adım başına $r < 0$ ise bitirmek bir kazançtır. Go2 config'i negatif toplamları tam da bunun için sıfırda kırpıyor, "avoids early termination problems".
+- stage: check
+  q:
+    en: In Build it, Step 3, the corridor pays 0.5 for every step closer to the target and nothing back for a step away. What does the optimal policy do next to the target?
+    tr: Sıfırdan yaz, Adım 3'te koridor hedefe her yaklaşma adımı için 0,5 ödüyor, uzaklaşınca geri almıyor. Optimal policy hedefin yanında ne yapar?
+  options:
+    - en: It enters the target, as with the sparse reward.
+      tr: Seyrek ödülde olduğu gibi hedefe girer.
+    - en: It stays in cell 9 forever.
+      tr: Sonsuza dek 9. hücrede kalır.
+    - en: It steps left in cell 9, because going back and forth earns more than arriving.
+      tr: 9. hücrede sola adım atar, çünkü ileri geri gitmek varmaktan daha çok kazandırır.
+  answer: 2
+  why:
+    en: That bonus is not potential-based, so it changes the optimal policy (value of cell 0 6.768 against 0.630 for the sparse reward). Potential-based shaping keeps the policy and shifts the values by $-\Phi(s)$ (difference 3.3e-16).
+    tr: Bu bonus potential-based değil, bu yüzden optimal policy'yi değiştiriyor (0. hücrenin değeri seyrek ödüldeki 0,630'a karşı 6,768). Potential-based shaping policy'yi korur ve değerleri $-\Phi(s)$ kadar kaydırır (fark 3,3e-16).
+- stage: check
+  q:
+    en: In Step 2, the loop 10 cm → 5 cm → 10 cm earns +0.1950 of shaping with $\gamma = 0.95$. Can the arm farm the shaping term by going back and forth?
+    tr: Adım 2'de 10 cm → 5 cm → 10 cm döngüsü $\gamma = 0{,}95$ ile +0,1950 shaping kazandırıyor. Kol ileri geri giderek shaping terimini sömürebilir mi?
+  options:
+    - en: Yes; +0.1950 per loop adds up without limit.
+      tr: Evet; döngü başına +0,1950 sınırsızca birikir.
+    - en: No; every path between the same endpoints earns the same discounted bonus, $\gamma^T\Phi(s_T) - \Phi(s_0)$, so the loop is worth what the original reward says.
+      tr: Hayır; aynı uç noktalar arasındaki her yol aynı indirgenmiş bonusu kazanır, $\gamma^T\Phi(s_T) - \Phi(s_0)$, yani döngü orijinal ödülün söylediği kadar değerlidir.
+    - en: Only with $\gamma = 1$.
+      tr: Yalnızca $\gamma = 1$ ile.
+  answer: 1
+  why:
+    en: The +0.1950 is the formula's $(\gamma^2 - 1)\Phi$; on the real episodes both sums match $\gamma^T\Phi(s_T) - \Phi(s_0)$ to rounding, and in the corridor the shaped policy equals the sparse one.
+    tr: +0,1950 formüldeki $(\gamma^2 - 1)\Phi$'dir; gerçek episode'larda iki toplam da yuvarlama düzeyinde $\gamma^T\Phi(s_T) - \Phi(s_0)$'a eşit ve koridorda shaped policy seyrek olanla aynı.
+- stage: post
+  q:
     en: The sparse reward gave 8/300; adding $0.95\,\Phi(s') - \Phi(s)$ with $\Phi = -20d$ gave 295/300. Why does this term not change what the optimal policy is?
     tr: Sparse reward 8/300 verdi; $\Phi = -20d$ ile $0{,}95\,\Phi(s') - \Phi(s)$ eklemek 295/300 verdi. Bu terim optimal policy'yi neden değiştirmez?
   options:
@@ -28,7 +75,8 @@
   why:
     en: Ng, Harada and Russell (Math details). Shaping changes how fast you learn, not what is optimal; part A shows the speed-up.
     tr: Ng, Harada ve Russell (Math details). Shaping ne kadar hızlı öğrendiğinizi değiştirir, neyin optimal olduğunu değil; A bölümü hızlanmayı gösteriyor.
-- q:
+- stage: post
+  q:
     en: An action-rate penalty of weight $w = 0.3$ gave 144/300 (seeds 41 / 9 / 94) while the torque rate only fell from 1002 to 850 N·m/s. What is the takeaway?
     tr: $w = 0{,}3$ ağırlıklı bir action-rate cezası 144/300 verdi (seed'ler 41 / 9 / 94), torque rate ise yalnızca 1002'den 850 N·m/s'ye düştü. Çıkarılacak ders ne?
   options:

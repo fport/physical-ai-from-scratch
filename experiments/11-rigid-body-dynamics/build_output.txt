@@ -1,0 +1,25 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. The body tree of the double pendulum ==
+body parent  joint mass (kg)    com in body (m)  inertia diag (kg m^2)
+   0     -1  hinge     1.000      [0.2 0.  0. ]       [0.02 0.02 0.02]
+   1      0  hinge     0.500   [0.15 0.   0.  ]    [0.005 0.005 0.005]
+centres of mass vs MuJoCo's xipos, 1000 random poses: max diff 2.2e-16 m
+
+== Step 2. Inverse dynamics (RNEA) vs mj_inverse and the hand formula, 1000 random states ==
+max |tau_ours - qfrc_inverse| = 3.6e-15 N m, max |tau_ours - (M qdd + C qd + g)| = 3.6e-15 N m
+
+== Step 3. Bias c = rnea(q, qd, 0) vs qfrc_bias; at rest it is gravity ==
+double pendulum, 1000 states: max |c_ours - qfrc_bias| = 2.7e-15 N m
+SO-101 stretched (all 0)                g(q) =  0.000 -0.573 -0.483 -0.130 -0.007 N m, max diff to qfrc_bias 1.1e-16
+SO-101 folded (lift -1.57, elbow 1.57)  g(q) =  0.000 -0.066 -0.483 -0.130 -0.007 N m, max diff to qfrc_bias 1.8e-16
+
+== Step 4. Mass matrix by composite rigid bodies vs mj_fullM ==
+double pendulum, 1000 poses: max diff 1.4e-16 kg m^2 to mj_fullM, 1.1e-16 to the formula
+SO-101: 6 joints, 20 random poses, max diff 1.9e-17 kg m^2
+Panda: 9 joints, 20 random poses, max diff 2.1e-14 kg m^2
+Panda 'home': diag M = 1.509 2.795 1.471 1.058 0.144 0.154 0.107 kg m^2, cond(M[:7, :7]) = 32.6
+
+== Step 5. Forward dynamics + semi-implicit Euler, 10 s at dt = 2 ms (the Experiment's Euler row) ==
+after 10 s: max |q_ours - q_mj_step| = 1.3e-13 rad
+energy error: max 14.357%, final +14.353% (one step earlier +14.355%) of 4.660 J

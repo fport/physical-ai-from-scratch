@@ -1,0 +1,39 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Impedance and reference spring vs efc_KBIP (sphere placed at penetration r) ==
+timeconst  r (mm)   d ours  d MuJoCo     K ours   K MuJoCo   B ours  B MuJoCo
+    0.001     0.5   0.9250    0.9250    69252.1    69252.1   526.32    526.32
+    0.004     0.5   0.9250    0.9250    69252.1    69252.1   526.32    526.32
+    0.020     0.2   0.9040    0.9040     2770.1     2770.1   105.26    105.26
+    0.020     0.5   0.9250    0.9250     2770.1     2770.1   105.26    105.26
+    0.020     2.0   0.9500    0.9500     2770.1     2770.1   105.26    105.26
+    0.100     0.5   0.9250    0.9250      110.8      110.8    21.05     21.05
+
+== Step 2. One contact by hand vs MuJoCo ==
+at r = 0.5 mm, v = -0.3 m/s: a_ref ours 32.860111 m/s^2 · efc_aref 32.860111 m/s^2
+10 cm drop, 2 s:   peak penetration (mm)   rebound (mm)   max |z_ours - z_mujoco| (m)
+dampratio 1.0:           8.726           0.000            2.4e-13
+dampratio 0.3:           4.859          14.519            1.4e-13
+dampratio 0.1:           2.282          57.912            8.7e-12
+
+== Step 3. Resting penetration: bisection on d k r = (1 - d) a_u vs the resting sphere (mm) ==
+timeconst     ours  MuJoCo, 2 s at rest
+    0.001   0.0175               0.0175
+    0.002   0.0175               0.0175
+    0.004   0.0175               0.0175
+    0.005   0.0273               0.0273
+    0.010   0.1078               0.1078
+    0.020   0.3672               0.3672
+    0.050   1.2263               1.2262
+    0.100   4.9050               4.9050
+
+== Step 4. Growth per step of the linearized contact spring (d = 0.95) vs the 10 cm drop ==
+timeconst dampratio refsafe   h*w  growth   highest bottom (m, from 0.100): ours / MuJoCo
+   0.0005      1.00     off  4.00  22.314   6.687 / 6.687
+   0.0010      1.00     off  2.00   6.464   13.753 / 13.753
+   0.0020      1.00     off  1.00   1.618   1.786 / 1.786
+   0.0030      1.00     off  0.67   0.699   0.100 / 0.100
+   0.0010      1.00      on  0.50   0.750   0.100 / 0.100
+   0.0200      0.10      on  1.00   0.894   0.100 / 0.100
+   0.0200      0.07      on  1.43   0.894   0.100 / 0.100
+   0.0200      0.05      on  2.00   1.740   0.345 / 0.345

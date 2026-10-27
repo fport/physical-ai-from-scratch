@@ -1,6 +1,7 @@
-# Lesson 30 · Multimodal actions: diffusion and flow policies. Every answer is supported by the lesson page or
-# experiments/30-diffusion-and-flow-policies/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 30 · Diffusion and flow policies. Every answer is supported by the lesson page,
+# experiments/30-diffusion-and-flow-policies/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: 100 demonstrations pass left of the obstacle and 100 pass right. Why does the MSE policy collide in 200 of 200 trials?
     tr: 100 gösterim engelin solundan, 100'ü sağından geçiyor. MSE policy neden 200 denemenin 200'ünde çarpıyor?
   options:
@@ -14,7 +15,53 @@
   why:
     en: 'Part A: the demonstrations pass at −0.55 and +0.55. More data makes it worse: 8% collisions with 10 demos, 100% with 200 and 500 (part B).'
     tr: 'A bölümü: gösterimler −0,55 ve +0,55''ten geçiyor. Daha çok veri durumu kötüleştiriyor: 10 gösterimle %8, 200 ve 500 ile %100 çarpma (B bölümü).'
-- q:
+- stage: pre
+  q:
+    en: A generative policy answers by starting from random noise and pushing it, step by step, until it looks like a demonstration. With half the demonstrations passing left and half right, what decides which side one answer takes?
+    tr: Üretken bir policy rastgele gürültüden başlayıp onu adım adım bir demonstration'a benzeyene kadar iterek cevap verir. Demonstration'ların yarısı soldan, yarısı sağdan geçiyorsa bir cevabın hangi taraftan gideceğine ne karar verir?
+  options:
+    - en: The observation alone; every query from the same start gives the same path.
+      tr: Yalnızca gözlem; aynı başlangıçtan her sorgu aynı yolu verir.
+    - en: Nothing; it always returns the average of both sides.
+      tr: Hiçbir şey; her zaman iki tarafın ortalamasını döndürür.
+    - en: Where the random start lies; different noise can end on different sides, each about as often as in the data.
+      tr: Rastgele başlangıcın nerede olduğu; farklı gürültüler farklı taraflarda bitebilir, her biri veride olduğu kadar sık.
+  answer: 2
+  why:
+    en: Plain words and Part C; at 32 Euler steps the flow policy passed 97 times left and 100 times right of 200 trials, without being told there are two modes.
+    tr: Basit anlatım ve C kısmı; 32 Euler adımında flow policy 200 denemenin 97'sinde soldan, 100'ünde sağdan geçti; iki mod olduğu ona söylenmeden.
+- stage: check
+  q:
+    en: In Build it, Step 3, the exact velocity field of the 200 demonstrations collides 0/200 from 4 Euler steps on, while the Experiment's network still collides 17, 7, 5 and 3 times at 4 to 32 steps. What does that tell you?
+    tr: Sıfırdan yaz, Adım 3'te 200 demonstration'ın tam velocity alanı 4 Euler adımından itibaren 0/200 çarpıyor; Deney'in network'ü 4 ile 32 adım arasında hâlâ 17, 7, 5 ve 3 kez çarpıyor. Bu sana ne söyler?
+  options:
+    - en: Flow matching itself leaves samples between the modes, whatever the network.
+      tr: Ağ ne olursa olsun, flow matching'in kendisi örnekleri modların arasında bırakır.
+    - en: The remaining collisions come from the network's approximation of the field, not from flow matching.
+      tr: Kalan çarpışmalar flow matching'den değil, network'ün alanı yaklaşık öğrenmesinden geliyor.
+    - en: Euler integration is wrong and should be replaced by an exact solver.
+      tr: Euler integrasyonu yanlıştır, tam bir çözücüyle değiştirilmelidir.
+  answer: 1
+  why:
+    en: One step of the exact field lands on the mean of the demonstrations (difference 3.0e-14) and collides 200/200, like MSE; with more steps it reaches the demonstrations themselves (Step 4).
+    tr: Tam alanın tek adımı demonstration'ların ortalamasına iner (fark 3,0e-14) ve MSE gibi 200/200 çarpar; daha çok adımla demonstration'ların kendisine ulaşır (Adım 4).
+- stage: check
+  q:
+    en: You move to LeRobot's Diffusion Policy and keep its defaults. How many network calls does one action chunk cost at inference?
+    tr: LeRobot'un Diffusion Policy'sine geçiyorsun ve varsayılanlarını koruyorsun. Çıkarımda bir action chunk'ı kaç network çağrısına mal olur?
+  options:
+    - en: One, because DDPM predicts the action directly.
+      tr: Bir, çünkü DDPM action'ı doğrudan tahmin eder.
+    - en: Two, one per observation step.
+      tr: İki, gözlem adımı başına bir.
+    - en: 100, because `num_inference_steps` defaults to `num_train_timesteps = 100`.
+      tr: 100, çünkü `num_inference_steps` varsayılan olarak `num_train_timesteps = 100` değerini alır.
+  answer: 2
+  why:
+    en: Every denoising step is one network call (Use it, the table). Check that budget against the control rate; the Experiment's small MLP took 0.04–0.77 ms per query at 1–32 steps.
+    tr: Her denoising adımı bir network çağrısıdır (Kütüphaneyle kullan, tablo). Bu bütçeyi kontrol hızına göre kontrol et; Deney'in küçük MLP'si 1–32 adımda sorgu başına 0,04–0,77 ms sürdü.
+- stage: post
+  q:
     en: The flow policy collides 200/200 with 1 Euler step and 3/200 with 32. Why does one step behave like regression?
     tr: Flow policy 1 Euler adımıyla 200/200, 32 adımla 3/200 çarpıyor. Tek adım neden regression gibi davranır?
   options:
@@ -28,7 +75,8 @@
   why:
     en: 'Math details, "One step is regression"; part C: 200/200 at 1 step, 95/200 at 2, 7/200 at 8 and 3/200 at 32, with cost growing linearly in the steps.'
     tr: 'Matematik ayrıntısı, "Tek adım regression''dır"; C bölümü: 1 adımda 200/200, 2''de 95/200, 8''de 7/200, 32''de 3/200; maliyet adım sayısıyla doğrusal büyüyor.'
-- q:
+- stage: post
+  q:
     en: Now 80% of the demonstrations pass left. What happens to the MSE policy?
     tr: Şimdi gösterimlerin %80'i soldan geçiyor. MSE policy'ye ne olur?
   options:

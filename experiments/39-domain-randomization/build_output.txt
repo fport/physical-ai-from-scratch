@@ -1,0 +1,33 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. The sampler at w = 0.5, 100,000 draws ==
+mass      min 0.7071 max 1.4142 (2^-0.5 = 0.7071, 2^0.5 = 1.4142), median 0.9993, share above 1: 0.499
+damping   min 0.7071 max 1.4142 (2^-0.5 = 0.7071, 2^0.5 = 1.4142), median 0.9983, share above 1: 0.497
+friction  min 0.7071 max 1.4142 (2^-0.5 = 0.7071, 2^0.5 = 1.4142), median 0.9994, share above 1: 0.499
+delay     min 5.00 ms, max 25.00 ms (formula 5-25 ms)
+same draws as the Experiment's sampler (seed 7): True
+
+== Step 2. Coverage: real plants inside the training support (of 32) ==
+    w  mass  damping  friction  delay  all four
+ 0.00     0        0         0      0         0
+ 0.10     0        6         2      0         0
+ 0.25     7       13         4      0         0
+ 0.50    32       28         6     25         5
+ 0.75    32       32        11     32        11
+ 1.00    32       32        20     32        20
+ 1.50    32       32        32     32        32
+ 2.00    32       32        32     32        32
+largest real friction scale 2.48, largest real delay 28.8 ms
+
+== Step 3. The averaged cost: the Experiment's tuned controllers, re-scored ==
+tuned at       Kp     Kd     kg  nominal deg  real mean deg  real < 2 deg
+w = 0.00   117.36  0.914  0.679        0.165          3.525          5/32
+w = 0.50    55.43  3.244  0.563        0.475          1.307         28/32
+
+== Step 4. CEM: a toy quadratic, then domain randomization at w = 0.5 ==
+toy: minimum at [ 1.  -2.   0.5], CEM finds [0.980, -2.008, 0.503]
+w = 0.5: Kp 55.43, Kd 3.244, kg 0.563; nominal 0.475 deg, real mean 1.307 deg, 28/32 below 2 deg
+
+== Use it. SciPy's log-uniform distribution; MuJoCo model fields as the knobs ==
+Kolmogorov-Smirnov, our mass scales vs scipy.stats.loguniform(2^-0.5, 2^0.5): D = 0.0026, p = 0.50
+randomized fields in the batched model: body_mass (32,), dof_damping (32,), dof_frictionloss (32,) (one entry per copy, written before each rollout)

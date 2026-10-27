@@ -1,6 +1,7 @@
-# Lesson 20 · From pixels to the table. Every answer is supported by the lesson page or
-# experiments/20-pixels-to-table/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 20 · From pixels to the table. Every answer is supported by the lesson page,
+# experiments/20-pixels-to-table/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: You treat the metres returned by MuJoCo's depth `Renderer` as the distance along each pixel's ray. What happens?
     tr: MuJoCo'nun depth `Renderer`'ının döndürdüğü metreleri her pixel'in ışını boyunca mesafe gibi kullanıyorsun. Ne olur?
   options:
@@ -14,7 +15,53 @@
   why:
     en: The rendered depth matches z-depth to 0.008 mm (max). Used as $Z$, back-projection is off by at most 0.009 mm; misused as ray length, median 45.8 mm and max 138.0 mm.
     tr: Render edilen depth z-depth ile en fazla 0,008 mm farklı. $Z$ olarak kullanınca back-projection en fazla 0,009 mm hatalı; ışın uzunluğu sanınca medyan 45,8 mm, en fazla 138,0 mm.
-- q:
+- stage: pre
+  q:
+    en: The detector reports the cube at pixel (u, v). What does that pixel alone tell you about where the cube is?
+    tr: Detector küpün (u, v) pixel'inde olduğunu söylüyor. Bu pixel tek başına küpün yeri hakkında ne söyler?
+  options:
+    - en: Only a ray from the camera centre; you need a known plane or a measured depth to pick the point on it.
+      tr: Yalnızca kamera merkezinden çıkan bir ışın; üzerindeki noktayı seçmek için bilinen bir düzlem ya da ölçülmüş bir depth gerekir.
+    - en: Its full 3D position, once the camera matrix $K$ is known.
+      tr: $K$ kamera matrisi bilindiğinde tam 3D konumunu.
+    - en: Its position on the table, as long as the camera is calibrated.
+      tr: Kamera kalibre edildiği sürece masadaki konumunu.
+  answer: 0
+  why:
+    en: Every point on the ray lands on the same pixel. The two routes add one fact - the table plane (homography) or the depth image (back-projection); the homography is 88.5 mm off on top of a 100 mm box.
+    tr: Işın üzerindeki her nokta aynı pixel'e düşer. İki yol bir bilgi ekler - masa düzlemi (homography) ya da depth görüntüsü (back-projection); homography 100 mm'lik bir kutunun üstünde 88,5 mm hatalı.
+- stage: check
+  q:
+    en: In Build it, Step 2, you apply the textbook depth formula $Z = nf/(f - d(f-n))$ to MuJoCo's raw buffer. Where does it put the table?
+    tr: Sıfırdan yaz, Adım 2'de ders kitabı depth formülü $Z = nf/(f - d(f-n))$'yi MuJoCo'nun ham buffer'ına uyguluyorsun. Masayı nereye koyar?
+  options:
+    - en: At the right depth, 0.6924 m, because both formulas agree.
+      tr: Doğru depth'e, 0,6924 m'ye; çünkü iki formül örtüşür.
+    - en: At the far plane, 24.9 m away.
+      tr: Far düzlemine, 24,9 m uzağa.
+    - en: About 5.0 mm from the lens, at the near plane, because the buffer is reversed (1 at near, 0 at far).
+      tr: Lensten yaklaşık 5,0 mm uzağa, near düzlemine; çünkü buffer ters (near'da 1, far'da 0).
+  answer: 2
+  why:
+    en: Step 2 prints the image centre - Renderer 0.6924 m, your reversed formula 0.6924 m, the conventional formula 0.0050 m. The raw values are only 0.005 to 0.009, roughly near/depth.
+    tr: Adım 2 görüntü merkezini yazıyor - Renderer 0,6924 m, senin ters formülün 0,6924 m, klasik formül 0,0050 m. Ham değerler yalnızca 0,005 ile 0,009 arası, kabaca near/depth.
+- stage: check
+  q:
+    en: In Build it, Step 4, your 4-point homography reproduces the Experiment exactly (4.33 mm at 1 px), but the 12-point column gives 3.33 instead of 3.27 mm. Why?
+    tr: Sıfırdan yaz, Adım 4'te 4 noktalı homography'n Deney'i birebir tekrarlıyor (1 px'te 4,33 mm), ama 12 noktalı sütun 3,27 yerine 3,33 mm veriyor. Neden?
+  options:
+    - en: Your DLT has a bug that shows only with more points.
+      tr: DLT'nde yalnızca daha fazla noktayla ortaya çıkan bir hata var.
+    - en: Four points determine $H$ exactly; with 12 your DLT minimizes an algebraic error while `findHomography` refines on the reprojection error.
+      tr: Dört nokta $H$'yi tam belirler; 12 noktada senin DLT'n cebirsel bir hatayı küçültürken `findHomography` reprojection error üzerinde iyileştirir.
+    - en: The random seed differs between the two runs.
+      tr: İki çalıştırmada random seed farklı.
+  answer: 1
+  why:
+    en: Step 3 shows ours and OpenCV agree to 0.000 mm with 4 markers and differ by a median 0.181 mm with 12. The ordering and the conclusion of the sweep do not change.
+    tr: Adım 3, 4 marker'la bizimkinin ve OpenCV'nin 0,000 mm içinde aynı olduğunu, 12 marker'la medyan 0,181 mm farklı olduğunu gösteriyor. Sweep'in sıralaması ve sonucu değişmiyor.
+- stage: post
+  q:
     en: A homography fitted on the table maps the top of a 50 mm box 36.7 mm away from its true position. Why?
     tr: Masada uydurulan bir homography, 50 mm'lik bir kutunun üstünü gerçek yerinden 36,7 mm uzağa eşliyor. Neden?
   options:
@@ -28,7 +75,8 @@
   why:
     en: Break it uses no pixel noise - the error comes from the plane assumption alone and grows with height (4.7 mm at 10 mm, 88.5 mm at 100 mm). Depth back-projection stays at 0.00–0.01 mm.
     tr: Boz bölümünde pixel noise'u yok - hata yalnızca düzlem varsayımından geliyor ve yükseklikle büyüyor (10 mm'de 4,7 mm, 100 mm'de 88,5 mm). Depth back-projection 0,00–0,01 mm'de kalıyor.
-- q:
+- stage: post
+  q:
     en: With perfect simulated depth and 1 px of pixel noise, raising the camera from 0.3 to 2.0 m grows the back-projection error from 0.88 to 5.72 mm. What drives it?
     tr: Kusursuz simüle depth ve 1 px pixel noise'u ile kamerayı 0,3'ten 2,0 m'ye çıkarmak back-projection hatasını 0,88'den 5,72 mm'ye büyütüyor. Bunu ne belirliyor?
   options:

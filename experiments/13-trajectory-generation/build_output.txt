@@ -1,0 +1,37 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Coefficients from boundary conditions (c0 + c1 u + c2 u^2 + ...) ==
+cubic   (s, s' at both ends):          0.00   0.00   3.00  -2.00
+quintic (s, s', s'' at both ends):     0.00   0.00   0.00  10.00 -15.00   6.00
+max diff to 3u^2 - 2u^3: 0.0e+00, to 10u^3 - 15u^4 + 6u^5: 1.1e-14
+one more pair (zero jerk at both ends) gives degree 7: 0 0 0 0 35 -84 70 -20
+
+== Step 2. Peaks of the normalised shapes (100001 points on [0, 1]) ==
+   shape  max ds/du  max d2s/du2    at u  max |d3s/du3| inside
+   cubic     1.5000       6.0000  0.0000               12.0000
+ quintic     1.8750       5.7735  0.2113               60.0000
+formulas: cubic 1.5, 6 at u = 0; quintic 1.875, 10 sqrt(3)/3 = 5.7735 at u = (3 - sqrt(3))/6 = 0.2113, jerk 60
+
+== Step 3. The trapezoid (ta = 1/3) ==
+s(1) = 1.000000, peak ds/du = 1.5000, peak |d2s/du2| = 4.5000
+max |s - integral of ds/du| = 1.0e-10 (s is continuous; d2s/du2 jumps 0 -> 4.5)
+
+== Step 4. Reference peaks of the Panda move (largest joint 0.6 rad) ==
+ T (s)     shape  exact acc  2 ms acc  exact jerk  2 ms jerk
+  0.25     cubic      57.60     56.68         inf        inf
+  0.25   quintic      55.43     55.41     2304.00    2249.00
+  0.50     cubic      14.40     14.28         inf        inf
+  0.50   quintic      13.86     13.86      288.00     284.55
+  1.00     cubic       3.60      3.59         inf        inf
+  1.00   quintic       3.46      3.46       36.00      35.78
+  2.00     cubic       0.90      0.90         inf        inf
+  2.00   quintic       0.87      0.87        4.50       4.49
+  1.00 trapezoid       2.70      2.70
+
+== Step 5. Track the quintic on the Panda (T = 1 s, the Experiment's PD + qfrc_bias) ==
+PD + gravity              tracking error 1.32 deg, robot peak jerk 35 rad/s^3
+PD + M qdd_ref - passive  tracking error 0.01 deg, robot peak jerk 48 rad/s^3
+
+== Use it. SciPy splines through the two end points (T = 1 s, 0 -> 0.6 rad) ==
+CubicSpline(bc_type='clamped') vs cubic: max diff 3.3e-16 rad
+make_interp_spline(k=5, zero speed and acceleration) vs quintic: max diff 1.5e-15 rad, peak jerk 36.00 rad/s^3

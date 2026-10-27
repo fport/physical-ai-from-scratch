@@ -44,15 +44,7 @@ flowchart TD
 ```python
 import numpy as np
 
-def T(R, t):                     # R (3x3) rotation ve t (3,) translation'dan 4x4 transform
-    M = np.eye(4)
-    M[:3, :3], M[:3, 3] = R, t
-    return M
-
-def T_inv(M):                    # kapalı form ters, np.linalg.inv gerekmez
-    R, t = M[:3, :3], M[:3, 3]
-    return T(R.T, -R.T @ t)
-
+# T(R, t) [R t; 0 1] kurar; T_inv(M) = [R^T  -R^T t; 0 1] (Sıfırdan yaz, Adım 1 ikisini de yazıyor)
 # Adlandırma: T_AB, B frame'indeki koordinatları A frame'ine taşır ("A from B").
 p_B = np.array([x, y, z, 1.0])   # homogeneous nokta: 1 ekle ki kaydırma da çarpımın parçası olsun
 p_A = T_AB @ p_B                 # B -> A
@@ -99,6 +91,165 @@ MuJoCo her düğümün world pose'unu hesaplayıp `mjData`'da saklar ([API refer
 | kamera | `cam_xpos` | `cam_xmat` | `mj_camlight` (`mj_forward`'un parçası) |
 
 **Site**, bir body'ye bağlı, adı olan ve kütlesi olmayan bir frame'dir; gripper ucu gibi noktaları işaretlemek için kullanılır. Ezberlenecek iki konvansiyon. MuJoCo kamerası kendi frame'inin **−z** ekseni boyunca bakar; görüntüde +x sağ, +y yukarıdır ([XML reference: camera](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-camera)). Bir `framepos` sensor'ünde `objtype/reftype="body"` body'nin **inertial** frame'i (orijini kütle merkezinde), `"xbody"` ise normal frame'idir ([XML reference: framepos](https://mujoco.readthedocs.io/en/stable/XMLreference.html#sensor-framepos)).
+
+## Sıfırdan yaz
+
+Şimdi 4 × 4 transform'ları ve MuJoCo'nun frame ağacında aşağı yürümeyi yaklaşık 50 satır NumPy ile yazacak, Deney sahnesinin her frame'ini yalnızca model dosyasından ve `qpos`'tan hesaplayacak ve her adımı MuJoCo ile karşılaştıracaksın. Model Deney'inki: tabanı taşınmış ve 30° döndürülmüş SO-101, masada serbest bir küp. Adımları kendi dosyana yaz ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/spatial.py`](../../physai/spatial.py) içinde, ders 06'nın rotation'larının yanında; `uv run python experiments/07-rigid-transforms/build.py` beş adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/07-rigid-transforms/build_output.txt) dosyasında).
+
+### Adım 1 · Bir transform, tersi, bileşkesi
+
+```python
+def transform(R, t):
+    """4x4 homogeneous transform from a 3x3 rotation R and a translation t."""
+    T = np.eye(4)
+    T[:3, :3], T[:3, 3] = np.asarray(R).reshape(3, 3), t
+    return T
+```
+
+```python
+def transform_inv(T):
+    """Closed-form inverse [R t; 0 1]^-1 = [R^T  -R^T t; 0 1]."""
+    R, t = T[:3, :3], T[:3, 3]
+    return transform(R.T, -R.T @ t)
+```
+
+```python
+def transform_point(T, p):
+    """Apply T to a point: R p + t (the homogeneous 1 is implicit)."""
+    return T[:3, :3] @ p + T[:3, 3]
+```
+
+MuJoCo pose'ları bir konum ve skaler önde bir quaternion olarak saklar; ders 06'nın `quat_to_mat`'i birini transform'a çevirir:
+
+```python
+def pose_to_transform(pos, quat):
+    """MuJoCo's (pos, quat) pair, quat scalar first, as a 4x4 transform."""
+    return transform(quat_to_mat(quat), pos)
+```
+
+MuJoCo'nun kendi pose cebiri `mju_negPose` (ters) ve `mju_mulPose` (bileşke):
+
+```text
+== Step 1. Transforms: inverse and composition (1000 random poses) ==
+transform_inv vs np.linalg.inv   1.6e-15
+transform_inv vs mju_negPose     4.4e-16
+T_a @ T_b vs mju_mulPose         1.1e-15
+```
+
+### Adım 2 · Frame ağacında yürü
+
+Her body'nin pose'u, parent'ının pose'u çarpı sabit ofseti (`body_pos`, `body_quat`, `qpos0`'daki pose) çarpı joint başına bir hareket. Hinge, joint'in anchor'ı `jnt_pos`'tan geçen ekseni etrafında döner, yani dönüş "anchor'a git" ile "geri gel" arasına sıkıştırılır; slide öteler; free joint'in `qpos`'u doğrudan dünyadaki pose'tur.
+
+```python
+def frame_tree(m, qpos):
+    """World pose (4x4) of every body, walking MuJoCo's tree from static model data and qpos alone."""
+    T = [np.eye(4)]                                    # body 0 is the world
+    for b in range(1, m.nbody):
+        Tb = T[m.body_parentid[b]] @ pose_to_transform(m.body_pos[b], m.body_quat[b])   # pose at qpos0
+        for j in range(m.body_jntadr[b], m.body_jntadr[b] + m.body_jntnum[b]):
+            a, kind = m.jnt_qposadr[j], m.jnt_type[j]
+            if kind == 0:                              # free: qpos holds the world pose itself
+                Tb = pose_to_transform(qpos[a:a + 3], qpos[a + 3:a + 7])
+                continue
+            anchor = transform(np.eye(3), m.jnt_pos[j])
+            if kind == 1:                              # ball: rotate by the quaternion about the anchor
+                move = pose_to_transform(np.zeros(3), qpos[a:a + 4])
+            elif kind == 2:                            # slide: translate along the axis
+                move = transform(np.eye(3), m.jnt_axis[j] * (qpos[a] - m.qpos0[a]))
+            else:                                      # hinge: rotate about the axis through the anchor
+                move = transform(axis_angle_to_mat(m.jnt_axis[j], qpos[a] - m.qpos0[a]), np.zeros(3))
+            Tb = Tb @ anchor @ move @ transform_inv(anchor)
+        T.append(Tb)
+    return T
+```
+
+Body'ler parent'ları çocuklarından önce gelecek şekilde saklanır, yani index sırasıyla tek geçiş yeter:
+
+```text
+== Step 2. Frame-tree walk vs MuJoCo's xpos / xmat (every body, 50 random arm poses) ==
+10 bodies (world, 8 SO-101 links, the free cube) · max |pos error| 2.2e-16 m · max |rotation error| 1.0e-15
+```
+
+Yürüyüşün, serbest küp dahil on body'nin hepsi için `mj_kinematics`'i sabit model sayılarından ve `qpos`'tan yeniden üretiyor.
+
+### Adım 3 · Body'lere asılı frame'ler
+
+Site'lar, kameralar ve bir body'nin inertial frame'i bir body'ye göre sabit ofsetlerdir: her biri için bir çarpım daha.
+
+```python
+T_WG = T[m.site_bodyid[s]] @ pose_to_transform(m.site_pos[s], m.site_quat[s])     # gripper site
+T_WC = T[m.cam_bodyid[c]] @ pose_to_transform(m.cam_pos[c], m.cam_quat[c])        # wrist camera
+T_WI = T[b] @ pose_to_transform(m.body_ipos[b], m.body_iquat[b])                 # inertial frame
+```
+
+```text
+== Step 3. Frames hanging off bodies: site, camera, inertial frame ==
+site gripperframe    max error 4.4e-16
+camera wrist_cam     max error 6.4e-16
+base inertial frame  max error 3.5e-15
+```
+
+### Adım 4 · Küp her frame'de
+
+"Küp F frame'inde" demek $T_{WF}^{-1}\,p_W$ demek:
+
+```text
+== Step 4. The cube in each frame: our transforms vs the framepos sensors ==
+base B                0.2200  0.0000  0.0150 m · max |ours - sensor| 2.8e-17
+gripper G             0.0806 -0.0290 -0.0205 m · max |ours - sensor| 1.0e-16
+camera C             -0.0064 -0.0011 -0.1508 m · max |ours - sensor| 1.1e-16
+base INERTIAL frame  -0.0044  0.0397  0.2032 m · max |ours - sensor| 7.4e-16
+inertial frame vs regular frame of the base: 295.5 mm apart
+```
+
+Deney'in Sonuç 1'i, bu kez `mjData`'dan tek bir pose okumadan; 295,5 mm'lik tuzak da açıklandı: `reftype="body"`, ofseti ve rotation'ı `body_ipos`, `body_iquat` olan tabanın inertial frame'inden ölçer.
+
+### Adım 5 · Kullan
+
+Kamera frame'indeki noktayla Sonuç 2'nin pinhole formülü pikselleri verir; gripper transform'uyla Boz'daki her hata tek bir yanlış satırdır:
+
+```text
+== Step 5. Use the transforms: pixels, and five ways to get the cube into the gripper frame ==
+f = 407.4 px · cube centre at u = 302.7, v = 242.8 px (camera looks along -z, image v grows downward)
+T_WG^-1 p (correct)              error    0.0 mm
+R (p - t): R instead of R^T      error  101.0 mm
+(T_BG T_WB)^-1 p: wrong order    error  103.2 mm
+R^T p: forgot the translation    error  274.3 mm
+T_WG p: transform, not inverse   error  424.4 mm
+chain: max |T_WB @ T_BG - T_WG| = 1.1e-16
+```
+
+Deney'in sayıları, kendi transform'larından.
+
+### Elinde kalan
+
+`physai.spatial` artık `transform`, `transform_inv`, `transform_point`, `pose_to_transform` ve `frame_tree` içeriyor. Ders 08 bu yürüyüşü kolun forward kinematics'ine çeviriyor, ders 19 kamera transform'u $T_{GC}$'yi kalibre ediyor. [`tests/test_07_rigid_transforms.py`](../../tests/test_07_rigid_transforms.py) bunları MuJoCo'ya sabitliyor; bir şey değiştirdikten sonra `uv run pytest tests/test_07_rigid_transforms.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+MuJoCo bütün ağacı `mj_kinematics`'te (kameraları `mj_camlight`'ta; `mj_forward` ikisini de çağırır) hesaplar ve sonuçları `mjData`'da bırakır:
+
+```python
+mujoco.mj_forward(m, d)
+T_WB = transform(d.xmat[b], d.xpos[b])                  # body b (regular frame)
+T_WG = transform(d.site_xmat[s], d.site_xpos[s])        # site s
+T_WC = transform(d.cam_xmat[c], d.cam_xpos[c])          # camera c: looks along its -z
+pos, quat = np.zeros(3), np.zeros(4)
+mujoco.mju_mulPose(pos, quat, pos_a, quat_a, pos_b, quat_b)   # compose without 4x4 matrices
+mujoco.mju_negPose(pos, quat, pos_a, quat_a)                  # invert
+```
+
+| Araç | Pose'u nasıl saklar | Kamera nereye bakar |
+|---|---|---|
+| physai | 4 × 4 `T_AB` (B'den A'ya) | – |
+| MuJoCo | `xpos` + `xmat` (9 sayı, row-major) ya da `xquat` (skaler önde) | −z, +y yukarı |
+| OpenCV | `rvec` (axis-angle) + `tvec`, dünyadan kameraya | +z, +y aşağı (Gerçek robotta) |
+
+Tuzaklar:
+
+- **Bayat frame'ler.** `xpos`, `xmat` ancak son `mj_kinematics`/`mj_forward` kadar tazedir; `qpos`'u ayarlayıp çağrıyı unutursan her frame bir önceki pozunkidir.
+- **`mj_kinematics` kameraları atlar.** `cam_xpos`, `cam_xmat` `mj_forward`'ın çalıştırdığı `mj_camlight`'tan gelir (Deney script'i bu yüzden `mj_forward` kullanıyor).
+- **Body ve inertial frame.** `xpos`/`xmat` body frame'i, `xipos`/`ximat` kütle merkezi frame'idir (Adım 4: burada 295,5 mm ayrı).
 
 ## Deney
 

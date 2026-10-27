@@ -1,43 +1,91 @@
 # Lesson 11 · Rigid-body dynamics. Every answer is supported by the lesson page or
-# experiments/11-rigid-body-dynamics/output.txt. answer = index of the correct option (0-based).
-- q:
-    en: The Panda stands still in `home` (`qvel = 0`). What does `qfrc_bias` contain?
-    tr: Panda `home`'da hareketsiz duruyor (`qvel = 0`). `qfrc_bias` neyi içerir?
+# experiments/11-rigid-body-dynamics/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: The same shoulder motor accelerates the arm once stretched out and once folded. When does it need more torque?
+    tr: Aynı omuz motoru kolu bir kez gergin, bir kez katlıyken hızlandırıyor. Ne zaman daha fazla tork gerekir?
   options:
-    - en: Nothing, it is zero because the arm does not move.
-      tr: Hiçbir şey; kol hareket etmediği için sıfırdır.
-    - en: Only the Coriolis/centrifugal forces.
-      tr: Yalnızca Coriolis/merkezcil kuvvetleri.
-    - en: The gravity torques, i.e. the torque that holds the arm still.
-      tr: Gravity torque'ları, yani kolu yerinde tutan torque.
+  - en: Folded, because the links press on each other.
+    tr: Katlıyken, çünkü link'ler birbirine bastırır.
+  - en: Stretched, because the mass sits farther from the axis, so the arm feels heavier.
+    tr: Gergin, çünkü kütle eksenden daha uzakta, yani kol daha ağır hissedilir.
+  - en: The same in both, because the arm's mass does not change.
+    tr: İkisinde de aynı, çünkü kolun kütlesi değişmez.
+  answer: 1
+  why:
+    en: 'In plain words: like a figure skater with arms out. $M(q)$ depends on the pose; for the double pendulum $M_{11}$ is 0.12 kg·m² larger straight than folded back (Check yourself 1).'
+    tr: 'Sade anlatımla: kolları açık bir buz patenci gibi. $M(q)$ poza bağlıdır; çift sarkaçta $M_{11}$ düzken geriye katlıyken olduğundan 0,12 kg·m² büyük (Kendini dene 1).'
+- stage: pre
+  q:
+    en: A simulator steps a frictionless pendulum forward in small time steps. Can its energy change?
+    tr: Bir simülatör sürtünmesiz bir sarkacı küçük zaman adımlarıyla ilerletiyor. Enerjisi değişebilir mi?
+  options:
+  - en: No; without friction energy is conserved in any simulation.
+    tr: Hayır; sürtünme yoksa her simülasyonda enerji korunur.
+  - en: Only if the timestep is below 1 ms.
+    tr: Yalnız zaman adımı 1 ms'nin altındaysa.
+  - en: Yes; the way each step is taken (the integrator) can quietly add or remove energy.
+    tr: Evet; her adımın atılış biçimi (integrator) sessizce enerji ekleyip çıkarabilir.
   answer: 2
   why:
-    en: The Coriolis term is quadratic in $\dot q$ and vanishes at rest, so $c = g(q)$. Result 3 reads −29.36 N·m on joint 2 and 22.05 N·m on joint 4.
-    tr: Coriolis terimi $\dot q$'da ikinci derecedendir ve dururken sıfırlanır, yani $c = g(q)$. Sonuç 3'te joint 2'de −29,36 N·m, joint 4'te 22,05 N·m okunuyor.
-- q:
+    en: In plain words, then Result 2 - `Euler` gains 14.357% in 10 s at 2 ms, `implicit` loses 11.352%.
+    tr: Sade anlatımla, sonra Sonuç 2 - 2 ms'de `Euler` 10 s'de %14,357 kazanıyor, `implicit` %11,352 kaybediyor.
+- stage: check
+  q:
+    en: Build it, Step 3 calls `rnea(tree, q, 0, 0)` on the SO-101. What does it return?
+    tr: Sıfırdan yaz, Adım 3 SO-101'de `rnea(tree, q, 0, 0)` çağırıyor. Ne döndürür?
+  options:
+  - en: Zero, because nothing moves and nothing accelerates.
+    tr: Sıfır, çünkü hiçbir şey hareket etmiyor ve ivmelenmiyor.
+  - en: 'The gravity torques: with zero velocity and acceleration only the upward base acceleration (gravity) is left, = `qfrc_bias` at rest.'
+    tr: 'Yerçekimi torklarını: hız ve ivme sıfırken yalnız tabanın yukarı ivmesi (yerçekimi) kalır, = durağan `qfrc_bias`.'
+  - en: The mass matrix diagonal.
+    tr: Kütle matrisinin köşegenini.
+  answer: 1
+  why:
+    en: Stretched pose 0.000, −0.573, −0.483, −0.130, −0.007 N m, the Experiment's Result 3, within 1.1e-16 of `qfrc_bias`.
+    tr: Gergin poz 0,000, −0,573, −0,483, −0,130, −0,007 N m, Deney'in Sonuç 3'ü, `qfrc_bias` ile 1,1e-16 farkla.
+- stage: check
+  q:
+    en: 'Build it, Step 5: your Euler simulator ends 10 s at +14.353% energy, the Experiment''s table says +14.355%. Why?'
+    tr: 'Sıfırdan yaz, Adım 5: Euler simülatörün 10 s''yi %+14,353 enerjiyle bitiriyor, Deney''in tablosu %+14,355 diyor. Neden?'
+  options:
+  - en: '`d.energy` after `mj_step` belongs to the state at the start of that step; your energy one step earlier is +14.355%.'
+    tr: '`mj_step`''ten sonra `d.energy` o adımın başındaki duruma aittir; senin bir adım önceki enerjin %+14,355.'
+  - en: Your RNEA has a small bug in the Coriolis term.
+    tr: RNEA'nın Coriolis teriminde küçük bir hata var.
+  - en: MuJoCo uses RK4 internally even when `Euler` is selected.
+    tr: MuJoCo `Euler` seçilse bile içeride RK4 kullanır.
+  answer: 0
+  why:
+    en: The trajectories agree to 1.3e-13 rad after 5000 steps and the peak is the same 14.357%; only the moment of the energy reading differs.
+    tr: Yörüngeler 5000 adım sonra 1,3e-13 rad farkla aynı ve tepe değeri aynı %14,357; yalnız enerjinin okunduğu an farklı.
+- stage: post
+  q:
     en: A frictionless double pendulum swings for 10 s at the default 2 ms step with semi-implicit `Euler`. What happens to its energy?
     tr: Sürtünmesiz bir çift sarkaç varsayılan 2 ms adımda semi-implicit `Euler` ile 10 s salınıyor. Enerjisine ne olur?
   options:
-    - en: It grows by about 14%, with no warning from the simulator.
-      tr: Simülatör hiçbir uyarı vermeden yaklaşık %14 artar.
-    - en: It stays constant, because semi-implicit Euler is symplectic.
-      tr: Sabit kalır, çünkü semi-implicit Euler symplectic'tir.
-    - en: It drops by about 11%, because the integrator adds numerical damping.
-      tr: Yaklaşık %11 düşer, çünkü integrator sayısal damping ekler.
+  - en: It grows by about 14%, with no warning from the simulator.
+    tr: Simülatör hiçbir uyarı vermeden yaklaşık %14 artar.
+  - en: It stays constant, because semi-implicit Euler is symplectic.
+    tr: Sabit kalır, çünkü semi-implicit Euler symplectic'tir.
+  - en: It drops by about 11%, because the integrator adds numerical damping.
+    tr: Yaklaşık %11 düşer, çünkü integrator sayısal damping ekler.
   answer: 0
   why:
     en: Result 2 shows +14.357% for `Euler` at 2 ms. Symplecticity needs a constant $M$ and no velocity-dependent forces, which this pendulum breaks; the −11.352% belongs to `implicit`.
     tr: Sonuç 2'de 2 ms'de `Euler` için +%14,357 var. Symplectic olmak sabit $M$ ve hıza bağlı kuvvet olmamasını gerektirir, bu sarkaç ikisini de bozuyor; −%11,352 `implicit`'e ait.
-- q:
+- stage: post
+  q:
     en: Why is `implicitfast` identical to `Euler` in every cell of the energy table?
     tr: Enerji tablosunun her hücresinde `implicitfast` neden `Euler` ile aynı?
   options:
-    - en: MuJoCo silently falls back to `Euler` when the model is small.
-      tr: Model küçük olunca MuJoCo sessizce `Euler`'e geri döner.
-    - en: The model has no joint damping; the only velocity-dependent force is Coriolis, which `implicitfast` drops and `Euler` never had.
-      tr: Modelde joint damping yok; hıza bağlı tek kuvvet Coriolis ve `implicitfast` onu düşürüyor, `Euler`'de zaten hiç yoktu.
-    - en: Both integrators evaluate the forces four times per step.
-      tr: İki integrator de kuvvetleri adım başına dört kez hesaplar.
+  - en: MuJoCo silently falls back to `Euler` when the model is small.
+    tr: Model küçük olunca MuJoCo sessizce `Euler`'e geri döner.
+  - en: The model has no joint damping; the only velocity-dependent force is Coriolis, which `implicitfast` drops and `Euler` never had.
+    tr: Modelde joint damping yok; hıza bağlı tek kuvvet Coriolis ve `implicitfast` onu düşürüyor, `Euler`'de zaten hiç yoktu.
+  - en: Both integrators evaluate the forces four times per step.
+    tr: İki integrator de kuvvetleri adım başına dört kez hesaplar.
   answer: 1
   why:
     en: With nothing left to linearise, the two updates become the same. Four force evaluations per step is RK4, which stays at 0.000% up to 5 ms (Result 2).

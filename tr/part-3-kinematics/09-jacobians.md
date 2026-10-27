@@ -46,16 +46,16 @@ flowchart TD
 ```python
 import numpy as np
 
-def hinge_column(axis, o, p):    # axis: joint ekseni (birim, world), o: eksen üzerinde bir nokta, p: alet noktası
-    jp = np.cross(axis, p - o)   # bu joint'in 1 rad/s'si başına aletin doğrusal hızı (m/s)
-    jr = axis                    # bu joint'in 1 rad/s'si başına aletin açısal hızı (rad/s)
+def hinge_column(axis, o, p):    # axis: joint axis (unit, world), o: point on the axis, p: tool point
+    jp = np.cross(axis, p - o)   # tool linear velocity per 1 rad/s of this joint (m/s)
+    jr = axis                    # tool angular velocity per 1 rad/s of this joint (rad/s)
     return np.r_[jp, jr]
 
 J = np.column_stack([hinge_column(a, o, p) for a, o in zip(axes, origins)])   # 6 x n
-twist = J @ qdot                 # [v; w]: qdot joint hızları için alet hızı
-tau = J.T @ np.r_[F, M]          # aletin F kuvveti ve M momentiyle itmesi için joint torkları
+twist = J @ qdot                 # [v; w]: tool velocity for joint speeds qdot
+tau = J.T @ np.r_[F, M]          # joint torques for the tool to push with force F and moment M
 
-def fd_column(tool_pos, q, i, eps=1e-5):   # i. sütun için central difference (konum satırları)
+def fd_column(tool_pos, q, i, eps=1e-5):   # central difference for column i (position rows)
     dq = np.zeros_like(q)
     dq[i] = eps
     return (tool_pos(q + dq) - tool_pos(q - dq)) / (2 * eps)
@@ -82,7 +82,7 @@ Bu **geometric Jacobian**'dır (Lynch & Park, *Modern Robotics*, Böl. 5). MuJoC
 
 **Finite difference hatası.** Taylor açılımı ileri fark için $\varepsilon$ mertebesinde, merkezi fark için $\varepsilon^2$ mertebesinde bir truncation hatası verir. Floating-point yuvarlaması yaklaşık $\epsilon_{\text{mach}}\lvert x\rvert/\varepsilon$ kadar hata ekler; $\epsilon_{\text{mach}}$ machine epsilon'dur (bir double'ın göreli hassasiyeti). Toplamı en küçük yapmak, ileri fark için kabaca $\sqrt{\epsilon_{\text{mach}}}$, merkezi fark için $\sqrt[3]{\epsilon_{\text{mach}}}$ civarında bir en iyi adım verir.
 
-**Rotation sütunları özeldir.** Bir hinge'i $\varepsilon$ kadar oynatmak aleti tam olarak o hinge'in ekseni etrafında $\varepsilon$ kadar döndürür; orientation fark oranında truncation hatası yoktur, yalnızca yuvarlama vardır (Adım 2).
+**Rotation sütunları özeldir.** Bir hinge'i $\varepsilon$ kadar oynatmak aleti tam olarak o hinge'in ekseni etrafında $\varepsilon$ kadar döndürür; orientation fark oranında truncation hatası yoktur, yalnızca yuvarlama vardır (Deney, Adım 2).
 
 Daha derine: AIEFS [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems); Lynch & Park, *Modern Robotics*, Böl. 5 "Velocity Kinematics and Statics".
 
@@ -92,111 +92,38 @@ Daha derine: AIEFS [Calculus for Machine Learning](https://aiengineeringfromscra
 
 ## Sıfırdan yaz
 
-Şimdi SO-101'in Jacobian'ını yaklaşık 70 satır NumPy ile kendin yazacaksın ve her adımı MuJoCo ile karşılaştıracaksın. Kodunun MuJoCo'dan aldığı tek şey modelin sabit sayıları: her gövdenin bir öncekine göre nerede durduğu, her hinge'in hangi yöne baktığı ve alet noktasının nerede olduğu. Poza bağlı her şey senin.
+Şimdi SO-101'in Jacobian'ını ders 08'in üzerine yaklaşık 30 satır NumPy ile kendin yazacaksın ve her adımı MuJoCo ile karşılaştıracaksın. [Ders 08](08-forward-kinematics.md)'den elinde `chain_from_mujoco` ve `fk` var; `fk` her hinge'in dünyadaki eksenini $\hat a_i$, üzerindeki bir noktayı $o_i$ ve alet noktasını $p$ döndürüyor: sütun formülünün ihtiyaç duyduğu üç şey tam olarak bunlar. MuJoCo'dan yeni hiçbir şey gelmiyor.
 
-Adımları kopyalamak yerine kendi dosyana yaz (örneğin `scratch/my_jacobian.py`) ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/kinematics.py`](../../physai/kinematics.py) içinde; `uv run python experiments/09-jacobians/build.py` beş adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/09-jacobians/build_output.txt) dosyasında).
+Adımları kendi dosyana yaz (örneğin `scratch/my_jacobian.py`) ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/kinematics.py`](../../physai/kinematics.py) içinde; `uv run python experiments/09-jacobians/build.py` dört adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/09-jacobians/build_output.txt) dosyasında).
 
-### Adım 1 · Zinciri tarif et
+### Adım 1 · Tek bir hinge sütunu
 
-Seri bir kol, tabandan uca bir link listesidir. Her link katı bir gövdedir: $q = 0$'da bir önceki gövdeye göre orijini ve yönelimi, bir de etrafında döndüğü hinge. Bunları iki küçük dataclass tutar:
-
-```python
-@dataclass
-class Link:
-    pos: np.ndarray    # body origin in the parent body's frame (m)
-    rot: np.ndarray    # body orientation in the parent frame, 3x3, at q = 0
-    axis: np.ndarray   # hinge axis in this body's frame (unit)
-    anchor: np.ndarray  # a point on the hinge axis, in this body's frame (m)
-```
-
-```python
-@dataclass
-class Chain:
-    links: list        # base to tip, one hinge each
-    tool_pos: np.ndarray  # tool point in the last body's frame (m)
-```
-
-Okuyucu alet site'ından dünya gövdesine kadar yukarı yürür, sonra listeyi tabandan uca gidecek şekilde çevirir. Hinge'i olmayan gövdeler (SO-101'in tabanı) sabit ofset olur.
-
-```python
-def chain_from_mujoco(m, site_name):
-    """Read the hinge chain from the world down to a site (static model data only)."""
-    site = m.site(site_name)
-    bodies, b = [], int(site.bodyid[0])
-    while b != 0:                                  # walk up to the world body
-        bodies.append(b)
-        b = int(m.body_parentid[b])
-    links = []
-    for b in reversed(bodies):
-        hinges = [j for j in range(m.njnt) if m.jnt_bodyid[j] == b and m.jnt_type[j] == 3]
-        j = hinges[0] if hinges else None          # bodies without a hinge are fixed offsets
-        links.append(Link(m.body_pos[b].copy(), quat_to_mat(m.body_quat[b]),
-                          m.jnt_axis[j].copy() if j is not None else None,
-                          m.jnt_pos[j].copy() if j is not None else None))
-    return Chain(links, site.pos.copy())
-```
-
-```text
-== Step 1. The chain: world -> gripperframe ==
-link       offset in parent (m)  hinge axis (body frame)
-   0                 [0. 0. 0.]                    fixed
-   1     [0.0388 0.     0.0624]               [0. 0. 1.]
-   2  [-0.0304 -0.0183 -0.0542]               [0. 0. 1.]
-   3  [-0.1126 -0.028   0.    ]               [0. 0. 1.]
-   4  [-0.1349  0.0052  0.    ]               [0. 0. 1.]
-   5  [ 0.     -0.0611  0.0181]               [0. 0. 1.]
-tool point in the last body: [ 0.012  -0.0002 -0.0981] m
-```
-
-Bu kolun her hinge'i kendi gövdesinin $z$ ekseni etrafında döner; kolun biçimi ofsetlerde ve gövde yönelimlerinde saklı (`body_quat`, [`physai/spatial.py`](../../physai/spatial.py) içindeki `quat_to_mat` ile matrise çevriliyor; formül [ders 06](../part-2-spatial-math/06-rotations.md)'dan).
-
-### Adım 2 · Elle forward kinematics
-
-Tabandan uca yürü ve o anki gövdenin dünyadaki pozunu tut: bir rotation $R$ ve bir konum $p$. Her link'te gövdenin orijinine adım at ($p \leftarrow p + R\,\text{pos}$) ve yönelimini al ($R \leftarrow R\,\text{rot}$). Bir hinge'e gelince eksenini ve üzerindeki bir noktayı dünya koordinatlarında not et, sonra ötesindeki her şeyi o doğru etrafında $q_i$ kadar döndür. Dönüşü Rodrigues formülü kurar:
-
-```python
-def axis_angle_to_mat(axis, angle):
-    """Rotation by `angle` (rad) about the unit vector `axis` (Rodrigues' formula)."""
-    k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
-    return np.eye(3) + np.sin(angle) * k + (1 - np.cos(angle)) * (k @ k)
-```
-
-```python
-def fk(chain, q):
-    """Joint axes and anchor points in the world, and the tool position, at joint angles q."""
-    R, p = np.eye(3), np.zeros(3)                  # pose of the current body in the world
-    axes, anchors, i = [], [], 0
-    for link in chain.links:
-        p = p + R @ link.pos                       # step to this body's origin...
-        R = R @ link.rot                           # ...and its orientation at q = 0
-        if link.axis is not None:
-            a, o = R @ link.axis, p + R @ link.anchor
-            axes.append(a)
-            anchors.append(o)
-            turn = axis_angle_to_mat(a, q[i])      # turn everything beyond about the hinge line
-            R, p = turn @ R, o + turn @ (p - o)
-            i += 1
-    return np.array(axes), np.array(anchors), p + R @ chain.tool_pos
-```
-
-Dönüş dünya orijini etrafında değil bir doğru etrafında; konum güncellemesinin $o + T(p - o)$ olmasının sebebi bu: doğru orijinden geçsin diye kaydır, döndür, geri kaydır.
-
-```text
-== Step 2. Forward kinematics by hand vs mj_kinematics (50 random poses) ==
-max |p_ours - site_xpos| = 2.2e-16 m
-```
-
-Tek bir floating-point yuvarlama adımı kadar fark: senin forward kinematics'in MuJoCo'nunkiyle aynı.
-
-### Adım 3 · Sütunlardan Jacobian
-
-Şimdi Ana fikir'deki formül, her hinge için bir sütun; `fk`'nın zaten döndürdüğü eksen ve noktalarla:
+Ana fikir'deki formül, tek bir hinge için: doğrusal kısım eksen ile eksenden alete uzanan kaldıracın çapraz çarpımı, açısal kısım eksenin kendisi.
 
 ```python
 def hinge_column(axis, o, p):
     """Tool twist per 1 rad/s of one hinge: linear part a x (p - o), angular part a."""
     return np.r_[np.cross(axis, p - o), axis]
 ```
+
+```python
+chain = chain_from_mujoco(m, "gripperframe")              # lesson 08
+axes, anchors, p = fk(chain, Q0)
+col = hinge_column(axes[1], anchors[1], p)                # shoulder_lift
+```
+
+```text
+== Step 1. One hinge column at q = (0, -0.6, 0.9, 0.4, 0.3) ==
+shoulder_lift column, ours:    -0.0198   0.0000  -0.2193   0.0000   1.0000   0.0000
+shoulder_lift column, MuJoCo:  -0.0198   0.0000  -0.2193   0.0000   1.0000   0.0000
+lever |a x (p - o)| = 0.2202 m, max difference 8.3e-17
+```
+
+Lift sütunu rad/s başına $(-0{,}0198, 0, -0{,}2193)$ m/s: lift'i döndürmek aleti çoğunlukla dümdüz aşağı, 0,2202 m'lik bir kaldıracın hızıyla hareket ettirir.
+
+### Adım 2 · Sütunlardan Jacobian
+
+Her hinge için bir sütun, yan yana; `fk`'nın zaten döndürdüğü eksen ve noktalarla:
 
 ```python
 def jacobian(chain, q):
@@ -206,34 +133,33 @@ def jacobian(chain, q):
 ```
 
 ```text
-== Step 3. Jacobian from hinge columns vs mj_jacSite (50 poses) ==
+== Step 2. Jacobian from hinge columns vs mj_jacSite (50 poses) ==
 max entry error: linear rows 3.9e-16, angular rows 1.0e-15
 ```
 
-### Adım 4 · Matrisi kullan
+### Adım 3 · Matrisi kullan
 
 $J$ elindeyken Problem bölümündeki iki soru birer satır:
 
 ```python
-Q0 = np.array([0.0, -0.6, 0.9, 0.4, 0.3])
 J = jacobian(chain, Q0)
 speed = np.linalg.norm(J[:3] @ (np.ones(5) / np.sqrt(5)))   # tool speed, every joint at 1/sqrt(5) rad/s
 tau = J[:3].T @ np.array([0, 0, -2.0])                       # torques for a 2 N push down
 ```
 
 ```text
-== Step 4. Use it at q = (0, -0.6, 0.9, 0.4, 0.3) ==
+== Step 3. Use it at q = (0, -0.6, 0.9, 0.4, 0.3) ==
 tool speed for every joint at 1/sqrt(5) rad/s: 0.312 m/s
 F =     [0, 0, -2.0] N  ->  J^T F =  0.0000  0.4385  0.5194  0.2586  0.0042 N m
 F =      [2.0, 0, 0] N  ->  J^T F =  0.0052 -0.0397 -0.2571 -0.1873 -0.0036 N m
 F =      [0, 1.5, 0] N  ->  J^T F = -0.3745  0.0000  0.0000  0.0000  0.0175 N m
 ```
 
-Deney'in Adım 3 tablosuyla karşılaştır: servo lift'te 0,4383 N m tuttu, burada 0,4385 N m çıkıyor. Aradaki 0,0002 bir hata değil. Servo'lar yük altında biraz esner, kol biraz farklı bir pozda oturur ve $J$ poza bağlıdır; oturmuş pozda ikisi 4,2e-14 farkla aynı. Pan girdisinin sıfır olmasının sebebini ilk alıştırma soruyor.
+Aşağı baskı için lift torku, 2 N çarpı Adım 1'deki lift sütununun dikey girdisi. Deney'in Adım 3 tablosuyla karşılaştır: servo lift'te 0,4383 N m tuttu, burada 0,4385 N m çıkıyor. Aradaki 0,0002 bir hata değil. Servo'lar yük altında biraz esner, kol biraz farklı bir pozda oturur ve $J$ poza bağlıdır; oturmuş pozda ikisi 4,2e-14 farkla aynı. Pan girdisinin sıfır olmasının sebebini ilk alıştırma soruyor.
 
-### Adım 5 · Finite difference ile kendini kontrol et
+### Adım 4 · Finite difference ile kendini kontrol et
 
-Son adım, öğrenilmiş bir modelinki dahil her Jacobian'a uygulayabileceğin test: her joint'i biraz oynat ve kendi forward kinematics'inin farkını al.
+Öğrenilmiş bir modelinki dahil her Jacobian'a uygulayabileceğin test: her joint'i biraz oynat ve kendi forward kinematics'inin farkını al.
 
 ```python
 def fd_jacobian(tool_pos, q, eps=1e-5):
@@ -247,7 +173,7 @@ def fd_jacobian(tool_pos, q, eps=1e-5):
 ```
 
 ```text
-== Step 5. Central differences of our FK vs our analytic Jacobian (eps = 1e-5) ==
+== Step 4. Central differences of our FK vs our analytic Jacobian (eps = 1e-5) ==
 median max entry error: 4.7e-12
 ```
 
@@ -255,7 +181,7 @@ Deney'deki ε sweep'inin `mj_jacSite`'a karşı ε = 1e-5'te merkezi farklar iç
 
 ### Elinde kalan
 
-`physai.kinematics` artık `chain_from_mujoco`, `fk`, `jacobian` ve `fd_jacobian` içeriyor. Ders 10 inverse kinematics'i `jacobian` üzerine kuruyor. [`tests/test_09_jacobians.py`](../../tests/test_09_jacobians.py) bunları MuJoCo'ya sabitliyor; bir şey değiştirdikten sonra `uv run pytest tests/test_09_jacobians.py` çalıştır.
+`physai.kinematics` artık `hinge_column`, `jacobian` ve `fd_jacobian` de içeriyor. Ders 10 inverse kinematics'i, ders 14 bir task-space controller'ı bunların üzerine kuruyor. [`tests/test_09_jacobians.py`](../../tests/test_09_jacobians.py) bunları MuJoCo'ya sabitliyor; bir şey değiştirdikten sonra `uv run pytest tests/test_09_jacobians.py` çalıştır.
 
 ## Kütüphaneyle kullan
 
@@ -266,7 +192,7 @@ mujoco.mj_kinematics(m, d)
 mujoco.mj_comPos(m, d)                     # mj_jac* reads data that only mj_comPos fills
 jacp, jacr = np.zeros((3, m.nv)), np.zeros((3, m.nv))
 mujoco.mj_jacSite(m, d, jacp, jacr, site_id)
-J = np.r_[jacp, jacr]                      # equals jacobian(chain, q) to 1e-15 (Step 3)
+J = np.r_[jacp, jacr]                      # equals jacobian(chain, q) to 1e-15 (Build it, Step 2)
 ```
 
 Başka araçlar aynı bilgiyi farklı konvansiyonlarla döndürür. Sayıları karıştırmadan önce hangisinin elinde olduğuna bak:
@@ -354,7 +280,7 @@ Limitin altında kol yaklaşık bir milimetre sarkıyor (sonlu servo stiffness'�
 ## Gerçek robotta
 
 - 2,94 N m'lik `forcerange` bir model parametresidir. MJCF yorumu, position gain'lerinin ve kuvvetlerin servo proportional gain'i 16 varsayılarak hesaplandığını ve bunların LeRobot'taki servo gain'lerinin "not a 1-to-1 mapping" olduğunu söylüyor ([so101.xml](https://github.com/google-deepmind/mujoco_menagerie/blob/f3b6013/robotstudio_so101/so101.xml)). Yük tablosunu bir donanım değeri gibi okuma. Gerçek kolda henüz ölçülmedi. Prosedür: gergin pozda gripper'a bilinen ağırlıklar as, joint torkunu kaydet (örneğin sürücün sunuyorsa servo'nun akım okumasından) ve $J^\top F$'ye fit et.
-- Donanımda statik harita ayrıca joint sürtünmesini (modelin `frictionloss`'u, Adım 3'te kapatıldı), dişli boşluğunu ve kablo kuvvetlerini taşır; $\tau = J^\top F$'nin ancak bunlar kadar tutmasını bekle.
+- Donanımda statik harita ayrıca joint sürtünmesini (modelin `frictionloss`'u, Deney'in Adım 3'ünde kapatıldı), dişli boşluğunu ve kablo kuvvetlerini taşır; $\tau = J^\top F$'nin ancak bunlar kadar tutmasını bekle.
 - Jacobian'ı yine de finite difference ile hesaplıyorsan (örneğin öğrenilmiş bir modelin etrafında), 1e-8 değil, 1e-5 rad civarında ε ile merkezi fark kullan.
 
 ## Kendini dene

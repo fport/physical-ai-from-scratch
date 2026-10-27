@@ -1,0 +1,33 @@
+NumPy 2.5.4
+
+== Step 1. 200 demonstrations, half left, half right: the least-squares answer ==
+demos pass the obstacle (y = 0) at x = -0.551 / +0.552
+least-squares path from x0 = 0 passes at x = +0.000; max |intercept - mean of the 200 demos| = 7.5e-15
+200 trials: collided 200/200, left 0, right 0
+
+== Step 2. The flow-matching pair and the field it regresses ==
+t = 0.0: a_t = [0.3 0.3], target a1 - a0 = [ 0.8 -1.4]
+t = 0.5: a_t = [ 0.7 -0.4], target a1 - a0 = [ 0.8 -1.4]
+t = 1.0: a_t = [ 1.1 -1.1], target a1 - a0 = [ 0.8 -1.4]
+t = 0.5     a    mean target near a (Monte Carlo)   empirical_velocity
+         -0.8                          -0.467               -0.474
+         -0.2                          -0.501               -0.510
+         +0.0                          -0.001               +0.000
+         +0.2                          +0.524               +0.510
+         +0.8                          +0.478               +0.474
+
+== Step 3. Euler sampling along the exact field of the 200 demonstrations ==
+steps  collided  left  right  mean |x| at y=0   (Experiment's network: collided, mean |x|)
+    1   200/200     0      0            0.026   (200/200, 0.161)
+    2    34/200    84     82            0.403   (95/200, 0.372)
+    4     0/200    98    102            0.487   (17/200, 0.494)
+    8     0/200    97    103            0.515   (7/200, 0.533)
+   16     0/200    97    103            0.528   (5/200, 0.546)
+   32     0/200    97    103            0.536   (3/200, 0.554)
+1 step: max |sample - mean of the demos| = 3.0e-14
+
+== Step 4. Many steps: the exact field returns the training demonstrations ==
+   8 steps: RMS distance of a sample to its nearest demonstration, median 0.0018, max 0.0158
+  32 steps: RMS distance of a sample to its nearest demonstration, median 0.0009, max 0.0029
+ 128 steps: RMS distance of a sample to its nearest demonstration, median 0.0000, max 0.0010
+demonstrations differ from each other by (median RMS, nearest pair) 0.0024

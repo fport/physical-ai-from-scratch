@@ -89,19 +89,147 @@ Go deeper: [Sim-to-Real Transfer](https://aiengineeringfromscratch.com/lesson?pa
 
 For an arm, randomize the parameters of lesson 38 (masses, damping, friction, armature, actuator gain) and the delay of lesson 37. Center the ranges on identified values and size them from the identification's uncertainty.
 
+## Build it
+
+You will now write the part of domain randomization that is not physics: the sampler, a coverage check, the averaged cost and the optimizer. The plant and its batched MuJoCo rollout stay the Experiment's (`Batch.rollout(gains, plants)` runs one episode per row and returns its RMS tracking error). The finished functions are in [`physai/sim2real.py`](../physai/sim2real.py); `uv run python experiments/39-domain-randomization/build.py` runs the steps (output in [`build_output.txt`](../experiments/39-domain-randomization/build_output.txt)).
+
+### Step 1 · The sampler
+
+A log-uniform scale is $2^u$ with $u$ uniform in $[-w, w]$: halving and doubling are equally likely, and the median is 1.
+
+```python
+def dr_sample(rng, n, w, delay0=0.005, delay_per_w=0.040):
+    """n random plants of width w: mass, damping and friction scales log-uniform in [2^-w, 2^w], delay uniform in
+    [delay0, delay0 + delay_per_w * w] seconds. w = 0 returns n nominal plants and draws nothing from rng."""
+    if w == 0:
+        return dict(mass=np.ones(n), damping=np.ones(n), friction=np.ones(n), delay=np.full(n, delay0))
+    s = lambda: 2.0 ** rng.uniform(-w, w, n)  # noqa: E731
+    return dict(mass=s(), damping=s(), friction=s(), delay=rng.uniform(delay0, delay0 + delay_per_w * w, n))
+```
+
+```text
+== Step 1. The sampler at w = 0.5, 100,000 draws ==
+mass      min 0.7071 max 1.4142 (2^-0.5 = 0.7071, 2^0.5 = 1.4142), median 0.9993, share above 1: 0.499
+damping   min 0.7071 max 1.4142 (2^-0.5 = 0.7071, 2^0.5 = 1.4142), median 0.9983, share above 1: 0.497
+friction  min 0.7071 max 1.4142 (2^-0.5 = 0.7071, 2^0.5 = 1.4142), median 0.9994, share above 1: 0.499
+delay     min 5.00 ms, max 25.00 ms (formula 5-25 ms)
+same draws as the Experiment's sampler (seed 7): True
+```
+
+The draws hit both formula bounds, half of them lie above 1, and with the same seed they equal the Experiment's sampler draw for draw, which Step 4 relies on.
+
+### Step 2 · Coverage
+
+Before training anything, ask which real plants a width can draw at all:
+
+```python
+def inside_support(plants, w, delay0=0.005, delay_per_w=0.040):
+    """For every plant and parameter: can the width-w training distribution draw this value?"""
+    lo, hi, eps = 2.0 ** -w, 2.0 ** w, 1e-12
+    out = {k: (plants[k] >= lo - eps) & (plants[k] <= hi + eps) for k in ("mass", "damping", "friction")}
+    out["delay"] = (plants["delay"] >= delay0 - eps) & (plants["delay"] <= delay0 + delay_per_w * w + eps)
+    return out
+```
+
+```text
+== Step 2. Coverage: real plants inside the training support (of 32) ==
+    w  mass  damping  friction  delay  all four
+ 0.00     0        0         0      0         0
+ 0.10     0        6         2      0         0
+ 0.25     7       13         4      0         0
+ 0.50    32       28         6     25         5
+ 0.75    32       32        11     32        11
+ 1.00    32       32        20     32        20
+ 1.50    32       32        32     32        32
+ 2.00    32       32        32     32        32
+largest real friction scale 2.48, largest real delay 28.8 ms
+```
+
+At $w$ = 0.5 only 5 of the 32 real plants are fully inside the training distribution; it takes $w$ = 1.5 to cover all of them, because of friction (up to ×2.48). Yet the Experiment's best widths are 0.5–1.0 (27–28/32) and $w$ = 1.5 reaches only 23/32. Coverage is necessary for a guarantee, not sufficient for good transfer: the price of width is paid on every plant.
+
+### Step 3 · The averaged cost
+
+Domain randomization replaces "cost on one simulator" by "mean cost over sampled simulators". Scoring every candidate on the *same* sampled plants (common random numbers) keeps the comparison between candidates fair:
+
+```python
+def expected_cost(rollout, gains, plants):
+    """Mean cost of every controller (row of gains) over the same sampled plants (common random numbers).
+    rollout(gain_rows, plant_rows) runs one episode per row and returns its cost."""
+    n, k = len(gains), len(plants["delay"])
+    tiled = {key: np.tile(v, n) for key, v in plants.items()}       # plants 0..k-1 for controller 0, then 1, ...
+    return rollout(np.repeat(gains, k, axis=0), tiled).reshape(n, k).mean(axis=1)
+```
+
+```text
+== Step 3. The averaged cost: the Experiment's tuned controllers, re-scored ==
+tuned at       Kp     Kd     kg  nominal deg  real mean deg  real < 2 deg
+w = 0.00   117.36  0.914  0.679        0.165          3.525          5/32
+w = 0.50    55.43  3.244  0.563        0.475          1.307         28/32
+```
+
+Re-scored with the gains printed in the Experiment's table, both rows come back: 0.165° nominal and 5/32 for the nominal-only controller, 0.475° and 28/32 for $w$ = 0.5. The real mean of the first row, 3.525° against the table's 3.526°, differs because the table's gains are rounded to two decimals.
+
+### Step 4 · The cross-entropy method
+
+CEM keeps a Gaussian over the parameters, samples candidates, keeps the cheapest quarter, and refits the Gaussian to them. The small `sd_extra` stops the search from collapsing onto one point before it has converged.
+
+```python
+def cem(cost, mu, sd, lo, hi, rng, iters=12, pop=24, n_elite=6, sd_extra=0.02):
+    """Cross-entropy method: draw pop candidates from N(mu, sd) clipped to [lo, hi], keep the n_elite cheapest,
+    refit mu and sd to them (plus sd_extra, so the search never collapses), repeat. cost(x, rng) -> one per row."""
+    for _ in range(iters):
+        x = np.clip(mu + sd * rng.standard_normal((pop, len(mu))), lo, hi)
+        elite = x[np.argsort(cost(x, rng))[:n_elite]]
+        mu, sd = elite.mean(axis=0), elite.std(axis=0) + sd_extra
+    return mu
+```
+
+```text
+== Step 4. CEM: a toy quadratic, then domain randomization at w = 0.5 ==
+toy: minimum at [ 1.  -2.   0.5], CEM finds [0.980, -2.008, 0.503]
+w = 0.5: Kp 55.43, Kd 3.244, kg 0.563; nominal 0.475 deg, real mean 1.307 deg, 28/32 below 2 deg
+```
+
+On the toy quadratic CEM lands within 0.02 of the minimum. On the plant it reproduces the Experiment's $w$ = 0.5 row exactly (Kp 55.43, Kd 3.244, kg 0.563, 28/32), because the sampler consumes the random generator in the same order. The optimizer never sees a real plant; only the width of `dr_sample` connects it to them.
+
+### What you keep
+
+`physai.sim2real` now has `dr_sample`, `inside_support`, `expected_cost` and `cem`. The capstone (lesson 44) reasons about the same coverage question for its camera calibration. [`tests/test_39_domain_randomization.py`](../tests/test_39_domain_randomization.py) checks the distributions against SciPy: `uv run pytest tests/test_39_domain_randomization.py`.
+
+## Use it
+
+There is no "randomize" call in MuJoCo: the knobs are model fields, writable between episodes without recompiling (`m.body_mass`, `m.dof_damping`, `m.dof_frictionloss`, `m.geom_friction`, …; delay with lesson 37's `delay` attribute). The Experiment puts many copies of the joint into one model, so one `mj_step` advances a whole batch, and writes one entry per copy before each rollout. SciPy names the distribution:
+
+```python
+from scipy import stats
+scales = stats.loguniform(2 ** -w, 2 ** w).rvs(size=n, random_state=rng)   # same law as dr_sample's 2**u
+```
+
+```text
+== Use it. SciPy's log-uniform distribution; MuJoCo model fields as the knobs ==
+Kolmogorov-Smirnov, our mass scales vs scipy.stats.loguniform(2^-0.5, 2^0.5): D = 0.0026, p = 0.50
+randomized fields in the batched model: body_mass (32,), dof_damping (32,), dof_frictionloss (32,) (one entry per copy, written before each rollout)
+```
+
+| Tool | Where the range lives | What is drawn |
+|---|---|---|
+| physai | `dr_sample(rng, n, w)` | mass, damping, friction scales and delay, every episode |
+| `unitree_rl_gym` | `randomize_friction`, `friction_range = [0.5, 1.25]`, `added_mass_range` ([config](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py)) | ground friction once per environment, from 64 buckets ([`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)) |
+| MuJoCo | model fields (`body_mass`, `dof_damping`, …) | whatever you write before `mj_step` |
+
+Traps:
+
+- **Scale vs absolute.** "Mass ×2" and "mass + 1" are different distributions: `unitree_rl_gym`'s `added_mass_range` adds a number to the base body's mass (`props[0].mass +=`).
+- **Per episode vs per environment.** Drawing once per environment (as the friction buckets above) gives each robot one fixed floor for the whole run; drawing per episode, as here, changes it every episode.
+- **Inertia goes with mass.** Scaling `body_mass` without `body_inertia` makes a physically inconsistent link; the Experiment scales both.
+
 ## Experiment
 
 **Setup.** One arm joint with the STS3215 joint parameters of the Menagerie SO-101 (armature 0.028, damping 0.6, frictionloss 0.052, torque limit 2.94 N·m) carrying a 0.5 kg link with its center of mass at 15 cm (gravity torque up to 0.736 N·m). Torque control through a measurement delay. The "policy" is a three-parameter controller: PD tracking plus a gravity term $k_g\cos q_{\text{ref}}$,
 
 $$\tau = \operatorname{clip}\big(K_p(q_{\text{ref}} - \tilde q) + K_d(\dot q_{\text{ref}} - \dot{\tilde q}) + k_g\cos q_{\text{ref}},\ \pm 2.94\big),$$
 
-where $\tilde q$ is the delayed measurement. It is tuned with CEM (12 iterations × 24 candidates × 10 sampled plants each) to minimize RMS tracking error of a 3 s reference, $0.5\sin(2\pi\,0.4t) + 0.25\sin(2\pi\,1.1t+1)$ rad, at a 2 ms step. With width $w$, every training episode draws mass, damping and friction-loss scales log-uniformly in $[2^{-w}, 2^{w}]$ and the delay uniformly in $[5, 5+40w]$ ms (nominal: scales 1, delay 5 ms).
-
-```python
-def sample_plants(rng, n, w):
-    s = lambda: 2.0 ** rng.uniform(-w, w, n)
-    return dict(mass=s(), damping=s(), friction=s(), delay=rng.uniform(0.005, 0.005 + 0.040 * w, n))
-```
+where $\tilde q$ is the delayed measurement. It is tuned with CEM (Build it, Step 4: 12 iterations × 24 candidates × 10 sampled plants each) to minimize RMS tracking error of a 3 s reference, $0.5\sin(2\pi\,0.4t) + 0.25\sin(2\pi\,1.1t+1)$ rad, at a 2 ms step. With width $w$, every training episode draws mass, damping and friction-loss scales log-uniformly in $[2^{-w}, 2^{w}]$ and the delay uniformly in $[5, 5+40w]$ ms (nominal: scales 1, delay 5 ms).
 
 **Test.** The nominal plant, and 32 held-out "real" plants never seen in training (invented for the test): mass ×1.10–1.39, damping ×0.80–1.56, friction ×1.02–2.48, delay 15.5–28.8 ms. Success: RMS error below 2°. Many copies of the joint live in one MuJoCo model so that one `mj_step` advances a whole batch.
 
@@ -121,7 +249,7 @@ Full script: [`experiments/39-domain-randomization/experiment.py`](../experiment
 **Observe.**
 
 1. Tuned on the nominal plant only, the controller is the best on that plant (0.165°) and the worst on the real ones (5/32). It chose $K_p$ = 117 with little damping, a loop that relies on knowing the delay is 5 ms; with 15.5–28.8 ms its error averages 3.526°.
-2. Even a narrow range ($w$ = 0.1, delay up to 9 ms) lifts real success to 24/32: most of the gain comes from not trusting the exact delay. The best real results come from the ranges whose delay reaches into the real 15.5–28.8 ms ($w$ = 0.5 up to 25 ms; $w$ = 0.75 and 1 all of it): 27–28/32, mean 1.228–1.307°. Each row is a single CEM run with one seed, so treat differences of a few plants between rows as noise; we did not repeat with other seeds.
+2. Even a narrow range ($w$ = 0.1, delay up to 9 ms) lifts real success to 24/32: most of the gain comes from not trusting the exact delay. The best results come from ranges whose delay reaches into the real 15.5–28.8 ms ($w$ = 0.5 up to 25 ms; 0.75 and 1 all of it): 27–28/32, mean 1.228–1.307°, although only 5–20 of the 32 plants lie fully inside those ranges (Build it, Step 2). Each row is one CEM run with one seed; treat differences of a few plants as noise.
 3. Nominal error grows steadily with width (0.165 → 1.224°) as $K_p$ falls (117 → 30): robustness is paid for in tracking on the plant you know.
 4. No width solves all 32: the worst real plant stays above 3° in every row. Some real plants have friction ×2.48, outside even the $w$ = 1 range (up to ×2.00), and a fixed-gain controller has limits.
 

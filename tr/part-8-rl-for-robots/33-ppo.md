@@ -16,17 +16,17 @@
 
 ## Problem
 
-[Ders 32](32-rl-environment.md)'de rastgele bir policy hedefe 200 episode'un 1'inde ulaştı, scripted IK controller ise 200'ünde de ulaştı; ama yalnızca Jacobian'ı modelden okuduğu için. Bir policy aynı uzanmayı yalnızca reward'dan, CPU'da, run başına yaklaşık bir dakikada öğrenebilir mi? Öğrenirse ne kadar emin olabiliriz? Tek bir training run'ı sonuç değildir: RL sonuçları seed'e göre değişir. Bu yüzden başarıyı sabit evaluation episode'ları üzerinden, Wilson %95 aralığıyla (bkz. [ders 25](../part-7-learning-from-demonstration/25-evaluating-policies.md)) ve üç seed için veriyoruz.
+[Ders 32](32-rl-environment.md)'de rastgele bir policy hedefe 200 episode'un 1'inde ulaştı, Jacobian'ı modelden okuyan scripted IK controller ise 200'ünde de. Bir policy aynı uzanmayı yalnızca reward'dan, CPU'da, run başına yaklaşık bir dakikada öğrenebilir mi? Tek bir training run'ı sonuç değildir; bu yüzden başarıyı sabit evaluation episode'ları üzerinden, Wilson %95 aralığıyla ([ders 25](../part-7-learning-from-demonstration/25-evaluating-policies.md)) ve üç seed için veriyoruz.
 
 ## Ana fikir
 
 ### Sade anlatımla
 
-PPO (Proximal Policy Optimization) kendi denemelerinden öğrenir, ama bir seferde fazla değişmeyi reddeder. Policy görevi action'larına biraz rastgele gürültü ekleyerek defalarca dener. Her deneme grubundan sonra her action için şunu sorar: "bu, buradan genelde aldığım sonuçtan daha mı iyi gitti, daha mı kötü?" Bu farka **advantage** denir; "buradan genelde ne alırım" bilgisi ikinci bir ağdan, **critic**'ten gelir. Advantage'ı pozitif olan action'lar biraz daha olası, diğerleri biraz daha az olası hâle gelir.
+PPO (Proximal Policy Optimization) kendi denemelerinden öğrenir, ama bir seferde fazla değişmeyi reddeder. Policy görevi action'larına biraz gürültü ekleyerek defalarca dener ve her deneme grubundan sonra her action için sorar: "bu, buradan genelde aldığım sonuçtan daha mı iyi gitti, daha mı kötü?" Bu farka **advantage** denir; "genelde ne alırım" bilgisi ikinci bir ağdan, **critic**'ten gelir. Advantage'ı pozitif olan action'lar biraz daha olası, diğerleri biraz daha az olası hâle gelir.
 
-"Bir seferde fazla değil" kısmı onu kararlı yapan şeydir. Batch eski policy ile toplandı; dolayısıyla yalnızca eskisine yakın policy'ler hakkında güvenilir bir şey söyler; tıpkı geçen haftanın build'inde kaydedilmiş bir benchmark'ın baştan yazılmış bir sürüm hakkında pek bir şey söylememesi gibi. Bu yüzden PPO, bir action'ı öncekinden %20'den fazla daha olası (ya da daha az olası) yapmaktan gelen kazancı yok sayar. Bu sınıra **clip** denir.
+"Bir seferde fazla değil" kısmı onu kararlı yapar. Batch eski policy ile toplandı, dolayısıyla yalnızca ona yakın policy'ler hakkında güvenilir bir şey söyler; tıpkı geçen haftanın build'inin benchmark'ının baştan yazılmış bir sürüm hakkında pek bir şey söylememesi gibi. PPO, bir action'ı öncekinden %20'den fazla daha olası (ya da daha az olası) yapmaktan gelen kazancı yok sayar: **clip**.
 
-Robotta bir ayarın daha fiziksel bir anlamı vardır: **discount** $\gamma$, yani bir adım sonraki reward'un şimdiki reward'a göre ne kadar sayıldığı. Bir adım gerçek zamanda 20 ms olduğundan $\gamma$, policy'nin kaç saniye ilerisini önemsediğini sessizce belirler.
+Robotta bir ayarın daha fiziksel bir anlamı vardır: **discount** $\gamma$, yani bir adım sonraki reward'un ne kadar sayıldığı. Bir adım gerçek zamanda 20 ms'dir; dolayısıyla $\gamma$, policy'nin kaç saniye ilerisini önemsediğini sessizce belirler.
 
 ### Bir PPO iterasyonu
 
@@ -69,13 +69,13 @@ $\mu_\theta(o)$ actor'ün $o$ observation'ı için ortalama action'ı, $\sigma$ 
 
 Policy gradient, actor-critic ve PPO türetmeleri AIEFS'te var; burada yalnızca continuous control için önemli olan kısımlar var.
 
-**Gaussian policy.** Actor diagonal bir Gaussian'ın ortalamasını verir; $\log\sigma$ observation'a bağlı olmayan, öğrenilen bir vektördür. Environment $a$'yı $[-1, 1]$'e clip eder; log-probability clip edilmemiş örnek için hesaplanır, böylece $\rho_t$ oranı toplama ile güncelleme arasında tutarlı kalır.
+**Gaussian policy.** Actor diagonal bir Gaussian'ın ortalamasını verir; $\log\sigma$ observation'dan bağımsız, öğrenilen bir vektördür. Environment $a$'yı $[-1, 1]$'e clip eder, ama log-probability clip edilmemiş örnek için hesaplanır; böylece $\rho_t$ tutarlı kalır.
 
-**GAE** (Schulman vd., [arXiv 1506.02438](https://arxiv.org/abs/1506.02438)). $\lambda = 0$ yalnızca tek adımlık hata $\delta_t$'yi kullanır (düşük variance, critic yüzünden bias'lı); $\lambda = 1$ tüm gerçek reward'ları toplar (bias'sız, gürültülü). Makale $\gamma$'yı da aynı şekilde ele alır: gerçek amacın parçası olarak değil, bias getiren bir variance azaltma parametresi olarak.
+**GAE** (Schulman vd., [arXiv 1506.02438](https://arxiv.org/abs/1506.02438)). $\lambda = 0$ yalnızca $\delta_t$'yi kullanır (düşük variance, critic yüzünden bias'lı); $\lambda = 1$ tüm gerçek reward'ları toplar (bias'sız, gürültülü). Makale $\gamma$'yı da aynı şekilde, bir variance azaltma parametresi olarak ele alır.
 
-**Clipped surrogate** (Schulman vd., [arXiv 1707.06347](https://arxiv.org/abs/1707.06347)). $\rho_t \hat A_t$, yeni policy'nin iyileşmesini eski policy'nin örneklerinden tahmin eder (importance sampling). Tahmin yalnızca $\rho = 1$ civarında güvenilirdir. Clip'li terimle minimum almak, $\rho$'yu $[1-\epsilon, 1+\epsilon]$ dışına çıkarma teşvikini ortadan kaldırır.
+**Clipped surrogate** (Schulman vd., [arXiv 1707.06347](https://arxiv.org/abs/1707.06347)). $\rho_t \hat A_t$, yeni policy'nin iyileşmesini eski policy'nin örneklerinden tahmin eder (importance sampling) ve yalnızca $\rho = 1$ civarında güvenilirdir; clip'li terimle minimum almak $[1-\epsilon, 1+\epsilon]$ dışına çıkma teşvikini ortadan kaldırır (Sıfırdan yaz, Adım 4).
 
-**Truncation, termination değildir.** 1,6 s'lik zaman sınırında kol terminal bir durumda değildir; bu yüzden son reward'a bootstrap eklenir, $r_T \leftarrow r_T + \gamma V(s_{T+1})$, episode ancak ondan sonra kesilir ($d_t = 1$). Gerçek bir terminal durum (ders 35) bootstrap almaz.
+**Truncation, termination değildir.** 1,6 s'lik sınırda son reward'a bootstrap eklenir, $r_T \leftarrow r_T + \gamma V(s_{T+1})$, sonra episode kesilir ($d_t = 1$); gerçek bir terminal durum (ders 35) bootstrap almaz.
 
 **Neden $\Delta t/(1-\gamma)$.** $\gamma^l$ ağırlıklarının toplamı $\sum_{l\ge0}\gamma^l = 1/(1-\gamma)$ adımdır; adım süresiyle çarpınca bir zaman olur. 50 Hz'de $\gamma = 0{,}99$ 2 s, $\gamma = 0{,}95$ 0,4 s demektir. Kontrol hızını değiştirirseniz görevin ufkunu sessizce değiştirmiş olursunuz.
 
@@ -98,30 +98,189 @@ Daha derine: [Policy Gradient — REINFORCE from Scratch](https://aiengineeringf
 
 Sağ sütun [`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py) (`LeggedRobotCfgPPO`) ve [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py) dosyalarından okundu.
 
-## Deney
+## Sıfırdan yaz
 
-[`ppo.py`](../../experiments/33-ppo/ppo.py) algoritmanın tamamı (yaklaşık 200 satır, RL kütüphanesi yok); [`experiment.py`](../../experiments/33-ppo/experiment.py) onu çalıştırır. Environment, ders 32'deki reach görevinin aynısı: mutlak joint hedefleri, 50 Hz, reward $-d$, run başına 300.000 policy adımı. Güncellemenin özü:
+Şimdi PPO'nun parçalarını kendin yazacaksın, her birini elle hesaplanan değerlere, SciPy'ye ya da autograd'a karşı kontrol edeceksin ve reach görevinde dersin `ppo.py`'siyle birebir aynı çıkması gereken tek bir PPO iterasyonu kuracaksın. Adım 5 seed başına tek bir iterasyon (1024 örnek) koşturur, Deney'in 300.000 adımlık training'lerini değil; script yaklaşık 6 s sürer.
+
+Fonksiyonlar [`physai/rl.py`](../../physai/rl.py) içinde; `uv run python experiments/33-ppo/build.py` altı adımın hepsini koşturur (çıktı [`build_output.txt`](../../experiments/33-ppo/build_output.txt) dosyasında).
+
+### Adım 1 · GAE
+
+Generalized advantage estimation rollout'ta geriye doğru ilerler, adım başına bir TD hatasıyla:
 
 ```python
-# GAE over a (T, N) rollout; buf_done = terminated OR truncated,
-# truncated steps already got r += gamma * V(s_final)
-for t in reversed(range(T)):
-    nv = last_v if t == T - 1 else buf_v[t + 1]
-    nonterm = 1.0 - buf_done[t]
-    delta = buf_r[t] + gamma * nv * nonterm - buf_v[t]
-    gae = delta + gamma * lam * nonterm * gae
-    adv[t] = gae
+def gae(rewards, values, last_value, dones, gamma, lam):
+    """Generalized advantage estimation over a (T, N) rollout, backwards in time; returns (advantages, returns).
 
-# one minibatch step
-ratio = (pi.dist(o).log_prob(a).sum(-1) - logp_old).exp()
-A = (A - A.mean()) / (A.std() + 1e-8)
-pg = -torch.min(ratio * A, ratio.clamp(1 - clip, 1 + clip) * A).mean()
-loss = pg + 0.5 * ((pi.v(o).squeeze(-1) - ret) ** 2).mean() - ent_coef * entropy
+    dones[t] = 1 where an episode ended after step t (terminated or truncated); a truncated step's reward
+    must already include gamma * V(s_final).
+    """
+    adv = np.zeros_like(rewards)
+    run = np.zeros_like(last_value)
+    for t in reversed(range(len(rewards))):
+        next_v = last_value if t == len(rewards) - 1 else values[t + 1]
+        nonterminal = 1.0 - dones[t]
+        delta = rewards[t] + gamma * next_v * nonterminal - values[t]   # TD error
+        run = delta + gamma * lam * nonterminal * run
+        adv[t] = run
+    return adv, adv + values
 ```
+
+Elle üç adım, $\gamma = 0{,}9$ ile: $\delta_2 = 2 + 0{,}9 \cdot 0{,}2 - 0{,}3 = 1{,}88$, $\delta_1 = 0 + 0{,}9 \cdot 0{,}3 - 0{,}4 = -0{,}13$, $\delta_0 = 1 + 0{,}9 \cdot 0{,}4 - 0{,}5 = 0{,}86$; $\lambda = 0{,}8$ ile $\hat A_1 = -0{,}13 + 0{,}72 \cdot 1{,}88 = 1{,}2236$ ve $\hat A_0 = 0{,}86 + 0{,}72 \cdot 1{,}2236 = 1{,}740992$.
+
+```text
+== Step 1. GAE on three steps: r = (1, 0, 2), V = (0.5, 0.4, 0.3), V(s_3) = 0.2, gamma 0.9 ==
+lambda 0.8: A = [1.740992 1.2236   1.88    ], returns = [2.240992 1.6236   2.18    ]
+lambda 0.0: A = [ 0.86 -0.13  1.88], returns = [1.36 0.27 2.18]
+lambda 1.0: A = [2.2658 1.562  1.88  ], returns = [2.7658 1.962  2.18  ]
+TD errors delta = [ 0.86 -0.13  1.88] (= lambda 0); discounted return - V = [2.2658 1.562  1.88  ] (= lambda 1)
+64 x 16 rollout, no episode ends: max |gae - direct double sum| = 5.3e-15
+```
+
+$\lambda = 0$ TD hatalarını, $\lambda = 1$ discount'lu return eksi value'yu geri veriyor: Matematik ayrıntısındaki ayarın iki ucu. 64 × 16'lık bir rollout'ta döngü doğrudan çift toplamla 5,3e-15'e kadar aynı.
+
+### Adım 2 · Rollout içinde biten episode'lar
+
+64 adımlık bir rollout episode sınırlarını aşar; `dones[t] = 1` bootstrap'i ve birikmiş toplamı keser, böylece hiçbir advantage bir sonraki episode'a sızmaz:
+
+```text
+== Step 2. Episode ends inside the rollout ==
+49 episode ends: max |gae - per-episode sums| = 3.1e-15
+truncated step: r + gamma * V(s_final) is stored and done = 1, so the future is not lost: -0.200 for r = -0.01, V(s_final) = -0.200
+```
+
+Truncated bir adımın reward'u zaten $\gamma V(s_{\text{final}})$'ı içeriyor (Matematik ayrıntısı); dolayısıyla toplamı kesmek hiçbir şey kaybettirmiyor.
+
+### Adım 3 · Gaussian policy'nin log-probability'si
+
+```python
+def gaussian_log_prob(a, mu, log_std):
+    """Log-density of a diagonal Gaussian policy, summed over the action dimensions."""
+    z = (a - mu) / np.exp(log_std)
+    return (-0.5 * z ** 2 - log_std - 0.5 * np.log(2 * np.pi)).sum(-1)
+```
+
+```text
+== Step 3. Gaussian log-probability, 1000 actions in 4-D ==
+max |ours - scipy| = 1.8e-15, max |ours - torch| = 2.7e-15
+at the mean: 0.3242 = 4 * (1 - 0.5 ln 2 pi) = 0.3242
+```
+
+Ortalamada, $\log\sigma = -1$ ile, her boyut $-\log\sigma - \tfrac12\log 2\pi = 1 - 0{,}9189$ katkı veriyor, dört boyut için 0,3242: dar bir Gaussian'ın log-density'si 0'ın üstündedir.
+
+### Adım 4 · Clipped surrogate
+
+Loss'un türevi alınmalı, bu yüzden tensor'lar üzerinde çalışır; `.clamp` ve `.minimum` tensor metodlarıdır ve physai'nin PyTorch'u import etmesi gerekmez:
+
+```python
+def clipped_surrogate(ratio, adv, clip=0.2):
+    """PPO's policy loss on PyTorch tensors: -mean(min(ratio * A, clip(ratio, 1 - eps, 1 + eps) * A))."""
+    unclipped = ratio * adv
+    clipped = ratio.clamp(1 - clip, 1 + clip) * adv
+    return -unclipped.minimum(clipped).mean()
+```
+
+```text
+== Step 4. The clipped surrogate, eps = 0.2 ==
+ ratio   A   objective min(rA, clip(r)A)   d objective / d ratio
+   0.7   +1                          0.70                     1.0
+   0.9   +1                          0.90                     1.0
+   1.1   +1                          1.10                     1.0
+   1.3   +1                          1.20                     0.0
+   0.7   -1                         -0.80                     0.0
+   0.9   -1                         -0.90                    -1.0
+   1.1   -1                         -1.10                    -1.0
+   1.3   -1                         -1.30                    -1.0
+```
+
+Gradient sütununu oku. Pozitif advantage'da oranı artırmak $1 + \epsilon = 1{,}2$'ye kadar kazandırır, sonra gradient 0,0 olur; negatif advantage'da aynısı 0,8'in altında olur. Öbür yönde gradient kalır: amacı kötüleştiren bir hareket asla clip'lenip yok edilmez.
+
+### Adım 5 · Tek iterasyon, `ppo.py`'ye karşı
+
+```python
+def approx_kl(logp_old, logp_new):
+    """The cheap KL estimate PPO logs per update: mean of log pi_old - log pi_new over the batch's actions."""
+    return (logp_old - logp_new).mean()
+```
+
+İterasyon `ppo.py`'nin ağını ve dersin environment'ını, güncelleme için ise senin fonksiyonlarını kullanır. Minibatch adımının özü:
+
+```python
+A = (A - A.mean()) / (A.std() + 1e-8)
+pg = clipped_surrogate((lp - b_lp[mb]).exp(), A, cfg.clip)
+vl = ((pi.v(b_o[mb]).squeeze(-1) - b_ret[mb]) ** 2).mean()
+loss = pg + cfg.vf_coef * vl - cfg.ent_coef * d.entropy().sum(-1).mean()
+```
+
+```text
+== Step 5. One PPO iteration (16 envs x 64 steps, 10 epochs x 4 minibatches) ==
+seed 0: approx KL ours 0.011696, ppo.py 0.011696; max |weights ours - ppo.py| = 0.0e+00
+reference (eps 0.2, 10 epochs): ppo.py iteration-1 KL, seeds 0/1/2 = 0.0117 / 0.006815 / 0.004259, mean 0.00759
+Break it (eps 100, 30 epochs): ppo.py iteration-1 KL, seeds 0/1/2 = 1.493 / 1.583 / 1.939, mean 1.67
+```
+
+Senin iterasyonun `ppo.py`'nin ilk iterasyonuyla aynı ağırlıkları veriyor (fark 0,0e+00): Deney'in güncellemesi senin yazdığın güncelleme. Üç seed'in ilk iterasyon KL'sinin ortalaması 0,00759, yani Boz'un altındaki referans satırı; clip olmadan ve 30 epoch ile 1,493 / 1,583 / 1,939, yani Boz tablosunun ilk sütunu. Trust region daha ilk güncellemede kayboluyor.
+
+### Adım 6 · Ufuk olarak discount
+
+```python
+def horizon_seconds(dt, gamma):
+    """How far ahead a discount looks, in seconds: the weights gamma^l sum to 1 / (1 - gamma) steps."""
+    return dt / (1.0 - gamma)
+```
+
+```text
+== Step 6. The discount as a time horizon, policy period 20 ms ==
+  gamma  horizon
+  0.900   0.20 s
+  0.950   0.40 s
+  0.990   2.00 s
+  0.995   4.00 s
+```
+
+$\gamma$ sweep'inin ufuk sütunu: en iyi ayar için 0,4 s, varsayılan 0,99 için 2 s.
+
+### Elinde kalan
+
+`physai.rl` artık `gae`, `gaussian_log_prob`, `clipped_surrogate`, `approx_kl` ve `horizon_seconds` fonksiyonlarını da içeriyor. [Ders 34](34-observation-action-design.md), kontrol hızı başına $\gamma$ seçmek için `horizon_seconds`'ı tersinden kullanıyor. [`tests/test_33_ppo.py`](../../tests/test_33_ppo.py) GAE'yi doğrudan toplama ve özel durumlarına karşı, episode kesmesini, log-probability'yi SciPy'ye karşı ve clip'in değerleriyle gradient'lerini kontrol ediyor; `uv run pytest tests/test_33_ppo.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+Tek makinede hazır bir PPO için Stable-Baselines3 herhangi bir `gymnasium.Env`'i kabul eder, örneğin ders 32'nin `GymReach`'ini (burada çalıştırılmadı: SB3 bu reponun bir bağımlılığı değil):
+
+```python
+from stable_baselines3 import PPO
+model = PPO("MlpPolicy", env, n_steps=64, batch_size=256, n_epochs=10, gamma=0.95, gae_lambda=0.95,
+            learning_rate=1e-3, clip_range=0.2)       # this lesson's settings, with one env
+model.learn(total_timesteps=300_000)
+```
+
+Varsayılanları bu dersinkilerden farklı ([PPO dokümantasyonu](https://stable-baselines3.readthedocs.io/en/master/modules/ppo.html)):
+
+| Ayar | Bu ders (`ppo.py`) | Stable-Baselines3 `PPO` varsayılanı |
+|---|---|---|
+| env başına rollout uzunluğu | 64 (× 16 env) | `n_steps = 2048` |
+| minibatch boyutu | 256 | `batch_size = 64` |
+| epoch | 10 | `n_epochs = 10` |
+| discount, GAE | 0,95, 0,95 | `gamma = 0.99`, `gae_lambda = 0.95` |
+| learning rate | 1e-3 | 3e-4 |
+| clip, value ve entropy ağırlıkları | 0,2, 0,5, 0 | `clip_range = 0.2`, `vf_coef = 0.5`, `ent_coef = 0.0` |
+| gradient norm clip'i | 0,5 | `max_grad_norm = 0.5` |
+| advantage normalization | minibatch başına | `normalize_advantage = True` |
+
+Üç tuzak:
+
+- **$\gamma = 0{,}99$ bir varsayılandır, yasa değil.** 50 Hz'de 2 s'lik bir ufuktur ve Deney'de başarıyı 0,95'e göre yarıya indirdi (159/300'e karşı 298/300). Onu Adım 6 ile görevin zaman ölçeğinden belirle.
+- **SB3'te `batch_size` minibatch'tir**; rollout `n_steps × n_envs`'tir.
+- **Truncation öğrenene yalnızca `info` üzerinden ulaşır.** SB3, info dict'i `TimeLimit.truncated`'ı ve son observation'ı taşıdığında zaman sınırı adımını bootstrap eder (ders 32, Kütüphaneyle kullan); kendi döngünde $\gamma V(s_{\text{final}})$'ı, `ppo.py`'nin yaptığı gibi, kendin ekle.
+
+## Deney
+
+[`ppo.py`](../../experiments/33-ppo/ppo.py) algoritmanın tamamı (yaklaşık 200 satır, RL kütüphanesi yok); [`experiment.py`](../../experiments/33-ppo/experiment.py) onu çalıştırır. Environment, ders 32'deki reach görevinin aynısı: mutlak joint hedefleri, 50 Hz, reward $-d$, run başına 300.000 policy adımı. Güncellemesi Sıfırdan yaz'da senin yazdığın güncelleme (Adım 5 onu ağırlık ağırlık tuttu).
 
 Çalıştırmadan önce **tahmin edin**: $\gamma$ 0,9'dan 0,995'e giderken 1,6 s'lik bir uzanma için hangi ufuk en iyi çalışır?
 
-MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU, run başına bir thread), Apple Silicon Mac (Apple M5). Her run kendi seed'i için deterministik: tam bir tekrar çalıştırma, [`output.txt`](../../experiments/33-ppo/output.txt) içindeki her başarı sayısını, mesafeyi, return'ü ve KL değerini aynen üretti; yalnızca süreler değişti. Evaluation, seed'i 10000–10099 olan episode'larda ortalama action'la (gürültüsüz) yapılır.
+MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU, run başına bir thread), Apple Silicon Mac (Apple M5). Her run kendi seed'i için deterministik: tam bir tekrar çalıştırma, [`output.txt`](../../experiments/33-ppo/output.txt) içindeki süreler dışında her sayıyı aynen üretti. Evaluation, seed'i 10000–10099 olan episode'larda ortalama action'la (gürültüsüz) yapılır.
 
 **Referans config, üç seed:**
 
@@ -132,7 +291,7 @@ MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU, run başına bir thread), Apple
 | 2 | 100/100 | %96,3–100,0 | 8,0 mm | 60 s |
 | toplam | 298/300 (%99,3) | %97,6–99,8 | | |
 
-Training süreleri, paylaşılan bir Mac'te altı run paralel koşarken ölçülen duvar saati süreleridir: yaklaşık. Script'in tamamı (15 run) 222 s sürdü. `python experiment.py --quick` yalnızca seed 0'ı eğitir (5 run) ve her tablonun seed 0 girdilerini yeniden üretir, toplam sayıları değil.
+Training süreleri yaklaşık duvar saati süreleridir (paylaşılan bir Mac'te altı run paralel); script'in tamamı 222 s sürdü. `python experiment.py --quick` yalnızca seed 0'ı eğitir (5 run) ve her tablonun seed 0 girdilerini yeniden üretir, toplam sayıları değil.
 
 Ortam adımına göre training başarısı (gürültülü policy, son 50 episode):
 
@@ -142,7 +301,7 @@ Ortam adımına göre training başarısı (gürültülü policy, son 50 episode
 | 1 | 0,16 | 0,22 | 0,28 | 0,40 | 0,92 | 0,96 |
 | 2 | 0,16 | 0,20 | 0,28 | 0,88 | 0,94 | 0,98 |
 
-İlk 150k adım boyunca training başarısı 0,14 ile 0,28 arasında kalıyor; sonra yaklaşık 100k adım içinde sıçrıyor. 150k'da durdurulan bir run başarısız görünürdü.
+150k adım boyunca training başarısı 0,14 ile 0,28 arasında kalıyor, sonra yaklaşık 100k adım içinde sıçrıyor; 150k'da durdurulan bir run başarısız görünürdü.
 
 **$\gamma$ sweep'i** (her biri 3 seed, toplam 300 evaluation episode'u):
 
@@ -155,7 +314,7 @@ Ortam adımına göre training başarısı (gürültülü policy, son 50 episode
 
 ![50 Hz'de discount γ'ya göre başarı oranı: γ 0,9'da (0,2 s ufuk) %90,7, 0,95'te (0,4 s) %99,3, 0,99'da (2 s) %53,0 ve 0,995'te (4 s) %45,0; Wilson hata çubukları ve iki uzun ufukta geniş saçılan seed noktalarıyla.](../../experiments/33-ppo/success_vs_gamma.png)
 
-Yaygın varsayılan $\gamma = 0{,}99$ burada başarıyı yarıya indiriyor ve seed'ler arası fark büyüyor (0,995'te 100 üzerinden 25 ile 79): bu bütçede, birkaç yüz milisaniyelik bir uzanmaya en iyi aynı mertebede bir ufuk hizmet etti. Mekanizmayı ayrıştırmadık. Adaylar: daha uzun ufuklar uzak reward'ların gürültüsünü her advantage tahminine ekler (GAE makalesinin anlattığı bias-variance dengesi); ayrıca value hedefleri $1/(1-\gamma)$ gibi büyür, `ppo.py` ise return'leri normalize etmez ve actor ile critic gradient'lerini ayrı clip'lemez, yani büyüyen value loss policy adımını da küçültür. Çekinceler: sonuç bütçeyle sınırlı (300k adım; $\gamma = 0{,}99$'un daha fazla veriyle yetişip yetişmediğini test etmedik) ve Wilson aralıkları 300 evaluation episode'unu sayar ama yalnızca üç eğitilmiş policy'ye dayanır, bu yüzden seed'ler arası değişkenliği olduğundan küçük gösterir. 0,95 ile 0,99 arasındaki fark her seed'de geçerli; 0,99 ile 0,995 arasındaki fark değil.
+Yaygın varsayılan $\gamma = 0{,}99$ burada başarıyı yarıya indiriyor ve seed'ler arası fark büyüyor (0,995'te 100 üzerinden 25 ile 79): birkaç yüz milisaniyelik bir uzanmaya en iyi aynı mertebede bir ufuk hizmet etti. Mekanizmayı ayrıştırmadık. Adaylar: daha uzun ufuklar uzak reward'ların gürültüsünü her advantage'a ekler (GAE makalesinin bias-variance dengesi); ayrıca value hedefleri $1/(1-\gamma)$ gibi büyür, `ppo.py` ise return'leri normalize etmez ve actor ile critic gradient'lerini ayrı clip'lemez, yani büyüyen value loss policy adımını da küçültür. Çekinceler: bütçe sabit (300k adım) ve Wilson aralıkları 300 episode'u sayar ama yalnızca üç eğitilmiş policy'ye dayanır. 0,95 ile 0,99 arasındaki fark her seed'de geçerli; 0,99 ile 0,995 arasındaki fark değil.
 
 ## Boz
 
@@ -168,12 +327,12 @@ Aynı batch üzerinde on epoch'un policy'yi fazla uzağa yürütmesini engelleye
 | 2 | 1/100 | %0,2–5,4 | 144,2 mm | 1,94 / 3,04 / 7,78 / 392 / 1070 |
 | referans ($\epsilon$ 0,2, 10 epoch) | | | | 0,00759 / 0,0201 / 0,0211 / 0,0259 / 0,0657 (3 seed ortalaması) |
 
-Mekanizma: $\rho \hat A$ surrogate'ı yalnızca $\pi_{\theta_{\text{old}}}$ yakınında iyileşmenin geçerli bir tahminidir. Clip olmadan optimizer büyük advantage'lı örnekler için $\rho$'yu itmeye devam eder, ortalama ve $\log\sigma$ sıçrar, yaklaşık KL 0,01 civarından yüzlere çıkar. Sonraki batch, critic'in fit edildiği policy ile pek ilgisi kalmamış bir policy tarafından toplanır; böylece advantage'lar da yanlış olur. Son mesafeler (144,2–272,5 mm), ders 32'deki rastgele policy ile aynı mertebededir (medyan 185,7 mm). Güncelleme başına yaklaşık KL'yi ve clip oranını izlemek en ucuz erken uyarıdır; Unitree'nin config'i bir adım ileri gidip learning rate'i bir KL hedefine göre ayarlar (`desired_kl = 0.01`).
+Mekanizma: $\rho \hat A$ yalnızca $\pi_{\theta_{\text{old}}}$ yakınında iyileşmenin geçerli bir tahminidir. Clip olmadan optimizer büyük advantage'lı örnekler için $\rho$'yu itmeye devam eder, ortalama ve $\log\sigma$ sıçrar ve yaklaşık KL 0,01 civarından yüzlere çıkar (ilk iterasyonda bile 1,49–1,94, Sıfırdan yaz, Adım 5). Sonraki batch critic'in fit edilmediği bir policy'den gelir; böylece advantage'lar da yanlış olur. Son mesafeler (144,2–272,5 mm), ders 32'deki rastgele policy ile aynı mertebededir (medyan 185,7 mm). Güncelleme başına yaklaşık KL'yi ve clip oranını izlemek en ucuz erken uyarıdır; Unitree'nin config'i bir adım ileri gidip learning rate'i bir KL hedefine göre ayarlar (`desired_kl = 0.01`).
 
 ## Gerçek robotta
 
-- Eğitilmiş actor 15 → 64 → 64 → 4'lük bir MLP; deploy etmek $\mu_\theta(o)$'yu 50 Hz'de çalıştırıp dört çıktıyı servo hedefi olarak göndermek demektir. Critic robotta gerekmez.
-- SO-101'in STS3215 servoları Menagerie dosyasında `kp = 998.22`, `kv = 2.731` ve `forcerange = ±2.94` N·m'lik position actuator olarak modellenmiştir ([`so101.xml`](https://github.com/google-deepmind/mujoco_menagerie/tree/f3b6013/robotstudio_so101)). Gerçek servonun iç döngüsü, gecikmesi ve boşluğu (backlash) farklıdır; policy bunların hiçbiriyle eğitilmedi (Bölüm 9).
+- Eğitilmiş actor 15 → 64 → 64 → 4'lük bir MLP; deploy etmek $\mu_\theta(o)$'yu 50 Hz'de çalıştırıp dört çıktıyı servo hedefi olarak göndermek demektir. Critic geride kalır.
+- Menagerie, STS3215 servolarını position actuator olarak modeller (`kp = 998.22`, `kv = 2.731`, `forcerange = ±2.94` N·m, [`so101.xml`](https://github.com/google-deepmind/mujoco_menagerie/tree/f3b6013/robotstudio_so101)); gerçek servonun döngüsü, gecikmesi ve boşluğu (backlash) farklıdır ve policy bunların hiçbiriyle eğitilmedi (Bölüm 9).
 - Gerçek kol için prosedür: 20+ ulaşılabilir hedeften oluşan sabit bir liste, deterministik policy'yi çalıştır, son gripper konumunu [ders 20](../part-5-perception-and-estimation/20-pixels-to-table.md)'deki kalibre kamerayla ölç, $k/n$'yi Wilson aralığıyla raporla. **Gerçek kolda henüz ölçülmedi.**
 
 ## Kendini dene
@@ -186,7 +345,7 @@ Mekanizma: $\rho \hat A$ surrogate'ı yalnızca $\pi_{\theta_{\text{old}}}$ yak�
 
 1. $\tau = 0{,}02 / (1 - 0{,}99) = 2{,}0$ s. 200 Hz'de ($\Delta t = 5$ ms): $\gamma = 1 - 0{,}005/2 = 0{,}9975$.
 2. Zaman sınırına yakın durumlar. Buradaki her reward $-d \le 0$ olduğundan geleceği kesmek bu durumların value hedeflerini bootstrap edilmiş hâllerinden fazla yüksek (sıfıra daha yakın) yapar; aynı kol durumu, observation'da olmayan saate göre farklı hedefler alır. Ölçün; bu varyantı biz çalıştırmadık.
-3. Açık; çalıştırmadık. Başarıyla birlikte iterasyon başına KL'yi de raporlayın, yoksa işi schedule'ın mı şansın mı yaptığını ayırt edemezsiniz.
+3. Açık; çalıştırmadık. İterasyon başına KL'yi başarıyla birlikte raporlayın, yoksa schedule'ı şanstan ayırt edemezsiniz.
 
 ## Akılda kalanlar ve kaynaklar
 

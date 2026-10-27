@@ -1,44 +1,92 @@
-# Lesson 37 · Latency. Every answer is supported by the lesson page or
-# experiments/37-latency/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 37 · Latency. Every answer is supported by the lesson page,
+# experiments/37-latency/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: A joint loop works well at 1 kHz. You add a camera that delivers each reading 50 ms late but keep the controller at 1 kHz. How much delay does the loop now see?
+    tr: Bir joint döngüsü 1 kHz'de iyi çalışıyor. Her okumayı 50 ms geç veren bir kamera ekliyorsun ama controller'ı 1 kHz'de tutuyorsun. Döngü artık ne kadar gecikme görür?
+  options:
+    - en: About 1 ms, because the controller still runs every millisecond.
+      tr: Yaklaşık 1 ms, çünkü controller hâlâ her milisaniyede çalışıyor.
+    - en: About 50 ms; control rate and latency are different knobs, and the loop only sees the total delay.
+      tr: Yaklaşık 50 ms; control rate ile latency ayrı düğmelerdir ve döngü yalnızca toplam gecikmeyi görür.
+    - en: None, as long as the camera's frame rate is high.
+      tr: Kameranın frame rate'i yüksek olduğu sürece hiç.
+  answer: 1
+  why:
+    en: 'Core idea, consequences of the delay budget: a 1 kHz loop with 50 ms of camera delay is still a 50 ms loop. Sensor, filter, bus, compute and hold all add up.'
+    tr: 'Ana fikir, gecikme bütçesinin sonuçları: 50 ms kamera gecikmesi olan 1 kHz''lik döngü hâlâ 50 ms''lik bir döngüdür. Sensor, filtre, bus, hesaplama ve tutma hep toplanır.'
+- stage: pre
+  q:
+    en: You steer a car while watching a screen that shows the road half a second late. Why do hard corrections end in growing weaving instead of just a slower drive?
+    tr: Yolu yarım saniye geç gösteren bir ekrana bakarak araba sürüyorsun. Sert düzeltmeler neden yalnızca daha yavaş bir sürüşle değil, büyüyen bir zikzakla biter?
+  options:
+    - en: The corrections arrive at the wrong moment, so each one feeds the next swing.
+      tr: Düzeltmeler yanlış anda geliyor, bu yüzden her biri bir sonraki salınımı besliyor.
+    - en: The delay makes the steering weaker.
+      tr: Gecikme direksiyonu zayıflatıyor.
+    - en: A late screen shows a blurred image.
+      tr: Geç gelen ekran bulanık görüntü gösteriyor.
+  answer: 0
+  why:
+    en: A delay changes phase, not gain. In part A the loop goes from 4.45% overshoot without delay to 31.23% at 40 ms and is unstable at 50 ms.
+    tr: Gecikme gain'i değil fazı değiştirir. A bölümünde döngü gecikmesiz %4,45 overshoot'tan 40 ms'de %31,23'e çıkıyor ve 50 ms'de kararsız.
+- stage: check
+  q:
+    en: In Build it, Step 2, the delayed characteristic equation is evaluated at s = j·22.99 rad/s with d = 49.5 ms and gives 7.3e-15. What does that show?
+    tr: Sıfırdan yaz, Adım 2'de gecikmeli karakteristik denklem s = j·22,99 rad/s ve d = 49,5 ms'de değerlendiriliyor ve 7,3e-15 veriyor. Bu neyi gösterir?
+  options:
+    - en: The loop has no poles at all at that delay.
+      tr: Döngünün o gecikmede hiç kutbu yok.
+    - en: The simulation has converged.
+      tr: Simülasyon yakınsamış.
+    - en: A pole sits on the imaginary axis at the crossover frequency, so d_max = PM/ω_c is exactly the boundary between decaying and growing oscillation.
+      tr: Crossover frekansında sanal eksen üzerinde bir kutup var; yani d_max = PM/ω_c tam olarak sönen ve büyüyen salınım arasındaki sınırdır.
+  answer: 2
+  why:
+    en: The equation is checked without any simulation; Step 3's bisection then measures the same boundary in the loop, stable at 48 ms and unstable at 49 ms.
+    tr: Denklem hiç simülasyon yapmadan kontrol ediliyor; Adım 3'teki bisection aynı sınırı döngüde ölçüyor, 48 ms'de kararlı, 49 ms'de kararsız.
+- stage: check
+  q:
+    en: In Use it, MuJoCo's sensors get delay="0.039" and the loop reproduces our 40 ms result (31.23%). Where does the missing millisecond come from?
+    tr: Kütüphaneyle kullan'da MuJoCo sensörlerine delay="0.039" veriliyor ve döngü bizim 40 ms sonucumuzu (%31,23) yeniden üretiyor. Eksik milisaniye nereden geliyor?
+  options:
+    - en: MuJoCo rounds every delay up to the next 10 ms.
+      tr: MuJoCo her gecikmeyi bir sonraki 10 ms'ye yuvarlar.
+    - en: d.sensordata read after mj_step was computed before that step's integration, so it is already one tick old.
+      tr: mj_step'ten sonra okunan d.sensordata o adımın integrasyonundan önce hesaplanmıştır, yani zaten bir tick eskidir.
+    - en: The motor adds a millisecond of response time.
+      tr: Motor bir milisaniyelik tepki süresi ekler.
+  answer: 1
+  why:
+    en: The "no delay attribute" row gives 4.46%, the same as our loop at 1 ms. That stale tick counts toward the delay budget.
+    tr: '"no delay attribute" satırı %4,46 veriyor; bizim döngünün 1 ms''deki sonucuyla aynı. O bayat tick gecikme bütçesine dahildir.'
+- stage: post
+  q:
     en: Overshoot is 4.45% without delay, 5.02% at 20 ms and 31.23% at 40 ms; at 50 ms the loop is unstable. Why does it fail so abruptly?
     tr: Overshoot gecikmesiz %4,45, 20 ms'de %5,02 ve 40 ms'de %31,23; 50 ms'de döngü kararsız. Neden bu kadar ani başarısız oluyor?
   options:
-    - en: The delay removes phase $\omega_c d$ at the crossover; once that eats the 65.2° phase margin, at $d_{\max} = 49.5$ ms, corrections reinforce the error.
-      tr: Gecikme crossover'da $\omega_c d$ kadar faz siler; bu 65,2°'lik phase margin'i yediğinde, $d_{\max} = 49{,}5$ ms'de, düzeltmeler hatayı büyütmeye başlar.
     - en: The delay lowers the loop gain until the joint can no longer reach the target.
       tr: Gecikme döngü gain'ini, eklem artık hedefe ulaşamayacak kadar düşürür.
     - en: The 1 kHz physics step becomes too coarse beyond 40 ms.
       tr: 1 kHz'lik physics adımı 40 ms'nin ötesinde fazla kaba kalır.
-  answer: 0
+    - en: The delay removes phase $\omega_c d$ at the crossover; once that eats the 65.2° phase margin, at $d_{\max} = 49.5$ ms, corrections reinforce the error.
+      tr: Gecikme crossover'da $\omega_c d$ kadar faz siler; bu 65,2°'lik phase margin'i yediğinde, $d_{\max} = 49{,}5$ ms'de, düzeltmeler hatayı büyütmeye başlar.
+  answer: 2
   why:
     en: 'Part A: predicted 49.5 ms, measured stable at 48 ms and unstable at 49 ms, oscillating with the predicted period (272 ms vs 273 ms). A delay changes phase, not gain.'
     tr: 'A bölümü: tahmin 49,5 ms; ölçümde 48 ms kararlı, 49 ms kararsız ve salınım tahmin edilen periyotta (273 ms''ye karşı 272 ms). Gecikme gain''i değil fazı değiştirir.'
-- q:
+- stage: post
+  q:
     en: In Break it the delay is fixed at 30 ms and Kp is raised at the same damping ratio ζ = 0.7. Why does the loop diverge at Kp = 80?
     tr: Boz bölümünde gecikme 30 ms'de sabit ve Kp aynı damping ratio ζ = 0,7'de artırılıyor. Döngü neden Kp = 80'de ıraksıyor?
   options:
-    - en: A higher Kp at constant ζ means less damping, so it overshoots more.
-      tr: Sabit ζ'de daha yüksek Kp daha az damping demektir, bu yüzden daha çok overshoot yapar.
     - en: A stiffer loop has a higher crossover frequency, so the same 30 ms costs more phase; its delay margin falls to 24.7 ms.
       tr: Daha sert bir döngünün crossover frekansı daha yüksektir, bu yüzden aynı 30 ms daha fazla faza mal olur; delay margin'i 24,7 ms'ye düşer.
+    - en: A higher Kp at constant ζ means less damping, so it overshoots more.
+      tr: Sabit ζ'de daha yüksek Kp daha az damping demektir, bu yüzden daha çok overshoot yapar.
     - en: The torque limit is reached at Kp = 80.
       tr: Kp = 80'de torque sınırına ulaşılır.
-  answer: 1
+  answer: 0
   why:
     en: 'Break it table: $\omega_c$ 22.99 → 45.97 rad/s and $d_{\max}$ 49.5 → 24.7 ms from Kp 20 to 80; the formula predicts both failing rows (24.7 and 17.5 ms are below 30 ms).'
     tr: 'Boz tablosu: Kp 20''den 80''e $\omega_c$ 22,99 → 45,97 rad/s ve $d_{\max}$ 49,5 → 24,7 ms; formül başarısız iki satırı da öngörüyor (24,7 ve 17,5 ms, 30 ms''nin altında).'
-- q:
-    en: At 40 ms of delay, prediction with an exact model brings overshoot from 31.23% back to 4.45%. With a model whose inertia is 30% too low it gives 9.44%. What does that tell you?
-    tr: 40 ms gecikmede tam doğru bir modelle tahmin, overshoot'u %31,23'ten %4,45'e geri getiriyor. Inertia'sı %30 düşük bir modelle %9,44 veriyor. Bu size ne söyler?
-  options:
-    - en: Prediction removes any delay, whatever model it uses.
-      tr: Tahmin, hangi modeli kullanırsa kullansın her gecikmeyi siler.
-    - en: Prediction is useless unless the model is exact.
-      tr: Model tam doğru değilse tahmin işe yaramaz.
-    - en: Prediction is exact only when the model and the delay are; a wrong model still helps here but changes the closed-loop response.
-      tr: Tahmin yalnızca model ve gecikme doğruysa tamdır; yanlış bir model burada yine de yardım eder ama kapalı döngü tepkisini değiştirir.
-  answer: 2
-  why:
-    en: 'Part C table: inertia +50% gives 0.00% overshoot, −30% gives 9.44%, an assumed delay of 20 ms (true 40) gives 4.70%. Knowing the delay and the dynamics (lesson 38) makes prediction safe.'
-    tr: 'C bölümü tablosu: inertia +%50 %0,00 overshoot, −%30 %9,44, varsayılan 20 ms gecikme (gerçek 40) %4,70 veriyor. Gecikmeyi ve dinamiği bilmek (ders 38) tahmini güvenli yapar.'

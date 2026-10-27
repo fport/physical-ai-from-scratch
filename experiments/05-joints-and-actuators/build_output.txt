@@ -1,0 +1,36 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Actuator force laws vs MuJoCo (100 random states and controls) ==
+motor, gear 3                        gainprm[0]   1.0 · biasprm[:3] [0. 0. 0.] · max error 0.0e+00 N m
+position kp 40 kv 2, forcerange ±5   gainprm[0]  40.0 · biasprm[:3] [  0. -40.  -2.] · max error 3.6e-15 N m
+velocity kv 0.7                      gainprm[0]   0.7 · biasprm[:3] [ 0.   0.  -0.7] · max error 0.0e+00 N m
+
+== Step 2. The Experiment's link: inertia, gravity torque, kv from dampratio ==
+link inertia about the hinge 0.00414684 kg m^2 · M_00 - armature 0.00414684
+gravity torque at q = 0.3: -tau_g cos q = -0.281156 N m · -qfrc_bias -0.281156 N m
+   kp  kv ours  kv MuJoCo
+    1    0.359      0.359
+   10    1.134      1.134
+  100    3.586      3.586
+ 1000   11.340     11.340
+
+== Step 3. Our servo loop vs mj_step (implicitfast), step -0.5 rad -> 0, 3 s ==
+   kp  max |q_ours - qpos|  sag (deg)  servo_sag (deg)  rise 10-90 % (ms)
+    1              5.6e-17     16.193           16.193              533.0
+    3              1.4e-17      5.594            5.594              335.6
+   10              2.8e-17      1.685            1.685              185.6
+   30              2.8e-17      0.562            0.562              106.1
+  100              1.4e-17      0.169            0.169               56.7
+  300              5.6e-17      0.056            0.056               31.6
+ 1000              2.8e-17      0.017            0.017               16.5
+
+== Step 4. Growth per step: kv explicit (Euler) or implicit (implicitfast) vs MuJoCo ==
+      kp armature   h*w  Euler growth  MuJoCo Euler  implicitfast growth  MuJoCo implicitfast
+     998    0.028  0.88         0.725        stable                0.812               stable
+     998    0.010  1.33         0.343        stable                0.678               stable
+     998    0.005  1.65         1.650      diverged                0.595               stable
+     998    0.002  2.01         2.838      diverged                0.519               stable
+     998    0.000  2.45         4.143      diverged                0.446               stable
+    3000    0.028  1.53         0.725        stable                0.812               stable
+   10000    0.028  2.79         5.491      diverged                3.262             diverged
+   30000    0.028  4.83        19.786      diverged               13.661             diverged

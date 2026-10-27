@@ -1,0 +1,28 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | SciPy 1.18.1
+
+== Step 1. Linearize at the upright: central differences of mj_step vs mjd_transitionFD ==
+theta row of A: [0.     1.0027 0.     0.01  ] | B: [ 0.0001 -0.0002  0.0095 -0.0232]
+max |A - A_mj| = 2.2e-16 | max |B - B_mj| = 2.7e-20
+open-loop max |eig(A)| = 1.0536
+
+== Step 2. Finite-horizon LQR (Qf = Q): the first gain K_0 for growing horizons ==
+N =   10 steps (  0.1 s)  K_0 = [  0.4182 -14.1056   0.7483  -2.6585]
+N =   50 steps (  0.5 s)  K_0 = [ -0.2921 -45.6948  -0.9843  -7.1108]
+N =  200 steps (  2.0 s)  K_0 = [ -8.9347 -65.5536 -10.2164 -11.7349]
+N = 1000 steps ( 10.0 s)  K_0 = [ -9.081  -65.8771 -10.3669 -11.81  ]
+
+== Step 3. Infinite horizon: iterate Riccati to a fixed point vs solve_discrete_are ==
+converged after 978 iterations | max |P - P_scipy| / max |P| = 3.0e-11
+K = [ -9.081  -65.8771 -10.3669 -11.81  ]
+closed-loop |eig(A - B K)| = [0.9202 0.9202 0.9869 0.9869]
+
+== Step 4. Use the gain: release at rest, u = clip(-K x, +-F), 5 s ==
+theta0 (deg) |     F=5 N |    F=10 N |    F=50 N
+          15 |        ok |        ok |        ok
+          20 |      fell |        ok |        ok
+          35 |      fell | track end |        ok
+          50 |      fell |      fell |        ok
+          55 |      fell |      fell | track end
+
+== Step 5. MPPI swing-up from hanging down (|F| <= 20 N, 64 samples, sigma 8 N, lambda 0.5, 50 Hz) ==
+horizon 0.5 s, 8 seeds: held (|theta| < 10 deg for the last 1 s) 8/8 | median worst |theta| 3.1 deg | median cost 10.79

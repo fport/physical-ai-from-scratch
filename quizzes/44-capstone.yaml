@@ -1,44 +1,92 @@
-# Lesson 44 · Capstone. Every answer is supported by the lesson page or
-# experiments/44-capstone/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 44 · Capstone. Every answer is supported by the lesson page,
+# experiments/44-capstone/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: A system of 5 layers in series must succeed 90% of the time end to end. Under an even split, what must each layer reach?
+    tr: Seri bağlı 5 katmanlı bir sistem uçtan uca %90 başarılı olmalı. Eşit paylaşımda her katman neye ulaşmalı?
+  options:
+    - en: 0.90, the same as the system.
+      tr: 0,90, sistemle aynı.
+    - en: 0.886, the Wilson lower bound of a layer that passed 30/30.
+      tr: 0,886, 30/30 geçen bir katmanın Wilson alt sınırı.
+    - en: 0.979, because layers in series multiply (0.979^5 ≈ 0.90).
+      tr: 0,979, çünkü seri katmanlar çarpılır (0,979^5 ≈ 0,90).
+  answer: 2
+  why:
+    en: 'Core idea: reliability multiplies, so five very good layers can still make a mediocre system; even split $p_i = P^{1/L}$.'
+    tr: 'Ana fikir: güvenilirlik çarpılır, beş çok iyi katman yine de vasat bir sistem yapabilir; eşit paylaşım $p_i = P^{1/L}$.'
+- stage: pre
+  q:
+    en: A camera is slightly off. Where does the failure usually show up?
+    tr: Bir kamera biraz kaymış. Başarısızlık genellikle nerede ortaya çıkar?
+  options:
+    - en: In the camera driver, as an error message.
+      tr: Kamera sürücüsünde, bir hata mesajı olarak.
+    - en: Nowhere; small camera errors cancel out.
+      tr: Hiçbir yerde; küçük kamera hataları birbirini götürür.
+    - en: Several layers later, for example as a gripper closing on air; the camera itself reports no error.
+      tr: Birkaç katman sonra, örneğin boşluğa kapanan bir gripper olarak; kameranın kendisi hata raporlamaz.
+  answer: 2
+  why:
+    en: Break it, 2° of tilt; the harness needs to check every contract and blame the first one that broke.
+    tr: Boz, 2°'lik eğim; harness her sözleşmeyi kontrol etmeli ve ilk bozulanı suçlamalı.
+- stage: check
+  q:
+    en: In Build it, Step 1, pure geometry (project, round to a pixel, cast back) reproduces the Experiment's median estimate errors within 0.3 mm. At 1° all 15 estimates break the 8 mm contract, yet 12 of 15 episodes succeeded. What follows?
+    tr: Sıfırdan yaz, Adım 1'de saf geometri (izdüşür, piksele yuvarla, geri at) Deney'in medyan tahmin hatalarını 0,3 mm içinde üretiyor. 1°'de 15 tahminin hepsi 8 mm sözleşmesini bozuyor, yine de 15 episode'un 12'si başarılı. Bundan ne çıkar?
+  options:
+    - en: A broken contract is not a failure; the open jaw tolerates more than the contract asks, and the contract only matters where it predicts failures.
+      tr: Bozulan sözleşme başarısızlık demek değildir; açık çene sözleşmenin istediğinden fazlasını tolere eder ve sözleşme ancak başarısızlığı öngördüğü yerde önemlidir.
+    - en: The 8 mm contract is wrong and should be removed.
+      tr: 8 mm sözleşmesi yanlış ve kaldırılmalı.
+    - en: The Experiment measured the wrong cube.
+      tr: Deney yanlış küpü ölçtü.
+  answer: 0
+  why:
+    en: 'Step 1 table: median 10.1 mm at 1° (Experiment 9.8); success falls only at 2° (3/15), where the error reaches about 20 mm.'
+    tr: 'Adım 1 tablosu: 1°''de medyan 10,1 mm (Deney 9,8); başarı ancak hata yaklaşık 20 mm''ye vardığı 2°''de düşüyor (3/15).'
+- stage: check
+  q:
+    en: Build it, Step 2 accepts all 15 cubes with a position-only reach check, but the Experiment rejected the blue cube in layouts 1 and 2. Why the difference?
+    tr: Sıfırdan yaz, Adım 2 yalnızca konuma bakan bir erişim kontrolüyle 15 küpün hepsini kabul ediyor, ama Deney 1. ve 2. dizilimdeki mavi küpü reddetti. Fark neden?
+  options:
+    - en: Our IK is more accurate than lesson 16's.
+      tr: Bizim IK ders 16'nınkinden daha isabetli.
+    - en: The contract differs; lesson 16's grasp also needs the jaw pointing down and closing across two faces, which is out of reach at 21.0 and 21.4 cm from the pan axis.
+      tr: Sözleşme farklı; ders 16'nın grasp'i ayrıca çenenin aşağı bakmasını ve iki yüze kapanmasını istiyor, bu da pan ekseninden 21,0 ve 21,4 cm'de erişim dışında.
+    - en: The blue cubes were outside the 12–30 cm workspace.
+      tr: Mavi küpler 12–30 cm'lik workspace'in dışındaydı.
+  answer: 1
+  why:
+    en: Step 2 table, radius 21.0 and 21.4 cm (inside the workspace) and reach misses below 0.5 mm; write down which reach contract the validation layer enforces.
+    tr: Adım 2 tablosu, yarıçap 21,0 ve 21,4 cm (workspace içinde) ve erişim kaçırmaları 0,5 mm'nin altında; validation katmanının hangi erişim sözleşmesini uyguladığını yaz.
+- stage: post
+  q:
     en: Perception, grasp and place each passed 30/30 for `qwen2.5:7b`. Why does that not show they are good enough for a 0.90 system of 5 layers?
     tr: '`qwen2.5:7b` için perception, grasp ve bırakma 30/30 geçti. Bu neden 5 katmanlı 0,90''lık bir sistem için yeterince iyi olduklarını göstermez?'
   options:
-    - en: Because 30/30 has a Wilson lower bound of only 0.886, below the 0.979 per layer an even budget asks for.
-      tr: Çünkü 30/30'un Wilson alt sınırı yalnızca 0,886; bu, eşit bir bütçenin katman başına istediği 0,979'un altında.
     - en: Because a layer that never fails is suspicious and must be broken.
       tr: Çünkü hiç başarısız olmayan bir katman şüphelidir ve bozuk olmalıdır.
+    - en: Because 30/30 has a Wilson lower bound of only 0.886, below the 0.979 per layer an even budget asks for.
+      tr: Çünkü 30/30'un Wilson alt sınırı yalnızca 0,886; bu, eşit bir bütçenin katman başına istediği 0,979'un altında.
     - en: Because the end-to-end rate is the sum, not the product, of the layer rates.
       tr: Çünkü uçtan uca oran, katman oranlarının çarpımı değil toplamıdır.
-  answer: 0
+  answer: 1
   why:
-    en: Math details, $n/(n + z^2) = 30/(30 + 1.96^2) \approx 0.886$ and $0.90^{1/5} = 0.979$. The 30 episodes are not even independent draws, so the intervals are if anything too narrow.
-    tr: Math details, $n/(n + z^2) = 30/(30 + 1{,}96^2) \approx 0{,}886$ ve $0{,}90^{1/5} = 0{,}979$. 30 episode bağımsız çekilişler bile değil, bu yüzden aralıklar olsa olsa fazla dar.
-- q:
+    en: Math details, $n/(n + z^2) = 0.886$ at $n = 30$ and $0.90^{1/5} = 0.979$; Build it, Step 4 finds that 181 clean episodes would be needed.
+    tr: Matematik ayrıntısı, $n = 30$'da $n/(n + z^2) = 0{,}886$ ve $0{,}90^{1/5} = 0{,}979$; Sıfırdan yaz, Adım 4 181 temiz episode gerektiğini buluyor.
+- stage: post
+  q:
     en: At 2° of unmodelled camera tilt, the visible symptom is the gripper reporting "closed on nothing". Which layer does the harness blame, and why?
     tr: 2°'lik modellenmemiş kamera eğiminde görünen belirti, gripper'ın "closed on nothing" raporlaması. Harness hangi katmanı suçlar ve neden?
   options:
     - en: Grasp, because that is where the failure became visible.
       tr: Grasp, çünkü başarısızlık orada görünür oldu.
-    - en: Perception, because its contract (estimate within 8 mm of the truth) is the first one broken in pipeline order.
-      tr: Perception, çünkü pipeline sırasında ilk bozulan sözleşme onunki (tahmin gerçeğe 8 mm içinde).
     - en: Language, because the agent kept retrying.
       tr: Dil, çünkü agent yeniden denemeye devam etti.
-  answer: 1
+    - en: Perception, because its contract (estimate within 8 mm of the truth) is the first one broken in pipeline order.
+      tr: Perception, çünkü pipeline sırasında ilk bozulan sözleşme onunki (tahmin gerçeğe 8 mm içinde).
+  answer: 2
   why:
     en: Break it table, median estimate error 19.8 mm at 2° and 12 of the failures charged to perception. The first contract broken is upstream of the first failure seen.
     tr: Boz tablosu, 2°'de medyan tahmin hatası 19,8 mm ve başarısızlıkların 12'si perception'a yazılıyor. Bozulan ilk sözleşme, görülen ilk başarısızlığın yukarısındadır.
-- q:
-    en: At 2° the agent retried, up to three picks per episode, and success still fell to 3/15. Why did the retries not help?
-    tr: 2°'de agent episode başına üç pick'e kadar yeniden denedi, başarı yine de 3/15'e düştü. Yeniden denemeler neden işe yaramadı?
-  options:
-    - en: The agent ran out of model turns before the second pick.
-      tr: Agent ikinci pick'ten önce model turlarını tüketti.
-    - en: Validation rejected every retry as out of reach.
-      tr: Validation her yeniden denemeyi erişim dışı diye reddetti.
-    - en: The error is systematic; each retry aimed at the same biased estimate. Retries fix random errors, not systematic ones.
-      tr: Hata sistematik; her deneme aynı sapmalı tahmine nişanlandı. Yeniden denemek rastgele hataları düzeltir, sistematik olanları değil.
-  answer: 2
-  why:
-    en: Break it. On hardware there is no ground truth, so the remedy is a calibration check before each session, for example a fiducial whose estimate must land within the 8 mm contract.
-    tr: Boz bölümü. Donanımda ground truth yok; çare her oturumdan önce bir calibration kontrolü, örneğin tahmini 8 mm sözleşmesinin içine düşmesi gereken bir fiducial.

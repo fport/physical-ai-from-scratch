@@ -1,6 +1,7 @@
-# Lesson 33 · PPO. Every answer is supported by the lesson page or
-# experiments/33-ppo/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 33 · PPO. Every answer is supported by the lesson page,
+# experiments/33-ppo/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: Why did $\gamma = 0.99$ do much worse than $\gamma = 0.95$ on the 1.6 s reach at 50 Hz?
     tr: 50 Hz'de 1,6 s'lik uzanmada $\gamma = 0{,}99$ neden $\gamma = 0{,}95$'ten çok daha kötü sonuç verdi?
   options:
@@ -14,7 +15,53 @@
   why:
     en: $\tau = \Delta t/(1-\gamma) = 0.02/0.01 = 2.0$ s. γ sweep table, 159/300 vs 298/300; the lesson did not isolate the mechanism and the result is budget-limited.
     tr: $\tau = \Delta t/(1-\gamma) = 0{,}02/0{,}01 = 2{,}0$ s. γ sweep tablosu, 298/300'e karşı 159/300; ders mekanizmayı ayrıştırmadı ve sonuç bütçeyle sınırlı.
-- q:
+- stage: pre
+  q:
+    en: After a batch of attempts, PPO compares each action's outcome with what the critic expected from that state. Which actions become more likely?
+    tr: Bir deneme grubundan sonra PPO her action'ın sonucunu critic'in o state'ten beklediğiyle karşılaştırıyor. Hangi action'lar daha olası hâle gelir?
+  options:
+    - en: Every action that got a positive reward.
+      tr: Pozitif ödül alan her action.
+    - en: The actions that turned out better than expected (positive advantage), and only within a 20% change of their probability per update.
+      tr: Beklenenden iyi çıkan action'lar (pozitif advantage), ve güncelleme başına olasılıklarında yalnızca %20'lik bir değişim içinde.
+    - en: The actions the critic rated highest before the batch.
+      tr: Critic'in gruptan önce en yüksek puanladığı action'lar.
+  answer: 1
+  why:
+    en: Here every reward is $-d \le 0$, so "positive reward" never happens; the advantage measures better or worse than usual, and the clip at $1 \pm 0.2$ caps the change (Build it, Step 4).
+    tr: Burada her ödül $-d \le 0$, yani "pozitif ödül" hiç olmuyor; advantage olağandan iyi mi kötü mü olduğunu ölçer, $1 \pm 0{,}2$'deki clip de değişimi sınırlar (Sıfırdan yaz, Adım 4).
+- stage: check
+  q:
+    en: In Build it, Step 4, the ratio is 1.3 and the advantage +1. What gradient does the clipped surrogate pass to the ratio, and why?
+    tr: Sıfırdan yaz, Adım 4'te ratio 1,3 ve advantage +1. Clipped surrogate ratio'ya hangi gradient'i geçirir, neden?
+  options:
+    - en: 0.0; above $1 + \epsilon = 1.2$ there is nothing more to gain from making this action even more likely.
+      tr: 0,0; $1 + \epsilon = 1{,}2$'nin üstünde bu action'ı daha da olası yapmaktan kazanılacak bir şey kalmaz.
+    - en: 1.0, the same as inside the clip range.
+      tr: 1,0; clip aralığının içindekiyle aynı.
+    - en: −1.0, pushing the ratio back to 1.
+      tr: −1,0; ratio'yu 1'e geri iter.
+  answer: 0
+  why:
+    en: The objective is $\min(\rho A, \mathrm{clip}(\rho) A)$ = 1.20 there. With $A = -1$ the gradient vanishes below 0.8 instead (0.0 at ratio 0.7), while moves that make the objective worse keep their gradient.
+    tr: Amaç orada $\min(\rho A, \mathrm{clip}(\rho) A)$ = 1,20. $A = -1$ ile gradient bunun yerine 0,8'in altında kaybolur (ratio 0,7'de 0,0); amacı kötüleştiren hareketler gradient'ini korur.
+- stage: check
+  q:
+    en: You move to Stable-Baselines3 and set `batch_size=1024`, expecting this lesson's 1024 samples per iteration. What did you set?
+    tr: Stable-Baselines3'e geçiyorsun ve bu dersin iterasyon başına 1024 örneğini beklerken `batch_size=1024` veriyorsun. Neyi ayarlamış oldun?
+  options:
+    - en: The rollout length; SB3 then collects 1024 samples per iteration.
+      tr: Rollout uzunluğunu; SB3 iterasyon başına 1024 örnek toplar.
+    - en: The number of epochs.
+      tr: Epoch sayısını.
+    - en: The minibatch size; the rollout is `n_steps × n_envs` (default `n_steps = 2048`), and this lesson's minibatch is 256.
+      tr: Minibatch boyutunu; rollout `n_steps × n_envs`'tir (varsayılan `n_steps = 2048`), bu dersin minibatch'i ise 256.
+  answer: 2
+  why:
+    en: Use it, the table and traps. The lesson's 1024 samples are 16 envs × 64 steps, split into 4 minibatches of 256 for each of 10 epochs.
+    tr: Kütüphaneyle kullan, tablo ve tuzaklar. Dersin 1024 örneği 16 ortam × 64 adımdır, 10 epoch'un her birinde 256'lık 4 minibatch'e bölünür.
+- stage: post
+  q:
     en: Training success sits between 0.14 and 0.28 for the first 150k steps. What should you conclude?
     tr: Training başarısı ilk 150k adım boyunca 0,14 ile 0,28 arasında kalıyor. Ne sonuç çıkarmalısınız?
   options:
@@ -28,7 +75,8 @@
   why:
     en: 'Learning-curve table: 0.18 / 0.28 / 0.28 at 150k, then 0.96 / 0.92 / 0.94 at 250k. A run stopped at 150k would look like a failure.'
     tr: 'Öğrenme eğrisi tablosu: 150k''da 0,18 / 0,28 / 0,28, 250k''da 0,96 / 0,92 / 0,94. 150k''da durdurulan bir run başarısız görünürdü.'
-- q:
+- stage: post
+  q:
     en: In Break it the clip is set to $\epsilon = 100$ and each batch is reused for 30 epochs. What goes wrong?
     tr: Boz bölümünde clip $\epsilon = 100$ yapılıyor ve her batch 30 epoch tekrar kullanılıyor. Ne ters gider?
   options:

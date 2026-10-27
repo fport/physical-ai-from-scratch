@@ -89,19 +89,147 @@ Daha derine: [Sim-to-Real Transfer](https://aiengineeringfromscratch.com/lesson?
 
 Bir kolda ders 38'in parametrelerini (kütleler, damping, sürtünme, armature, actuator gain'i) ve ders 37'nin gecikmesini randomize et. Aralıkları identify edilmiş değerlere ortala ve genişliklerini identification'ın belirsizliğinden belirle.
 
+## Sıfırdan yaz
+
+Şimdi domain randomization'ın fizik olmayan kısmını yazacaksın: sampler, bir kapsama kontrolü, ortalama maliyet ve optimizer. Plant ve batch'lenmiş MuJoCo rollout'u Deney'inki olarak kalıyor (`Batch.rollout(gains, plants)` her satır için bir episode koşturup RMS takip hatasını döndürür). Bitmiş fonksiyonlar [`physai/sim2real.py`](../../physai/sim2real.py) içinde; `uv run python experiments/39-domain-randomization/build.py` adımları koşturur (çıktı [`build_output.txt`](../../experiments/39-domain-randomization/build_output.txt) dosyasında).
+
+### Adım 1 · Sampler
+
+Log-uniform bir ölçek $2^u$'dur, $u$ ise $[-w, w]$'de uniform: yarıya inmek ile iki katına çıkmak eşit olasılıklı, medyan 1.
+
+```python
+def dr_sample(rng, n, w, delay0=0.005, delay_per_w=0.040):
+    """n random plants of width w: mass, damping and friction scales log-uniform in [2^-w, 2^w], delay uniform in
+    [delay0, delay0 + delay_per_w * w] seconds. w = 0 returns n nominal plants and draws nothing from rng."""
+    if w == 0:
+        return dict(mass=np.ones(n), damping=np.ones(n), friction=np.ones(n), delay=np.full(n, delay0))
+    s = lambda: 2.0 ** rng.uniform(-w, w, n)  # noqa: E731
+    return dict(mass=s(), damping=s(), friction=s(), delay=rng.uniform(delay0, delay0 + delay_per_w * w, n))
+```
+
+```text
+== Step 1. The sampler at w = 0.5, 100,000 draws ==
+mass      min 0.7071 max 1.4142 (2^-0.5 = 0.7071, 2^0.5 = 1.4142), median 0.9993, share above 1: 0.499
+damping   min 0.7071 max 1.4142 (2^-0.5 = 0.7071, 2^0.5 = 1.4142), median 0.9983, share above 1: 0.497
+friction  min 0.7071 max 1.4142 (2^-0.5 = 0.7071, 2^0.5 = 1.4142), median 0.9994, share above 1: 0.499
+delay     min 5.00 ms, max 25.00 ms (formula 5-25 ms)
+same draws as the Experiment's sampler (seed 7): True
+```
+
+Çekilişler formüldeki iki sınıra da değiyor, yarısı 1'in üstünde ve aynı seed'le Deney'in sampler'ıyla çekiliş çekiliş aynı; Adım 4 buna dayanıyor.
+
+### Adım 2 · Kapsama
+
+Bir şey eğitmeden önce, bir genişliğin hangi gerçek plant'ları çekebildiğini sor:
+
+```python
+def inside_support(plants, w, delay0=0.005, delay_per_w=0.040):
+    """For every plant and parameter: can the width-w training distribution draw this value?"""
+    lo, hi, eps = 2.0 ** -w, 2.0 ** w, 1e-12
+    out = {k: (plants[k] >= lo - eps) & (plants[k] <= hi + eps) for k in ("mass", "damping", "friction")}
+    out["delay"] = (plants["delay"] >= delay0 - eps) & (plants["delay"] <= delay0 + delay_per_w * w + eps)
+    return out
+```
+
+```text
+== Step 2. Coverage: real plants inside the training support (of 32) ==
+    w  mass  damping  friction  delay  all four
+ 0.00     0        0         0      0         0
+ 0.10     0        6         2      0         0
+ 0.25     7       13         4      0         0
+ 0.50    32       28         6     25         5
+ 0.75    32       32        11     32        11
+ 1.00    32       32        20     32        20
+ 1.50    32       32        32     32        32
+ 2.00    32       32        32     32        32
+largest real friction scale 2.48, largest real delay 28.8 ms
+```
+
+$w$ = 0,5'te 32 gerçek plant'tan yalnızca 5'i eğitim dağılımının tamamen içinde; hepsini kapsamak için sürtünme yüzünden (×2,48'e kadar) $w$ = 1,5 gerekiyor. Yine de Deney'in en iyi genişlikleri 0,5–1,0 (27–28/32), $w$ = 1,5 ise yalnızca 23/32'ye ulaşıyor. Kapsama bir garanti için gerekli, iyi aktarım için yeterli değil: genişliğin bedeli her plant'ta ödeniyor.
+
+### Adım 3 · Ortalama maliyet
+
+Domain randomization "tek simülatördeki maliyet"i "örneklenmiş simülatörler üzerinden ortalama maliyet"le değiştirir. Her adayı *aynı* örneklenmiş plant'larda puanlamak (common random numbers) adaylar arasındaki karşılaştırmayı adil tutar:
+
+```python
+def expected_cost(rollout, gains, plants):
+    """Mean cost of every controller (row of gains) over the same sampled plants (common random numbers).
+    rollout(gain_rows, plant_rows) runs one episode per row and returns its cost."""
+    n, k = len(gains), len(plants["delay"])
+    tiled = {key: np.tile(v, n) for key, v in plants.items()}       # plants 0..k-1 for controller 0, then 1, ...
+    return rollout(np.repeat(gains, k, axis=0), tiled).reshape(n, k).mean(axis=1)
+```
+
+```text
+== Step 3. The averaged cost: the Experiment's tuned controllers, re-scored ==
+tuned at       Kp     Kd     kg  nominal deg  real mean deg  real < 2 deg
+w = 0.00   117.36  0.914  0.679        0.165          3.525          5/32
+w = 0.50    55.43  3.244  0.563        0.475          1.307         28/32
+```
+
+Deney tablosunda yazan gain'lerle yeniden puanlanınca iki satır da geri geliyor: yalnızca nominalde ayarlanan controller için 0,165° nominal ve 5/32, $w$ = 0,5 için 0,475° ve 28/32. İlk satırın gerçek ortalaması, tablonun 3,526°'sine karşı 3,525°; fark, tablodaki gain'lerin iki ondalığa yuvarlanmış olmasından.
+
+### Adım 4 · Cross-entropy method
+
+CEM parametreler üzerinde bir Gaussian tutar, adaylar çeker, en ucuz çeyreği saklar ve Gaussian'ı onlara yeniden fit eder. Küçük `sd_extra`, arama yakınsamadan önce tek bir noktaya çökmesin diye var.
+
+```python
+def cem(cost, mu, sd, lo, hi, rng, iters=12, pop=24, n_elite=6, sd_extra=0.02):
+    """Cross-entropy method: draw pop candidates from N(mu, sd) clipped to [lo, hi], keep the n_elite cheapest,
+    refit mu and sd to them (plus sd_extra, so the search never collapses), repeat. cost(x, rng) -> one per row."""
+    for _ in range(iters):
+        x = np.clip(mu + sd * rng.standard_normal((pop, len(mu))), lo, hi)
+        elite = x[np.argsort(cost(x, rng))[:n_elite]]
+        mu, sd = elite.mean(axis=0), elite.std(axis=0) + sd_extra
+    return mu
+```
+
+```text
+== Step 4. CEM: a toy quadratic, then domain randomization at w = 0.5 ==
+toy: minimum at [ 1.  -2.   0.5], CEM finds [0.980, -2.008, 0.503]
+w = 0.5: Kp 55.43, Kd 3.244, kg 0.563; nominal 0.475 deg, real mean 1.307 deg, 28/32 below 2 deg
+```
+
+Oyuncak quadratic'te CEM minimumun 0,02 yakınına iniyor. Plant'ta Deney'in $w$ = 0,5 satırını birebir yeniden üretiyor (Kp 55,43, Kd 3,244, kg 0,563, 28/32), çünkü sampler random generator'ı aynı sırayla tüketiyor. Optimizer hiçbir gerçek plant görmüyor; onu gerçek plant'lara bağlayan tek şey `dr_sample`'ın genişliği.
+
+### Elinde kalan
+
+`physai.sim2real` artık `dr_sample`, `inside_support`, `expected_cost` ve `cem` içeriyor. Capstone (ders 44) aynı kapsama sorusunu kamera kalibrasyonu için düşünüyor. [`tests/test_39_domain_randomization.py`](../../tests/test_39_domain_randomization.py) dağılımları SciPy ile kontrol eder: `uv run pytest tests/test_39_domain_randomization.py`.
+
+## Kütüphaneyle kullan
+
+MuJoCo'da "randomize" diye bir çağrı yok: düğmeler, episode'lar arasında yeniden derlemeden yazılabilen model alanları (`m.body_mass`, `m.dof_damping`, `m.dof_frictionloss`, `m.geom_friction`, …; gecikme için ders 37'nin `delay` özelliği). Deney joint'in birçok kopyasını tek bir modele koyuyor, böylece tek bir `mj_step` bütün batch'i ilerletiyor, ve her rollout'tan önce kopya başına bir değer yazıyor. Dağılımın adını SciPy koyuyor:
+
+```python
+from scipy import stats
+scales = stats.loguniform(2 ** -w, 2 ** w).rvs(size=n, random_state=rng)   # same law as dr_sample's 2**u
+```
+
+```text
+== Use it. SciPy's log-uniform distribution; MuJoCo model fields as the knobs ==
+Kolmogorov-Smirnov, our mass scales vs scipy.stats.loguniform(2^-0.5, 2^0.5): D = 0.0026, p = 0.50
+randomized fields in the batched model: body_mass (32,), dof_damping (32,), dof_frictionloss (32,) (one entry per copy, written before each rollout)
+```
+
+| Araç | Aralık nerede | Ne çekiliyor |
+|---|---|---|
+| physai | `dr_sample(rng, n, w)` | kütle, damping, sürtünme ölçekleri ve gecikme, her episode'da |
+| `unitree_rl_gym` | `randomize_friction`, `friction_range = [0.5, 1.25]`, `added_mass_range` ([config](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py)) | zemin sürtünmesi ortam başına bir kez, 64 kovadan ([`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)) |
+| MuJoCo | model alanları (`body_mass`, `dof_damping`, …) | `mj_step`'ten önce ne yazarsan |
+
+Tuzaklar:
+
+- **Ölçek mi mutlak değer mi.** "Kütle ×2" ile "kütle + 1" farklı dağılımlardır: `unitree_rl_gym`'in `added_mass_range`'i taban gövdesinin kütlesine bir sayı ekler (`props[0].mass +=`).
+- **Episode başına mı ortam başına mı.** Ortam başına bir kez çekmek (yukarıdaki sürtünme kovaları gibi) her robota bütün koşu boyunca tek bir sabit zemin verir; burada olduğu gibi episode başına çekmek onu her episode'da değiştirir.
+- **Eylemsizlik kütleyle birlikte gider.** `body_mass`'ı `body_inertia` olmadan ölçeklemek fiziksel olarak tutarsız bir link verir; Deney ikisini birlikte ölçekliyor.
+
 ## Deney
 
 **Kurulum.** Menagerie SO-101'in STS3215 joint parametrelerine sahip (armature 0,028, damping 0,6, frictionloss 0,052, tork limiti 2,94 N·m), kütle merkezi 15 cm'de olan 0,5 kg'lık bir link taşıyan tek bir kol joint'i (yerçekimi torku 0,736 N·m'ye kadar). Bir ölçüm gecikmesi üzerinden tork kontrolü. "Policy" üç parametreli bir controller: PD takip artı bir yerçekimi terimi $k_g\cos q_{\text{ref}}$,
 
 $$\tau = \operatorname{clip}\big(K_p(q_{\text{ref}} - \tilde q) + K_d(\dot q_{\text{ref}} - \dot{\tilde q}) + k_g\cos q_{\text{ref}},\ \pm 2{,}94\big),$$
 
-burada $\tilde q$ gecikmiş ölçümdür. CEM ile ayarlanıyor (12 iterasyon × 24 aday × her biri 10 örneklenmiş plant); amaç 3 s'lik bir referansın, $0{,}5\sin(2\pi\,0{,}4t) + 0{,}25\sin(2\pi\,1{,}1t+1)$ rad, 2 ms step'te RMS takip hatasını en aza indirmek. Genişlik $w$ ile her eğitim episode'u kütle, damping ve friction-loss ölçeklerini $[2^{-w}, 2^{w}]$ aralığında log-uniform, gecikmeyi $[5, 5+40w]$ ms aralığında uniform çekiyor (nominal: ölçekler 1, gecikme 5 ms).
-
-```python
-def sample_plants(rng, n, w):
-    s = lambda: 2.0 ** rng.uniform(-w, w, n)
-    return dict(mass=s(), damping=s(), friction=s(), delay=rng.uniform(0.005, 0.005 + 0.040 * w, n))
-```
+burada $\tilde q$ gecikmiş ölçümdür. CEM ile ayarlanıyor (Sıfırdan yaz, Adım 4: 12 iterasyon × 24 aday × her biri 10 örneklenmiş plant); amaç 3 s'lik bir referansın, $0{,}5\sin(2\pi\,0{,}4t) + 0{,}25\sin(2\pi\,1{,}1t+1)$ rad, 2 ms step'te RMS takip hatasını en aza indirmek. Genişlik $w$ ile her eğitim episode'u kütle, damping ve friction-loss ölçeklerini $[2^{-w}, 2^{w}]$ aralığında log-uniform, gecikmeyi $[5, 5+40w]$ ms aralığında uniform çekiyor (nominal: ölçekler 1, gecikme 5 ms).
 
 **Test.** Nominal plant ve eğitimde hiç görülmemiş 32 ayrılmış "gerçek" plant (test için uyduruldu): kütle ×1,10–1,39, damping ×0,80–1,56, sürtünme ×1,02–2,48, gecikme 15,5–28,8 ms. Başarı: RMS hata 2°'nin altında. Joint'in birçok kopyası tek bir MuJoCo modelinde yaşıyor; böylece tek bir `mj_step` bütün bir batch'i ilerletiyor.
 
@@ -121,7 +249,7 @@ Tam script: [`experiments/39-domain-randomization/experiment.py`](../../experime
 **Gözlem.**
 
 1. Yalnızca nominal plant'ta ayarlanan controller o plant'ta en iyi (0,165°), gerçeklerde en kötü (5/32). Az damping'li $K_p$ = 117'yi seçmiş; gecikmenin 5 ms olduğunu bilmeye dayanan bir döngü. 15,5–28,8 ms ile hatası ortalamada 3,526° oluyor.
-2. Dar bir aralık bile ($w$ = 0,1, gecikme 9 ms'ye kadar) gerçek başarıyı 24/32'ye çıkarıyor: kazancın çoğu gecikmenin tam değerine güvenmemekten geliyor. En iyi gerçek sonuçlar, gecikmesi gerçek 15,5–28,8 ms'ye uzanan aralıklardan geliyor ($w$ = 0,5 25 ms'ye kadar; $w$ = 0,75 ve 1 tamamını kapsıyor): 27–28/32, ortalama 1,228–1,307°. Her satır tek seed'li tek bir CEM koşusu; bu yüzden satırlar arasındaki birkaç plant'lık farkları noise say; başka seed'lerle tekrarlamadık.
+2. Dar bir aralık bile ($w$ = 0,1, gecikme 9 ms'ye kadar) gerçek başarıyı 24/32'ye çıkarıyor: kazancın çoğu gecikmenin tam değerine güvenmemekten geliyor. En iyi sonuçlar, gecikmesi gerçek 15,5–28,8 ms'ye uzanan aralıklardan geliyor ($w$ = 0,5 25 ms'ye kadar; 0,75 ve 1 tamamını kapsıyor): 27–28/32, ortalama 1,228–1,307°; oysa 32 plant'tan yalnızca 5–20'si bu aralıkların tamamen içinde (Sıfırdan yaz, Adım 2). Her satır tek seed'li tek bir CEM koşusu; birkaç plant'lık farkları noise say.
 3. Nominal hata genişlikle düzenli olarak büyüyor (0,165 → 1,224°), $K_p$ düşerken (117 → 30): sağlamlığın bedeli bildiğin plant'taki takip performansıyla ödeniyor.
 4. Hiçbir genişlik 32'nin hepsini çözmüyor: en kötü gerçek plant her satırda 3°'nin üstünde kalıyor. Bazı gerçek plant'larda sürtünme ×2,48, yani $w$ = 1 aralığının bile dışında (×2,00'ye kadar); sabit gain'li bir controller'ın da sınırları var.
 

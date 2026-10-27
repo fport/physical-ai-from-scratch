@@ -1,0 +1,28 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Policy output -> actuator command, 3 episodes of random actions per mode ==
+position (scale 1.0): max |ours - ReachEnv's command| = 0.0e+00
+   delta (scale 0.1): max |ours - ReachEnv's command| = 0.0e+00
+  torque (scale 1.0): max |ours - ReachEnv's command| = 0.0e+00
+
+== Step 2. The servo's PD law vs MuJoCo, 1000 random states ==
+STS3215 in the Menagerie model: kp = 998.22 N m/rad, kv = 2.731 N m s/rad, force range +-2.94 N m
+max |ours - data.actuator_force| = 3.2e-13 N m; 1885 of 4000 torques at the limit
+a position error of 2.95 mrad alone saturates the servo (2.94 / 998.22)
+
+== Step 3. Decimation and the physics-rate recorder: one episode per mode (position: scripted IK; torque: a = 0.1) ==
+position: 320 physics steps; torque rate    345.9 N m/s (ReachEnv    345.9), power  1.713 W (ReachEnv  1.713)
+  torque: 320 physics steps; torque rate      6.6 N m/s (ReachEnv      6.6), power  0.138 W (ReachEnv  0.138)
+
+== Step 4. Policy rate: gamma = 1 - dt / 0.4 s, and 300,000 policy steps in simulated time ==
+frame_skip  rate Hz   gamma   simulated time
+         1    200.0  0.9875       25 min
+         2    100.0  0.9750       50 min
+         4     50.0  0.9500      100 min
+         8     25.0  0.9000      200 min
+        16     12.5  0.8000      400 min
+
+== Step 5. Action scale: scripted IK through the same clipped interface, 100 episodes (seeds 10000-10099) ==
+scale 1.00 rad: reaches 100/100
+scale 0.25 rad: reaches 27/100
+joint vectors drawn by the target sampler that lie within q0 +- 0.25 rad on all 4 joints: 1.8 %

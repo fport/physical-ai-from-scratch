@@ -41,23 +41,13 @@ flowchart TD
 
 ### The interval, as code
 
-Each trial ends in 1 (success) or 0 (failure), like a biased coin flip; statisticians call that a Bernoulli trial, and the count of heads in n flips a binomial count. The textbook interval (Wald) and the one this book uses (Wilson, 1927) are a few lines each:
+Each trial ends in 1 (success) or 0 (failure), like a biased coin flip: a Bernoulli trial, and the count of heads in n flips a binomial count. The textbook interval (Wald) and the one this book uses (Wilson, 1927), in a few lines (full code in Build it):
 
 ```python
-import math
-
-def wald(k, n, z=1.96):              # k successes in n trials; z = 1.96 for 95%
-    p = k / n                        # observed success rate
-    half = z * math.sqrt(p * (1 - p) / n)          # zero when p is 0 or 1
-    return max(0.0, p - half), min(1.0, p + half)
-
-def wilson(k, n, z=1.96):
-    p = k / n
-    den = 1 + z * z / n
-    center = (p + z * z / (2 * n)) / den           # pulled toward 0.5
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den  # never zero
-    return max(0.0, center - half), min(1.0, center + half)
-
+p = k / n                                                    # observed success rate
+wald = (p - z * sqrt(p * (1 - p) / n), p + z * sqrt(p * (1 - p) / n))   # zero width at p = 0 or 1
+center = (p + z * z / (2 * n)) / (1 + z * z / n)             # Wilson: pulled toward 0.5
+half = z * sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)  # never zero
 wilson(9, 10)    # (0.596, 0.982): a "9/10" fits a mediocre or an excellent policy
 wald(10, 10)     # (1.0, 1.0): claims certainty after ten trials
 ```
@@ -100,18 +90,166 @@ Go deeper: [Statistics for Machine Learning](https://aiengineeringfromscratch.co
 
 **Comparing two policies.** Overlapping intervals do not prove equality, and disjoint 95% intervals are a stricter test than a direct comparison. For $k_A/n_A$ vs $k_B/n_B$ use a two-sample test, e.g. Fisher's exact test on the 2 × 2 table of successes and failures ([SciPy `fisher_exact`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.fisher_exact.html)). It answers: if both policies had the same rate, how likely is a gap at least this large? A p-value below 0.05 is the usual bar for "different".
 
-## Experiment
+## Build it
 
-A "policy" with an unknown rate: the scripted pick of lesson 16 aiming at a noisy cube estimate, true position + $\mathcal N(0, \sigma^2)$ per axis, as if from an imperfect perception module. Cube positions are uniform in x ∈ [16, 28] cm, y ∈ [−8, 8] cm. Policy A has σ = 9 mm, policy B σ = 6 mm. Each gets a pool of 300 simulated trials, whose rate stands in for the long-run rate $p$. An evaluation of $n$ trials is then simulated by picking $n$ trials from a pool at random, with replacement (the same trial may be picked twice), which is far cheaper than re-running the robot. Full script: [`experiments/25-evaluating-policies/experiment.py`](../experiments/25-evaluating-policies/experiment.py), output: [`output.txt`](../experiments/25-evaluating-policies/output.txt). MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), deterministic, about 1 min of CPU (approximate; wall time was several times longer on a heavily loaded machine).
+You will now write the statistics of this lesson yourself: both intervals, exact coverage, the trial budget and Fisher's test, in plain Python with `math.comb`. SciPy only checks your numbers. Type the steps into a file of your own and run it after each step. The finished functions are in [`physai/evaluation.py`](../physai/evaluation.py); `uv run python experiments/25-evaluating-policies/build.py` runs all five steps with their checks (output in [`build_output.txt`](../experiments/25-evaluating-policies/build_output.txt)).
+
+### Step 1 · Two intervals
+
+```python
+def wald(k, n, z=1.96):
+    """Textbook normal-approximation interval p +- z sqrt(p(1-p)/n), clipped to [0, 1]."""
+    p = k / n
+    h = z * math.sqrt(p * (1 - p) / n)
+    return max(0.0, p - h), min(1.0, p + h)
+```
 
 ```python
 def wilson(k, n, z=1.96):
+    """Wilson score interval for k successes in n trials (Wilson 1927)."""
+    if n == 0:
+        return 0.0, 1.0
     p = k / n
     den = 1 + z * z / n
     c = (p + z * z / (2 * n)) / den
     h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den
     return max(0.0, c - h), min(1.0, c + h)
 ```
+
+== Step 1. Wald and Wilson intervals (z = 1.96) vs scipy.stats.binomtest ==
+    k/n             Wald           Wilson     scipy Wilson
+   9/10   [0.714, 1.000]   [0.596, 0.982]   [0.596, 0.982]
+  10/10   [1.000, 1.000]   [0.722, 1.000]   [0.722, 1.000]
+  18/20   [0.769, 1.000]   [0.699, 0.972]   [0.699, 0.972]
+221/300   [0.687, 0.787]   [0.684, 0.783]   [0.684, 0.783]
+scipy uses z = 1.959964; with that z, max difference over k = 0..20 of n = 20: 2.2e-16
+
+The Wilson column is the Experiment's (part C, and 221/300 from part A). SciPy's `binomtest(k, n).proportion_ci(method="wilson")` agrees to the printed digits; with SciPy's exact $z = 1.959964$ instead of 1.96 the two agree to round-off.
+
+### Step 2 · Exact coverage
+
+"95%" is a claim about all the evaluations you could have run. With the binomial probabilities you can check it without resampling: add up the probability of every $k$ whose interval contains $p$.
+
+```python
+def binom_pmf(k, n, p):
+    """Probability of exactly k successes in n independent trials with rate p."""
+    return math.comb(n, k) * p ** k * (1 - p) ** (n - k)
+```
+
+```python
+def coverage(interval, n, p, z=1.96):
+    """Exact probability that interval(k, n) contains p when k ~ Binomial(n, p)."""
+    return sum(binom_pmf(k, n, p) for k in range(n + 1) if interval(k, n, z)[0] <= p <= interval(k, n, z)[1])
+```
+
+== Step 2. Exact coverage at p = 221/300 by a binomial sum ==
+binom_pmf vs scipy.stats.binom.pmf (n = 50): max difference 2.3e-16
+   n  Wilson coverage  Wald coverage
+   5            0.981          0.764
+  10            0.975          0.927
+  20            0.962          0.908
+  50            0.947          0.914
+ 100            0.946          0.945
+
+These are table B's "exact" columns at $p$ = 221/300: Wilson stays at 0.946–0.981, Wald falls to 0.764 at $n = 5$.
+
+### Step 3 · What a 9/10 means, and the trial budget
+
+```python
+def trials_needed(p, half_width, z=1.96):
+    """Smallest n whose Wilson interval at observed rate p has half-width <= half_width."""
+    n = 1
+    while True:
+        lo, hi = wilson(round(p * n), n, z)
+        if (hi - lo) / 2 <= half_width:
+            return n
+        n += 1
+```
+
+== Step 3. A 9/10 claim, and trials for a Wilson half-width target ==
+policy A (p = 0.737): P(>= 9/10) = 0.215
+policy B (p = 0.877): P(>= 9/10) = 0.645
+ observed rate  +-0.10  +-0.05  +-0.02
+          0.50      93     381    2398
+          0.70      78     320    2014
+          0.90      34     141     864
+          0.95      24      82     465
+
+$P(\ge 9/10)$ is two terms of the binomial (table C), and the budget is table D, both exactly.
+
+### Step 4 · Fisher's exact test
+
+With the totals of the 2 × 2 table fixed, the number of A's successes follows a hypergeometric distribution. The two-sided p-value adds up every table that is no more likely than the one observed:
+
+```python
+def fisher_p(k1, n1, k2, n2):
+    """Two-sided Fisher exact test for k1/n1 vs k2/n2: the total probability, with the margins fixed,
+    of all tables no more likely than the observed one."""
+    K, N = k1 + k2, n1 + n2
+    pmf = {a: math.comb(n1, a) * math.comb(n2, K - a) / math.comb(N, K) for a in range(max(0, K - n2), min(K, n1) + 1)}
+    return min(1.0, sum(q for q in pmf.values() if q <= pmf[k1] * (1 + 1e-7)))
+```
+
+== Step 4. Fisher's exact test by hand vs scipy.stats.fisher_exact ==
+all 441 tables k_A/20 vs k_B/20: max p-value difference 3.3e-16
+14/20 vs 18/20: p = 0.235 | 74/100 vs 88/100: p = 0.018
+
+The relative tolerance `1 + 1e-7` lets tables that tie with the observed one in exact arithmetic count despite round-off (SciPy uses 1e-14 for the same purpose).
+
+### Step 5 · Exact power
+
+How often does Fisher's test separate A from B? Sum the probability of every pair of outcomes $(k_A, k_B)$ for which the test says "different":
+
+```python
+def power(p1, p2, n, alpha=0.05):
+    """Exact probability that Fisher's test at level alpha separates two policies with rates p1, p2, n trials each."""
+    pm1 = [binom_pmf(k, n, p1) for k in range(n + 1)]
+    pm2 = [binom_pmf(k, n, p2) for k in range(n + 1)]
+    return sum(pm1[a] * pm2[b] for a in range(n + 1) for b in range(n + 1) if fisher_p(a, n, b, n) < alpha)
+```
+
+== Step 5. Exact power of Fisher's test, A (p = 0.737) vs B (p = 0.877), n trials each ==
+   n  P(Fisher p < 0.05)  P(B scores <= A)
+  10               0.028             0.301
+  20               0.119             0.173
+  50               0.337             0.046
+ 100               0.656             0.007
+
+Table E resampled 1000 evaluation pairs from the pools and found 0.037, 0.113, 0.335 and 0.673; the exact values are 0.028, 0.119, 0.337 and 0.656. The gaps are resampling noise: with 1000 pairs the standard error of a rate near 0.66 is about 0.015. The same holds for "B scores ≤ A" (0.286, 0.170, 0.041, 0.005 resampled).
+
+### What you keep
+
+`physai.evaluation` now has `wald`, `wilson`, `binom_pmf`, `coverage`, `trials_needed`, `fisher_p` and `power`. Lessons 26–29 report k/n with `wilson`, and lesson 26's Build it imports it. [`tests/test_25_evaluating_policies.py`](../tests/test_25_evaluating_policies.py) pins them to SciPy; run `uv run pytest tests/test_25_evaluating_policies.py`.
+
+## Use it
+
+SciPy has every piece:
+
+```python
+from scipy import stats
+ci = stats.binomtest(k, n).proportion_ci(confidence_level=0.95, method="wilson")   # ci.low, ci.high
+exact = stats.binomtest(k, n).proportion_ci(method="exact")                         # Clopper-Pearson
+odds, p = stats.fisher_exact([[k_a, n_a - k_a], [k_b, n_b - k_b]])                   # two-sided by default
+stats.binom.pmf(k, n, p_true)                                                        # binomial probabilities
+```
+
+| Tool | Wilson interval | Default |
+|---|---|---|
+| physai | `wilson(k, n, z=1.96)` | $z = 1.96$ |
+| SciPy | `binomtest(k, n).proportion_ci(method="wilson")` | `method="exact"` (Clopper–Pearson), `confidence_level=0.95` |
+| statsmodels | `proportion_confint(count, nobs, method="wilson")` | `method="normal"`, i.e. Wald |
+
+Sources: SciPy [`binomtest`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.binomtest.html) and [`fisher_exact`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.fisher_exact.html); statsmodels [`proportion_confint`](https://www.statsmodels.org/stable/generated/statsmodels.stats.proportion.proportion_confint.html).
+
+Traps:
+
+- **Defaults differ.** SciPy's default interval is Clopper–Pearson, wider than Wilson; statsmodels' default is Wald, the one that collapses at 10/10. Always pass `method`.
+- **The table orientation.** `fisher_exact` wants counts of successes *and failures* per row, not success rates or k and n.
+- **One evaluation, one test.** Running Fisher after every new batch of trials and stopping at the first p < 0.05 inflates false positives; fix n before you start.
+
+## Experiment
+
+A "policy" with an unknown rate: the scripted pick of lesson 16 aiming at a noisy cube estimate, true position + $\mathcal N(0, \sigma^2)$ per axis, as if from an imperfect perception module. Cube positions are uniform in x ∈ [16, 28] cm, y ∈ [−8, 8] cm. Policy A has σ = 9 mm, policy B σ = 6 mm. Each gets a pool of 300 simulated trials, whose rate stands in for the long-run rate $p$. An evaluation of $n$ trials picks $n$ trials from a pool at random, with replacement, far cheaper than re-running the robot. Full script: [`experiments/25-evaluating-policies/experiment.py`](../experiments/25-evaluating-policies/experiment.py), output: [`output.txt`](../experiments/25-evaluating-policies/output.txt). MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), deterministic, about 1 min of CPU.
 
 **A. The pools.**
 

@@ -1,0 +1,29 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Encoder ticks <-> degrees (12-bit encoder, calibrated range 1000-3000) ==
+middle of the range 0.000 deg, ends -87.91 / 87.91 deg, one tick = 0.0879 deg
+ticks -> deg -> ticks: 2001 of 2001 positions come back exactly
+deg -> ticks -> deg for 16,001 goals: error from -0.0878 to 0.0000 deg (int() of a positive tick count rounds down: up to one tick, always low)
+
+== Step 2. Degrees -> model radians: sign and offset from two known poses ==
+readings [ 24.176 -44.571] deg -> fitted a = -1.0001 (true -1.0), b = 6.990 deg (true 7.000)
+9 test poses: max error 0.067 deg (one tick is 0.088 deg)
+
+== Step 3. Gravity torque by hand along the 303 goals vs qfrc_bias ==
+goals 303, max |ours + qfrc_bias| = 6.7e-16 N m
+largest static gravity torque 0.446 N m at elbow_flex (Experiment: 0.446 N m)
+
+== Step 4. The payload budget at the gripper frame ==
+payload kg  ours N m  MuJoCo model with payload N m
+       0.2     0.945                          0.945
+       0.4     1.445                          1.445
+       0.6     1.944                          1.944
+       0.8     2.443                          2.443
+largest payload with static torque <= 80% of 2.94 N m: 0.764 kg
+largest payload with static torque <= 100% of 2.94 N m: 0.999 kg
+
+== Step 5. Static preflight: range margin and goal step per 30 fps tick ==
+x0.5  goals 591, range margin 10.00 deg, largest step 0.026 rad/tick -> PASS
+x1    goals 303, range margin 10.00 deg, largest step 0.052 rad/tick -> PASS
+x2    goals 159, range margin 10.00 deg, largest step 0.103 rad/tick -> FAIL
+x4    goals  87, range margin 10.00 deg, largest step 0.207 rad/tick -> FAIL

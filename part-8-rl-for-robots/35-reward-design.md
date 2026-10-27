@@ -16,17 +16,17 @@
 
 ## The problem
 
-The Go2 training config sums ten reward terms with nonzero weights, from `tracking_lin_vel = 1.0` to `action_rate = -0.01` and `torques = -0.0002`, and it carries one line that exists only because of how an agent exploits rewards: `only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)` ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)). This lesson measures, on the SO-101 reach, what different reward shapes do with a fixed PPO and budget, produces a **reward hack** on purpose (a policy that scores well on the written reward without doing the task), and sweeps a smoothness penalty.
+The Go2 training config sums ten reward terms with nonzero weights, from `tracking_lin_vel = 1.0` to `action_rate = -0.01` and `torques = -0.0002`, and it carries one line that exists only because of how an agent exploits rewards: `only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)` ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)). On the SO-101 reach, with a fixed PPO and budget, this lesson compares reward shapes, produces a **reward hack** on purpose (a policy that scores well on the written reward without doing the task), and sweeps a smoothness penalty.
 
 ## Core idea
 
 ### In plain words
 
-A reward is a metric, and RL is a team that optimizes the metric with no common sense at all. Pay programmers per line of code and you get long code, not good code. Pay an arm for being close to the target and end the game the moment it arrives, and it learns to hover just outside, because arriving stops the payments.
+A reward is a metric, and RL optimizes it with no common sense. Pay per line of code and you get long code. Pay an arm for being close to the target and end the game the moment it arrives, and it learns to hover just outside, because arriving stops the payments.
 
-You have four kinds of building blocks. A **sparse** reward pays only on success: it says exactly what you want, but early on nobody ever succeeds, so it is silent, like a test suite with one end-to-end test that never passes yet. A **dense** reward pays a little every step for being closer: informative, but a proxy for the real goal. **Shaping** adds hints; the safe kind (potential-based) pays for progress and takes it back on retreat; over any loop the payments cancel, so it cannot be farmed by going back and forth. **Regularizers** are small penalties for jerky or expensive motion; they trade task success for smoothness.
+You have four kinds of building blocks. A **sparse** reward pays only on success: exact, but silent early on, like a test suite whose one end-to-end test never passes yet. A **dense** reward pays a little every step for being closer: informative, but a proxy. **Shaping** adds hints; the safe kind (potential-based) pays for progress and takes it back on retreat, so going back and forth earns nothing the original reward would not pay. **Regularizers** are small penalties for jerky or expensive motion; they trade success for smoothness.
 
-Finally, how an episode ends is part of the reward. After the end every future reward is zero. If the per-step reward is positive, ending is a loss and the agent avoids it; if it is negative, ending is a gain and the agent seeks it.
+How an episode ends is part of the reward: after the end every future reward is zero. If the per-step reward is positive, ending is a loss and the agent avoids it; if it is negative, ending is a gain and the agent seeks it.
 
 ### Where termination flips the incentive
 
@@ -68,9 +68,9 @@ $d$ is the gripper-to-target distance, $\mathbb 1[\cdot]$ is 1 when the conditio
 <details>
 <summary>Math details: why potential-based shaping is safe and why termination matters</summary>
 
-**Potential-based shaping.** Ng, Harada and Russell showed that adding $F(s,s') = \gamma\Phi(s') - \Phi(s)$ for any potential $\Phi$ leaves the optimal policy unchanged, and that, without further knowledge of the MDP, this form is also necessary for that guarantee ([ICML 1999, pp. 278–287](https://mlanthology.org/icml/1999/ng1999icml-policy/)). Along a trajectory the shaping terms telescope, $\sum_t \gamma^t F_t = \gamma^T \Phi(s_T) - \Phi(s_0)$: every policy gets the same bonus up to terms that depend only on where it starts and ends, so shaping changes how fast you learn, not what is optimal. We use $\Phi = -20\,d$ with the PPO discount $\gamma = 0.95$.
+**Potential-based shaping.** Ng, Harada and Russell showed that adding $F(s,s') = \gamma\Phi(s') - \Phi(s)$ for any potential $\Phi$ leaves the optimal policy unchanged, and that, without further knowledge of the MDP, this form is also necessary for that guarantee ([ICML 1999, pp. 278–287](https://mlanthology.org/icml/1999/ng1999icml-policy/)). Along a trajectory the terms telescope, $\sum_t \gamma^t F_t = \gamma^T \Phi(s_T) - \Phi(s_0)$, a bonus that depends only on the endpoints, so shaping changes how fast you learn, not what is optimal. We use $\Phi = -20\,d$ with the PPO discount $\gamma = 0.95$.
 
-**Termination.** A policy that could stay in a state forever while collecting $r$ per step would earn $\sum_{t\ge0}\gamma^t r = r/(1-\gamma)$. Entering a terminal state replaces that with 0. For $r > 0$ that is a loss the agent learns to avoid; for $r < 0$ it is a gain the agent learns to seek. In locomotion, falling terminates the episode, so a total made mostly of negative penalty terms makes an early fall attractive; the Go2 config clips the total at zero and names the reason "early termination problems". The reverse case is the hack we build below.
+**Termination.** A policy that could stay in a state forever while collecting $r$ per step would earn $\sum_{t\ge0}\gamma^t r = r/(1-\gamma)$. Entering a terminal state replaces that with 0. For $r > 0$ that is a loss the agent learns to avoid; for $r < 0$ it is a gain the agent learns to seek. In locomotion, falling terminates the episode, so a total made mostly of negative penalties makes an early fall attractive; the Go2 config clips the total at zero for "early termination problems". The reverse case is our hack.
 
 Go deeper: [MDPs, States, Actions & Rewards](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/01-mdps-states-actions-rewards); Ng, Harada, Russell, ICML 1999 (link above).
 
@@ -78,27 +78,159 @@ Go deeper: [MDPs, States, Actions & Rewards](https://aiengineeringfromscratch.co
 
 <!-- figure: 35-termination-hack -->
 
-## Experiment
+## Build it
 
-[`experiment.py`](../experiments/35-reward-design/experiment.py) keeps everything from lesson 33 fixed (absolute joint targets, 50 Hz, PPO reference config, 300k steps, 3 seeds × 100 evaluation episodes) and swaps the reward function passed to the env:
+You will now write the reward terms, check that shaping telescopes on an SO-101 episode, solve a small corridor exactly, and put numbers on the termination hack. Nothing is trained: Steps 2, 4 and 5 use the reach task with the scripted IK controller, Step 3 a tabular toy; about 2 s.
+
+The functions are in [`physai/rl.py`](../physai/rl.py); `uv run python experiments/35-reward-design/build.py` runs the five steps (output in [`build_output.txt`](../experiments/35-reward-design/build_output.txt)).
+
+### Step 1 · The reward terms
 
 ```python
-def r_sparse(info):
-    return float(info["dist"] < 0.02)
-
-def r_pbrs(info):                       # sparse + gamma * Phi(s') - Phi(s), Phi = -20 d
-    return r_sparse(info) + 0.95 * (-20 * info["dist"]) - (-20 * info["dist_prev"])
-
-def r_closeness(info):                  # positive every step, 1 at the target
-    return 1.0 - np.tanh(info["dist"] / 0.05)
-
-def r_action_rate(w):
-    return lambda info: -info["dist"] - w * np.sum((info["action"] - info["prev_action"]) ** 2)
+def sparse_reward(d, radius=0.02):
+    """1 inside the success ball, 0 elsewhere."""
+    return float(d < radius)
 ```
+
+```python
+def closeness_reward(d, scale=0.05):
+    """Positive at every step, 1 at the target: the reward behind the termination hack."""
+    return 1.0 - np.tanh(d / scale)
+```
+
+```python
+def potential_shaping(phi, phi_prev, gamma):
+    """Potential-based shaping term F = gamma * Phi(s') - Phi(s) (Ng, Harada, Russell 1999)."""
+    return gamma * phi - phi_prev
+```
+
+```python
+def action_rate_penalty(a, a_prev, w):
+    """Smoothness regularizer: -w * ||a_t - a_(t-1)||^2."""
+    return -w * float(np.sum((np.asarray(a) - np.asarray(a_prev)) ** 2))
+```
+
+Composed as in the Experiment (e.g. sparse plus `potential_shaping(-20 * d, -20 * d_prev, 0.95)`) and compared with its reward functions on 1000 random steps:
+
+```text
+== Step 1. Reward terms vs the Experiment's reward functions, 1000 random steps ==
+sparse 0.0e+00, pbrs 4.4e-16, closeness 0.0e+00, action rate 0.0e+00
+closeness at d = 0, 2, 5, 30.8 mm: 1.000, 0.620, 0.238, 0.452
+```
+
+The closeness reward is 0.620 at the 2 cm radius and 0.452 at 30.8 mm, where the hacking policy parked.
+
+### Step 2 · Shaping telescopes
+
+```python
+def discounted_sum(rewards, gamma):
+    """sum_t gamma^t r_t."""
+    return float(np.sum(np.asarray(rewards) * gamma ** np.arange(len(rewards))))
+```
+
+Collect only the shaping term along one episode, once with the scripted IK and once with random actions:
+
+```text
+== Step 2. Shaping telescopes: sum_t gamma^t F_t = gamma^T Phi(s_T) - Phi(s_0), Phi = -20 d ==
+   scripted IK: d  55.2 ->   0.2 mm, sum gamma^t F_t = +1.104336, gamma^T Phi_T - Phi_0 = +1.104336, diff 2.2e-16
+random actions: d  55.2 -> 147.0 mm, sum gamma^t F_t = +1.055855, gamma^T Phi_T - Phi_0 = +1.055855, diff 4.4e-16
+loop 10 cm -> 5 cm -> 10 cm, gamma 1.00: shaping earned +0.0000 (= (gamma^2 - 1) Phi = +0.0000)
+loop 10 cm -> 5 cm -> 10 cm, gamma 0.95: shaping earned +0.1950 (= (gamma^2 - 1) Phi = +0.1950)
+```
+
+Both sums equal $\gamma^T\Phi(s_T) - \Phi(s_0)$ to rounding: the shaping a trajectory earns depends only on its endpoints. A loop 10 cm → 5 cm → 10 cm earns 0 with $\gamma = 1$ but +0.1950 with $\gamma = 0.95$, the formula's $(\gamma^2 - 1)\Phi$. Not a loophole: every path between the same endpoints earns the same discounted bonus, so the loop is worth what the original reward says. Step 3 checks this in the optimal policy.
+
+### Step 3 · Which rewards keep the optimal policy
+
+A corridor of 11 cells 1 cm apart, the target in cell 10 (entering it ends the episode), actions left, stay, right, $\gamma = 0.95$. Value iteration solves it exactly:
+
+```python
+def value_iteration(next_state, reward, terminal, gamma, iters=2000):
+    """Optimal values and greedy actions of a deterministic tabular MDP.
+
+    next_state[s, a] and reward[s, a] describe one step; entering a terminal state ends the episode (value 0 after).
+    """
+    V = np.zeros(next_state.shape[0])
+    for _ in range(iters):
+        Q = reward + gamma * np.where(terminal[next_state], 0.0, V[next_state])
+        V = Q.max(1)
+    return V, Q.argmax(1)
+```
+
+```text
+== Step 3. A corridor of 11 cells, 1 cm apart; cell 10 is the target and ends the episode ==
+reward                         greedy action in cells 0..9   value of cell 0
+sparse: 1 on arrival             >>>>>>>>>>             0.630
+sparse + gamma Phi' - Phi        >>>>>>>>>>             2.630
+sparse + 0.5 per step closer     >>>>>>>>><             6.768
+closeness 1 - tanh(d/5cm)        >>>>>>>>>o            12.251
+(> right, < left, o stay)
+shaped - sparse values, cells 0..9: max |difference - (-Phi(s))| = 3.3e-16
+```
+
+Sparse and shaped rewards give the same policy, right in every cell, and the shaped values are the sparse ones minus $\Phi(s)$, as Ng, Harada and Russell predict (difference 3.3e-16). Two equally reasonable-looking rewards change the policy. Paying 0.5 per step closer, without taking it back, makes cell 9 step *left*: going back and forth earns more than arriving. The closeness reward with termination makes cell 9 *stay*, one centimetre short, forever: Experiment B's hack, solved exactly.
+
+### Step 4 · The termination hack in numbers
+
+```text
+== Step 4. The termination hack in numbers ==
+scripted IK, closeness reward, ends on success: written return 2.28, mean length 10.1 steps
+parking at 30.8 mm for 80 steps: 0.452 per step, written return 36.13; discounted value of parking forever r / (1 - gamma) = 9.03
+entering the ball pays at most 1.00 once, then nothing
+```
+
+The scripted controller reaches every target in 10.1 steps and is paid 2.28, the Experiment's number. Parking at 30.8 mm pays 0.452 per step, 36.13 over 80 steps, 9.03 in discounted value, against at most 1.00 once for arriving. The trained policy's 22.67 lies between: it parks in most episodes, not all.
+
+### Step 5 · How large is a smoothness penalty?
+
+Measure both terms of $r = -d - w\lVert a_t - a_{t-1}\rVert^2$ on the scripted controller's episodes:
+
+```text
+== Step 5. Action-rate penalty vs the task term, scripted IK, 100 episodes ==
+per step: mean d = 11.9 mm, mean ||a_t - a_t-1||^2 = 0.0082
+w = 0.03: penalty / task term = 0.02
+w = 0.1 : penalty / task term = 0.07
+w = 0.3 : penalty / task term = 0.21
+w = 1.0 : penalty / task term = 0.68
+w = 3.0 : penalty / task term = 2.05
+Go2 config: action_rate = -0.01 times dt 0.02 s -> 0.0002 per step
+```
+
+For these actions the penalty is 2% of the task term at $w = 0.03$, 21% at 0.3, 68% at 1.0; Break it's success collapses between 0.1 and 0.3. The IK's actions are not the trained policy's, so this gives the scale only. The Go2's `action_rate = -0.01` becomes 0.0002 per step (times the 0.02 s period).
+
+### What you keep
+
+`physai.rl` now also has `sparse_reward`, `closeness_reward`, `potential_shaping`, `action_rate_penalty`, `discounted_sum` and `value_iteration`. [Lesson 36](36-legged-locomotion.md) builds a locomotion reward from terms of this kind. [`tests/test_35_reward_design.py`](../tests/test_35_reward_design.py) checks the telescoping and, on 20 random MDPs, that potential-based shaping keeps the optimal policy and shifts the values by $-\Phi$; run `uv run pytest tests/test_35_reward_design.py`.
+
+## Use it
+
+Gymnasium leaves the reward to the environment; to change it without editing the env, wrap it. `gymnasium.wrappers.TransformReward(env, func)` maps each scalar reward (scaling, offsets). Shaping needs the state, so it goes in a wrapper's `step` (or `ReachEnv`'s `reward_fn`), with the learner's $\gamma$. Unitree's training code builds the reward as a weighted sum of named terms, each scale multiplied by the policy period ([`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)):
+
+| Piece | This lesson / physai | `legged_gym` |
+|---|---|---|
+| a term | a function of `info` | a method `_reward_<name>`, weighted by `scales.<name>` |
+| weight per step | $w$ as written | `self.reward_scales[key] *= self.dt` |
+| action smoothness | `action_rate_penalty`: $-w\lVert a_t - a_{t-1}\rVert^2$ | `_reward_action_rate`: `torch.sum(torch.square(self.last_actions - self.actions), dim=1)` |
+| positive clip | not used | `only_positive_rewards`: `torch.clip(self.rew_buf[:], min=0.)` |
+| termination term | not used | `_reward_termination`: `self.reset_buf * ~self.time_out_buf`, added after the clip |
+
+The last row links lessons 32 and 35: the termination term fires on real terminations, not time-outs, and is added after the clip, so a termination penalty survives it.
+
+Three traps:
+
+- **Termination flips the incentive.** With a positive per-step reward ending is a loss (Step 3: one cell short), with a negative one a gain; decide which you want before adding a terminal condition.
+- **Shaping with the wrong $\gamma$ is not potential-based.** $F = \gamma'\Phi(s') - \Phi(s)$ with $\gamma' \ne \gamma$ no longer telescopes in the learner's discounted return, and the guarantee is gone.
+- **Weights are relative.** A penalty weight means nothing without the task term's size (Step 5); after a change of control rate, `legged_gym`'s per-step weights change too, because they are multiplied by `dt`.
+
+## Experiment
+
+[`experiment.py`](../experiments/35-reward-design/experiment.py) keeps everything from lesson 33 fixed (absolute joint targets, 50 Hz, PPO reference config, 300k steps, 3 seeds × 100 evaluation episodes) and swaps the reward function passed to the env.
+
+The rewards are built from Build it's Step 1 terms: sparse, sparse + shaping, closeness, and $-d$ + action-rate penalty.
 
 **Predict:** with the closeness reward and an episode that ends the moment the gripper is within 2 cm, what will the trained arm do?
 
-MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). Deterministic per seed. The whole script (33 runs, six in parallel) took 1904 s wall-clock (about 32 minutes) on a heavily loaded machine. `python experiment.py --only close+end,pbrs` trains just those cells for all three seeds; this rerun reproduced their lines exactly. `--quick` trains seed 0 only, which reproduces the first "success per seed" entry of every row but not the pooled columns.
+MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). Deterministic per seed. The whole script (33 runs, six in parallel) took 1904 s wall-clock on a heavily loaded machine. `python experiment.py --only close+end,pbrs` trains just those cells for all three seeds; this rerun reproduced their lines exactly. `--quick` trains seed 0 only, which reproduces the first "success per seed" entry of every row but not the pooled columns.
 
 **A. Reward shape** (no termination; success = within 2 cm at the 1.6 s time limit):
 
@@ -108,7 +240,7 @@ MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). 
 | sparse $\mathbb 1[d < 2\,\text{cm}]$ | 8 / 0 / 0 | 8/300 | 1.4–5.2% | 117.8 mm |
 | sparse + $0.95\,\Phi(s') - \Phi(s)$, $\Phi = -20d$ | 99 / 97 / 99 | 295/300 | 96.2–99.3% | 7.8 mm |
 
-(Median final distance: mean over the three seeds.) The sparse reward is the honest statement of the task and it fails: the initial policy rarely gets within 2 cm by chance (lesson 32: 1 of 200 random-action episodes ended there), so for most of training every reward is zero and the advantages carry no information. Adding a potential-based term restores learning to the level of the dense reward (the two intervals overlap) while, by Ng et al.'s theorem, not changing which policy is optimal for the sparse task.
+(Median final distance: mean over the three seeds.) The sparse reward is the honest statement of the task and it fails: the initial policy rarely gets within 2 cm (lesson 32: 1 of 200 random-action episodes), so for most of training every reward is zero and the advantages carry no information. A potential-based term restores learning to the dense reward's level (overlapping intervals) without changing which policy is optimal (Build it, Step 3).
 
 **B. Reward hacking.** The episode now ends (`terminated`) the moment $d < 2$ cm, which looks like a natural way to define "reached". The reward is the positive closeness term $1 - \tanh(d / 5\,\text{cm})$:
 
@@ -120,10 +252,10 @@ MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). 
 
 Two control measurements make the hack explicit:
 
-- The scripted IK controller, which reaches every target, scores a written return of only **2.28** under the closeness-plus-termination reward. The hacking policy scores 22.67: it beats the correct controller on the objective it was given by doing the task less.
+- The scripted IK controller, which reaches every target, scores a written return of only **2.28** under the closeness-plus-termination reward (Build it, Step 4). The hacking policy scores 22.67: it beats the correct controller on its objective by doing the task less.
 - Run without termination, the same hacking policy ends at a median of **30.8 mm** from the target: it parks the gripper about 3 cm away, just outside the success ball, and collects roughly 0.45 per step for the rest of the episode.
 
-The mechanism is the one in the diagram: entering the ball ends the episode and with it all future positive reward, so the agent learns to approach and stop short. The 95 successes are episodes in which it still ended up inside the ball. The same termination rule with a negative reward ($-d$) gives the opposite incentive: the agent hurries in (9.2 steps on average) because every step costs. Positive reward without termination also works (298/300). The hack lives in the combination, which is why it is easy to write by accident.
+The mechanism is the diagram's: entering the ball ends all future positive reward, so the agent approaches and stops short (the corridor of Build it, Step 3 does the same). The 95 successes are episodes in which it still ended inside the ball. The same termination rule with a negative reward ($-d$) gives the opposite incentive: the agent hurries in (9.2 steps on average) because every step costs. Positive reward without termination also works (298/300). The hack lives in the combination, which is why it is easy to write by accident.
 
 ## Break it
 
@@ -140,13 +272,13 @@ Smoothness penalties are where the trade-off becomes a cliff. Sweep the weight $
 
 ![Left: success against the action-rate penalty weight w, from 298/300 at w 0 through 263/300 at 0.1 down to about a fifth at w 1.0 and 3.0, with per-seed points spread from 9 to 94 at w 0.3. Right: torque rate falls only from 1002 to between 674 and 850 N·m/s over the same range.](../experiments/35-reward-design/success_vs_penalty.png)
 
-Up to $w = 0.1$ the policy loses 6 to 12 percentage points of success (279/300 and 263/300 against 298/300) and gains little smoothness (torque rate 1002 → 901 N·m/s). From $w = 0.3$ on, success collapses and the seeds disagree wildly (9 vs 94 out of 100): the penalty for moving the setpoint is now comparable to the distance reward, and the outcome depends on the seed. Power falls (9.66 → 5.64 W) largely because the arm moves less: the median final distance grows to 25.6–39.2 mm. Two lessons: a regularizer's weight must be set relative to the task term's scale (here $-d$ is a few centimetres per step), and with a stiff servo, smoothing the policy's targets barely smooths the torque. If smooth torque is the goal, change the interface or the gains (lesson 34) before raising $w$.
+Up to $w = 0.1$ the policy loses 6 to 12 percentage points of success (279/300 and 263/300 against 298/300) and gains little smoothness (torque rate 1002 → 901 N·m/s). From $w = 0.3$ on, success collapses and the seeds disagree wildly (9 vs 94 out of 100): the penalty is now a sizable share of the distance term (Build it, Step 5: about a fifth for the scripted controller's actions at $w = 0.3$). Power falls (9.66 → 5.64 W) largely because the arm moves less: the median final distance grows to 25.6–39.2 mm. Two lessons: set a regularizer's weight relative to the task term, and with a stiff servo, smoothing the policy's targets barely smooths the torque. If smooth torque is the goal, change the interface or the gains (lesson 34) before raising $w$.
 
 ## On the real robot
 
 - Penalty weights trade task success for gentler motion in simulation; whether the measured torque-rate reduction carries over depends on the real actuator. On the SO-101 it was not measured.
 - A termination rule written for training is also a safety rule on hardware: on a real robot "episode ends" means a supervisor stops the motion ([lesson 15](../part-4-dynamics-and-control/15-safety.md)). The reward must not make that stop something the policy seeks or avoids for its own sake.
-- The Go2 config's reward weights were tuned for its simulator and PD gains; changing either changes what those weights mean.
+- The Go2 config's weights were tuned for its simulator and PD gains; change either and they mean something else.
 
 ## Check yourself
 
@@ -157,7 +289,7 @@ Up to $w = 0.1$ the policy loses 6 to 12 percentage points of success (279/300 a
 ### Answers
 
 1. $1 - \tanh(0.03/0.05) = 1 - \tanh(0.6) \approx 0.46$ per step; after success the episode is over, so every later reward is 0.
-2. Hovering for $n$ more steps at ~0.46 per step is worth about $0.46 \sum_{t<n} 0.95^t$, which approaches $0.46/(1-0.95) \approx 9.2$ for long remainders; a bonus well above that removes the incentive. The training result is yours to measure; we did not run it.
+2. Hovering for $n$ more steps at ~0.46 is worth $0.46 \sum_{t<n} 0.95^t$, approaching $0.46/(1-0.95) \approx 9.2$ (Build it, Step 4: 9.03 at 30.8 mm); a bonus well above that removes the incentive. We did not train it.
 3. Open; we did not run it.
 
 ## Takeaways and sources

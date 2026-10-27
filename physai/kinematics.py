@@ -1,4 +1,5 @@
-"""Forward kinematics and Jacobians of a serial chain of hinges (lesson 09 · Build it).
+"""Kinematics of a serial chain of hinges: forward kinematics and workspace (lesson 08),
+Jacobians (lesson 09) and inverse kinematics (lesson 10), each built in that lesson's Build it.
 
 Only the model's static numbers come from MuJoCo (body offsets, joint axes, the tool site);
 all the kinematics is computed here, so it can be checked against mj_kinematics and mj_jacSite.
@@ -77,3 +78,38 @@ def fd_jacobian(tool_pos, q, eps=1e-5):
         dq[i] = eps
         cols.append((tool_pos(q + dq) - tool_pos(q - dq)) / (2 * eps))
     return np.column_stack(cols)
+
+
+def sample_workspace(chain, lo, hi, n, seed=1):
+    """Tool positions for n joint vectors drawn uniformly within the joint limits [lo, hi]."""
+    qs = np.random.default_rng(seed).uniform(lo, hi, size=(n, len(lo)))
+    return np.array([fk(chain, q)[2] for q in qs])
+
+
+def voxel_volume(points, size):
+    """Volume (m^3) of the cubic cells of edge `size` (m) that contain at least one point."""
+    cells = np.unique(np.floor(points / size).astype(int), axis=0)
+    return len(cells) * size ** 3
+
+
+def dls_step(J, e, lam):
+    """Damped least-squares step J^T (J J^T + lam^2 I)^-1 e; lam = 0 gives the pseudo-inverse step."""
+    return J.T @ np.linalg.solve(J @ J.T + lam ** 2 * np.eye(len(e)), e)
+
+
+def ik_solve(chain, target, q0, lo, hi, lam=0.1, tol=5e-4, max_iter=200):
+    """Position IK by damped least squares, clipped to the joint limits after every step.
+
+    Returns (q, success, iterations); success means |target - tool position| < tol (m).
+    """
+    q = np.array(q0, dtype=float)
+    for it in range(max_iter + 1):
+        axes, anchors, p = fk(chain, q)
+        e = target - p                             # task error (m)
+        if np.linalg.norm(e) < tol:
+            return q, True, it
+        if it == max_iter:
+            break
+        J = np.column_stack([hinge_column(a, o, p)[:3] for a, o in zip(axes, anchors)])  # position rows
+        q = np.clip(q + dls_step(J, e, lam), lo, hi)
+    return q, False, max_iter

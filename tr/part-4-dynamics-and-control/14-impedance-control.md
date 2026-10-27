@@ -16,15 +16,15 @@
 
 ## Problem
 
-Beklenmedik bir masaya çarpan sert bir position controller bir şey pes edene kadar itmeye devam eder: motorun torque limiti, parça ya da masa. Silme, bir pimi deliğe sokma ya da bir düğmeye basma gibi işler tersini ister: seçilmiş bir stiffness'a sahip yay gibi davranan bir el. libfranka'nın Kartezyen impedance örneği bir Panda'da tam bunu yapıyor: 150 N/m doğrusal stiffness ve 10 N·m/rad dönme stiffness'ı, joint torque'ları her döngüde Jacobian'dan hesaplanıyor ([`cartesian_impedance_control.cpp`](https://github.com/frankarobotics/libfranka/blob/main/examples/cartesian_impedance_control.cpp)). Bu ders o controller'ı ve onun operational-space akrabasını MuJoCo'da torque ile kontrol edilen bir Panda üzerinde kuruyor, sonra stiffness'ın gerçekte ne kazandırdığını görmek için eli sert bir yüzeye bastırıyor.
+Beklenmedik bir masaya çarpan sert bir position controller bir şey pes edene kadar itmeye devam eder: motorun torque limiti, parça ya da masa. Silme, bir pimi deliğe sokma ya da bir düğmeye basma gibi işler tersini ister: seçilmiş bir stiffness'a sahip yay gibi davranan bir el. libfranka'nın Kartezyen impedance örneği bir Panda'da tam bunu yapıyor: 150 N/m doğrusal stiffness ve 10 N·m/rad dönme stiffness'ı, joint torque'ları her döngüde Jacobian'dan hesaplanıyor ([`cartesian_impedance_control.cpp`](https://github.com/frankarobotics/libfranka/blob/main/examples/cartesian_impedance_control.cpp)). Bu ders o controller'ı ve onun operational-space akrabasını MuJoCo'da torque ile kontrol edilen bir Panda üzerinde kuruyor, sonra eli sert bir yüzeye bastırıyor.
 
 ## Ana fikir
 
 ### Sade anlatımla
 
-Position control "tam olarak burada ol" der. Sert gain'lerle, eli rijit bir çubuğa kaynaklanmış gibi davranır: yolda bir masa varsa bir şey pes edene kadar iter. **Impedance control** ise eli hedefine stiffness'ını senin seçtiğin sanal bir yay ve sönümleyiciyle bağlar. Boşlukta el hedefi izler. Masaya dayandığında el durur, yay gerilir ve el *stiffness × hedefin yüzeyin ne kadar gerisinde durduğu* kadar iter. Artık bir konum değil, elin istediğin yerde olmadığında nasıl tepki vereceğini komut ediyorsun. Bir kapı ziline kilitli bir kolla değil, gevşek bir parmakla bastığını düşün.
+Position control "tam olarak burada ol" der; sert gain'lerle el rijit bir çubuğa kaynaklanmış gibidir. **Impedance control** ise eli hedefine stiffness'ı seçilmiş sanal bir yay ve sönümleyiciyle bağlar. Boşlukta el hedefi izler. Masaya dayanınca durur, yay gerilir ve el *stiffness × hedefin yüzeyin ne kadar gerisinde durduğu* kadar iter. Elin istediğin yerde olmadığında nasıl tepki vereceğini komut ediyorsun; kapı ziline kilitli bir kolla değil, gevşek bir parmakla basmak gibi.
 
-Eldeki bir itmeyi motor torklarına çevirmek için controller 09. dersin Jacobian'ını tersten kullanır. Jacobian eklem hızlarını el hızına çevirir; transpozu ise bir el kuvvetini eklem torklarına çevirir, bir kaldıraç zinciri gibi.
+09. dersin Jacobian'ının transpozu bu el kuvvetini eklem torklarına çevirir, bir kaldıraç zinciri gibi.
 
 Gerçek bir kolda çalışması için iki iyileştirme gerekir. Birincisi, kol eli bazı yönlerde iterken diğerlerinden daha ağır hissettirir; yani tek bir yay her eksende farklı bir tepki verir. **Operational-space control** yayı bu hissedilen kütleyle ölçekler, böylece her yön aynı davranır. İkincisi, 7 eklemli bir kolun bir yedek hareketi vardır: el yerinde dururken dirsek salınabilir (**null space**). Eli oynatamayacak şekilde süzülmüş ayrı bir duruş yayı dirseği istediğin yerde tutar.
 
@@ -42,18 +42,11 @@ flowchart TD
 ### Impedance ve operational-space control kod olarak
 
 ```python
-J = jac_site(q)                       # (6, 7): joint speeds -> hand linear + angular velocity
-v = J @ qd                            # hand velocity, (6,)
-e = pose_error(x_target, x)           # (6,): position error [m] + orientation error [rad]
-Minv = np.linalg.inv(M(q))            # inverse joint-space inertia (lesson 11)
-Lam = np.linalg.inv(J @ Minv @ J.T)   # (6, 6): inertia the hand "feels" per direction [kg]
-
-F = K * e - D * v                     # impedance: spring K [N/m], damper D [N s/m] at the hand
-# F = Lam @ (kp * e - kd * v)         # operational space: same response in every direction
-
-Jbar = Minv @ J.T @ Lam               # dynamically consistent pseudo-inverse of J
-N = np.eye(7) - J.T @ Jbar.T          # null-space filter: keeps only torques that leave the hand still
-tau = J.T @ F + N @ (k0 * (q0 - q) - d0 * qd) + g(q)   # hand spring + elbow posture + gravity
+J, v, e = jac(q), jac(q) @ qd, pose_error(x_target, x)   # (6, 7) Jacobian, hand velocity, pose error
+Lam = np.linalg.inv(J @ np.linalg.inv(M(q)) @ J.T)      # inertia the hand "feels" per direction [kg]
+F = K * e - D * v                                       # impedance: spring K [N/m], damper D at the hand
+# F = Lam @ (kp * e - kd * v)                           # operational space: same response in every direction
+tau = J.T @ F + N @ (k0 * (q0 - q) - d0 * qd) + g(q)    # hand spring + filtered elbow posture + gravity
 ```
 
 | Formül | Ne olduğu |
@@ -66,9 +59,9 @@ tau = J.T @ F + N @ (k0 * (q0 - q) - d0 * qd) + g(q)   # hand spring + elbow pos
 
 Burada $x$, tool centre point'in (TCP, gripper'ın çalışma noktası) pozu, $\dot x = J(q)\dot q$ onun 6 boyutlu hızı (ders 09), $e$ poz hatası (konum ve yönelim için $\tfrac12\sum_i R_i \times R_{d,i}$; şu anki ve istenen rotation matrix'lerin $R_i$ sütunlarından kurulur), $F$ **wrench** (bir kuvvet ile bir torkun birlikte hali, altı sayı), $K, D$ stiffness ve damping, $k_p, k_d$ aynılarının birim kütle başına hali, $M$ joint-space inertia, $g(q)$ yerçekimi, $C\dot q$ Coriolis terimi ve $I$ birim matristir.
 
-Bir engele dayanmış durağan el $F = K e$ ile iter: kuvveti $K$'yi ve hedefin yüzeyin ne kadar ötesinde durduğunu seçerek ayarlarsın. $\Lambda$ yöne ve poza göre değişir; tek bir $K$'nin x, y ve z boyunca farklı tepkiler vermesinin sebebi bu. Tam bir operational-space uygulaması task-space Coriolis terimini de sıfırlar; burada $C\dot q + g$, joint space'te `qfrc_bias` ile sıfırlanıyor (Lynch & Park böl. 11).
+Bir engele dayanmış durağan el $F = K e$ ile iter. $\Lambda$ yöne ve poza göre değişir; bu yüzden tek bir $K$ x, y ve z boyunca farklı tepki verir. Tam bir operational-space uygulaması task-space Coriolis terimini de sıfırlar; burada $C\dot q + g$, joint space'te `qfrc_bias` ile sıfırlanıyor (Lynch & Park böl. 11).
 
-**Modelde neyi değiştirdik.** Menagerie'nin Panda'sında position-servo actuator'ler var. Onların `gainprm` ve `biasprm` değerlerini sıfıra çektik (kuvvet üretmiyorlar), kendi torklarımızı `qfrc_applied`'a yazıyoruz ve modelin `forcerange` değerinde kırpıyoruz (joint 1–4 için 87 N·m, joint 5–7 için 12 N·m). `MjSpec` ile flanşın 10,34 cm önüne bir `tcp` site'ı ve hemen önüne 1 cm yarıçaplı bir prob küresi ekliyoruz; B bölümü için elin altına rijit bir blok ekliyoruz ve onunla yalnızca prob çarpışabiliyor (`contype = conaffinity = 2`).
+**Modelde neyi değiştirdik.** Menagerie'nin Panda'sında position-servo actuator'ler var. `gainprm` ve `biasprm` değerlerini sıfırladık, kendi torklarımızı `qfrc_applied`'a yazıyoruz ve modelin `forcerange` değerinde kırpıyoruz (joint 1–4 için 87 N·m, joint 5–7 için 12 N·m). `MjSpec` ile flanşın 10,34 cm önüne bir `tcp` site'ı ve hemen önüne 1 cm yarıçaplı bir prob küresi ekliyoruz; B bölümü için elin altına rijit bir blok ekliyoruz ve onunla yalnızca prob çarpışabiliyor (`contype = conaffinity = 2`).
 
 <details>
 <summary>Matematik ayrıntısı: J transpoz, elin inertia'sı ve null-space torklarının eli neden rahat bıraktığı</summary>
@@ -86,6 +79,159 @@ Daha derine: [Calculus for Machine Learning](https://aiengineeringfromscratch.co
 </details>
 
 <!-- figure: 14-impedance-wall -->
+
+## Sıfırdan yaz
+
+Şimdi iki task-space controller'ı yaklaşık 35 satır NumPy ile yazacak ve Deney'in üç testini onlarla yeniden koşturacaksın. Jacobian 09. dersin, mass matrix 11. dersin; Adım 2 ikisinin de burada MuJoCo'nunkine eşit olduğunu gösteriyor, bu yüzden simülasyon döngüleri onları sonra daha hızlı olan MuJoCo'dan (`mj_jacSite`, `mj_fullM`) alıyor.
+
+Adımları kendi dosyana yaz (örneğin `scratch/my_impedance.py`) ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/control.py`](../../physai/control.py) içinde; `uv run python experiments/14-impedance-control/build.py` beş adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/14-impedance-control/build_output.txt) dosyasında).
+
+### Adım 1 · Yönelim hatası
+
+Konum hatası bir farktır; yönelim hatası ise şu anki frame'i istenene doğru döndüren bir rotation ister. Sütun cross product'larının toplamının yarısı onu tek bir 3 boyutlu vektör olarak verir:
+
+```python
+def orientation_error(R, R_des):
+    """Rotation (rad, world axes) that turns R toward R_des: half the sum of column cross products."""
+    return 0.5 * sum(np.cross(R[:, i], R_des[:, i]) for i in range(3))
+```
+
+```text
+== Step 1. Orientation error for R_des = Rot(axis, angle) R ==
+  1 deg about (0.6, 0, 0.8): |e| = 0.0175 (angle 0.0175 rad), max |e - sin(angle) axis| = 4.0e-17
+ 10 deg about (0.6, 0, 0.8): |e| = 0.1736 (angle 0.1745 rad), max |e - sin(angle) axis| = 1.4e-17
+ 45 deg about (0.6, 0, 0.8): |e| = 0.7071 (angle 0.7854 rad), max |e - sin(angle) axis| = 1.1e-16
+ 90 deg about (0.6, 0, 0.8): |e| = 1.0000 (angle 1.5708 rad), max |e - sin(angle) axis| = 3.3e-16
+```
+
+Dönme ekseni boyunca, $\sin(\text{açı})$ uzunluğunda: küçük hatalarda açının kendisi (1°'de 0,0175), 90°'de yalnızca 1,0; yani büyük yönelim hataları daha az sert çeker.
+
+### Adım 2 · Elin inertia'sı
+
+```python
+def task_inertia(J, M):
+    """The arm's inertia as felt at the tool: Lambda = (J M^-1 J^T)^-1."""
+    return np.linalg.inv(J @ np.linalg.solve(M, J.T))
+```
+
+```python
+J = jacobian(chain_from_mujoco(m, "tcp"), q0[:7])        # lesson 09
+M = mass_matrix(tree_from_mujoco(m), q0)[:7, :7]        # lesson 11
+Lam = task_inertia(J, M)
+```
+
+```text
+== Step 2. The hand's inertia at the start pose, from physai's J and M ==
+physai vs MuJoCo: max diff J 3.2e-15, M 3.3e-15
+Lambda_xx, yy, zz = 11.87, 5.10, 6.88 kg; Lambda from MuJoCo's J and M differs by 1.6e-14
+```
+
+Köşegen Deney'in $\Lambda_{ii}$ sütunu: el x boyunca 11,87 kg, y boyunca ise 5,10 kg hissediyor.
+
+### Adım 3 · İki wrench kuralı
+
+Impedance kuralı elde bir yay–sönümleyicidir; operational-space kuralı birim kütleli bir yay–sönümleyiciyi $\Lambda$ ile çarpar. İkisi de $J^\top$ üzerinden eklem torklarına dönüşür, bias eklenir, joint başına kırpılır:
+
+```python
+def impedance_wrench(e, v, K, D, Kr, Dr):
+    """A spring-damper at the tool: force K e - D v (N) and moment Kr e_rot - Dr w (N m)."""
+    return np.r_[K * e[:3] - D * v[:3], Kr * e[3:] - Dr * v[3:]]
+```
+
+```python
+def osc_wrench(Lam, e, v, kp, kd):
+    """Operational space: the wrench that gives every direction the unit-mass response kp e - kd v."""
+    return Lam @ (kp * e - kd * v)
+```
+
+```python
+def task_torque(J, F, bias, lim, N=None, tau0=None):
+    """Joint torques J^T F + bias (+ N tau0), clipped joint by joint at the limits; also returns 'clipped'."""
+    tau = J.T @ F + bias
+    if N is not None:
+        tau = tau + N @ tau0
+    return np.clip(tau, -lim, lim), bool(np.any(np.abs(tau) > lim))
+```
+
+```python
+J, M = jac_mass(d)                                       # mj_jacSite, mj_fullM
+e, v = tcp_error(d, target), J @ d.qvel[:7]              # position error + orientation_error, hand velocity
+F = impedance_wrench(e, v, 600.0, 50.0, 30.0, 3.0)       # or osc_wrench(task_inertia(J, M), e, v, 100.0, 14.0)
+d.qfrc_applied[:7] = task_torque(J, F, d.qfrc_bias[:7], lim)[0]
+```
+
+```text
+== Step 3. 5 cm steps, 2 s each: impedance (K 600, D 50) vs operational space (kp 100, kd 14) ==
+controller axis  overshoot %  t into 2 mm (s)  off-axis peak (mm)
+impedance     x         13.0            0.854                5.43
+impedance     y          9.8            0.532                1.02
+impedance     z         17.0            0.572                5.61
+osc           x          3.2            0.322                1.70
+osc           y          3.8            0.304                0.68
+osc           z          4.6            0.500                2.97
+```
+
+Her hücre Deney'in A bölümü tablosuyla aynı: aynı kural, aynı sayılar.
+
+### Adım 4 · Null space
+
+```python
+def null_space_projector(J, M, Lam):
+    """N = I - J^T Jbar^T with Jbar = M^-1 J^T Lambda: N tau0 never accelerates the tool."""
+    Jbar = np.linalg.solve(M, J.T) @ Lam
+    return np.eye(M.shape[0]) - J.T @ Jbar.T
+```
+
+Önce matematik ayrıntısındaki özellik, sonra Deney'in dirsek itmesi; $10(q_0 - q) - 2\dot q$ duruş yayı $N$ ile süzülüyor:
+
+```text
+== Step 4. Null space: J M^-1 N, then the Experiment's 20 N elbow push ==
+max |J M^-1 N| = 1.1e-15  (a null-space torque never moves the hand)
+without null-space posture: tcp error 14.13 mm, elbow moved 0.30 cm, |q - q0| 0.124 rad
+   with null-space posture: tcp error 14.14 mm, elbow moved 0.00 cm, |q - q0| 0.000 rad
+```
+
+$J M^{-1} N$ yuvarlama hatası düzeyinde sıfır; yani duruş terimi eli oynatamıyor (14,13'e karşı 14,14 mm) ama dirseği geri getiriyor (0,30 → 0,00 cm).
+
+### Adım 5 · Yüzeye bastır
+
+Hedefi 13. dersin quintic'iyle bloğun üst yüzünün 5 cm altına rampala ve tut:
+
+```text
+== Step 5. Press 5 cm into the surface: holding force vs K x 5 cm ==
+K =   300 N/m: K x 5 cm =  15.0 N, holding force  14.98 N
+K =  1000 N/m: K x 5 cm =  50.0 N, holding force  49.77 N
+```
+
+Dururken yüzey $K e$ hisseder: tasarlanan 15 ve 50 N için 14,98 ve 49,77 N, Deney'in B bölümü satırları.
+
+### Elinde kalan
+
+`physai.control` artık `orientation_error`, `task_inertia`, `impedance_wrench`, `osc_wrench`, `null_space_projector` ve `task_torque` da içeriyor. Ders 15 bunların torque limitlerine bir safety aracı olarak geri dönüyor. [`tests/test_14_impedance_control.py`](../../tests/test_14_impedance_control.py) null-space ve birim kütle özelliklerini Panda üzerinde kontrol ediyor; bir şey değiştirdikten sonra `uv run pytest tests/test_14_impedance_control.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+MuJoCo'da task-space controller yok; onu her adımda parçalarından kurarsın, Deney'in `Controller`'ının yaptığı da tam bu:
+
+```python
+mujoco.mj_jacSite(m, d, jp, jr, site)                    # after mj_step / mj_forward: fresh for this state
+J = np.vstack([jp, jr])[:, :7]
+mujoco.mj_fullM(m, d, M)                                 # dense M; or mj_solveM(m, d, x, y) for M^-1 y
+d.qfrc_applied[:7] = np.clip(J.T @ F + d.qfrc_bias[:7], -lim, lim)
+```
+
+| Araç | Impedance kuralı | Bias terimi |
+|---|---|---|
+| physai | `task_torque(J, impedance_wrench(e, v, K, D, Kr, Dr), bias, lim)` | verdiğin `bias`, burada `qfrc_bias` (yerçekimi + Coriolis) |
+| libfranka örneği | $\tau_d = J^\top(-K e - D J\dot q)$ + `coriolis`, $K$ = 150 N/m ve 10 N·m/rad, $D = 2\sqrt{K}$ ([`cartesian_impedance_control.cpp`](https://github.com/frankarobotics/libfranka/blob/main/examples/cartesian_impedance_control.cpp)) | yalnız Coriolis: yerçekimini robot kendisi dengeler |
+
+İşarete dikkat: libfranka'nın hatası şu anki eksi istenen, bizimki istenen eksi şu anki.
+
+Üç tuzak:
+
+- **$\Lambda$ singularity'lerde patlar.** $J M^{-1} J^\top$, $J$ ile birlikte rank kaybeder (ders 10) ve tersi patlar; gergin bir kolun yakınında onu sönümle ya da impedance control'e dön.
+- **$M$'nin kol bloğu.** Panda'nın $M$'si parmaklarla birlikte 9 × 9; controller parmaklar sabit tutulmuş kolun inertia'sı olan `M[:7, :7]`'yi kullanıyor.
+- **Yerçekimi iki kez ya da hiç.** `qfrc_bias` yerçekimini zaten içerir; ayrıca bir $g(q)$ eklemek onu ikiye katlar. Yerçekimini kendisi dengeleyen bir robotta (libfranka) hiç eklememek gerekir.
 
 ## Deney
 
@@ -112,7 +258,7 @@ tau = np.clip(tau, -lim, lim)
 | operational space | y | 5,10 kg | %3,8 | 0,304 s | 0,68 mm |
 | operational space | z | 6,88 kg | %4,6 | 0,500 s | 2,97 mm |
 
-El x boyunca 11,87 kg, y boyunca ise 5,10 kg hissediyor. Tek bir K ve tek bir D ile impedance control her yönde farklı bir yay–kütle sistemi oluyor (oturma 0,532–0,854 s) ve eksenleri birbirine bağlıyor (5,61 mm eksen dışı). Λ ile ölçeklemek tepkileri birbirine yaklaştırıyor (%3,2–4,6 overshoot) ve eksen dışı hareketi küçültüyor. Kalan farklar bu controller'ın dışarıda bıraktıklarından geliyor (task-space Coriolis, joint damping, torque kırpma).
+El x boyunca 11,87 kg, y boyunca ise 5,10 kg hissediyor. Tek bir K ve tek bir D ile impedance control her yönde farklı bir yay–kütle sistemi oluyor (oturma 0,532–0,854 s) ve eksenleri birbirine bağlıyor (5,61 mm eksen dışı). Λ ile ölçeklemek tepkileri birbirine yaklaştırıyor (%3,2–4,6 overshoot); kalan farklar bu controller'ın dışarıda bıraktıklarından geliyor (task-space Coriolis, joint damping, torque kırpma).
 
 **A2. Null space.** Operational-space control TCP'yi sabit tutuyor; +y yönünde 20 N'luk bir itme 0,3 s boyunca dirseğe (`link4`) uygulanıyor.
 
@@ -141,7 +287,7 @@ K = 3000'e kadar tutma kuvveti K × 5 cm ile örtüşüyor (K = 3000'de 150 N'a 
 
 ## Boz
 
-K'yı joint'lerin verebileceğinin ötesine çıkar. K = 10000'de komut edilen wrench, adımların %77,9'unda bir joint'in verebileceğinden fazla torque istiyor. Joint başına kırpma her torque'u yasal tutuyor ama gerçekte uygulanan wrench'in yönünü değiştiriyor ve oryantasyon döngüsü kaybediyor: el 56,91° eğiliyor. K = 30000 ve 100000'de eğilme 90°'yi geçiyor, probe yüzeyde zıplıyor (tutma sırasında 6 ve 10 contact kaybı), tutma kuvveti 395,95 ve 205,03 N'a düşüyor ve ölçülen penetration (artık eğilmiş probe boyunca 19,180 ve 21,679 mm) hiç de bir contact özelliği değil. Ders şu: bir stiffness yalnızca torque limitlerine ulaşılmadığı sürece gerçektir. Ulaşıldığında joint'leri tek tek kırpmak yerine komutun tamamını ölçekle ya da wrench'i task space'te sınırla; ders 15 torque limitlerine bir safety aracı olarak geri dönüyor.
+K'yı joint'lerin verebileceğinin ötesine çıkar. K = 10000'de komut edilen wrench, adımların %77,9'unda bir joint'in verebileceğinden fazla torque istiyor. Joint başına kırpma her torque'u yasal tutuyor ama gerçekte uygulanan wrench'in yönünü değiştiriyor ve oryantasyon döngüsü kaybediyor: el 56,91° eğiliyor. K = 30000 ve 100000'de eğilme 90°'yi geçiyor, probe yüzeyde zıplıyor (tutma sırasında 6 ve 10 contact kaybı), tutma kuvveti 395,95 ve 205,03 N'a düşüyor ve ölçülen penetration (artık eğilmiş probe boyunca 19,180 ve 21,679 mm) bir contact özelliği değil. Bir stiffness yalnızca torque limitlerinin altında gerçektir; ötesinde joint'leri tek tek kırpmak yerine komutun tamamını ölçekle ya da wrench'i task space'te sınırla (ders 15).
 
 ## Gerçek robotta
 

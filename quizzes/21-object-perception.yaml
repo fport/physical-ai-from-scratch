@@ -1,6 +1,67 @@
-# Lesson 21 · Object perception for manipulation. Every answer is supported by the lesson page or
-# experiments/21-object-perception/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 21 · Object perception for manipulation. Every answer is supported by the lesson page,
+# experiments/21-object-perception/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: You dim the light on a red cube. Which of hue, saturation and value changes the most?
+    tr: Kırmızı bir küpün üstündeki ışığı kısıyorsun. Hue, saturation ve value'dan en çok hangisi değişir?
+  options:
+    - en: Hue; the cube turns towards brown, then black.
+      tr: Hue; küp önce kahverengiye, sonra siyaha döner.
+    - en: Saturation; dim colours always look grey.
+      tr: Saturation; loş renkler her zaman gri görünür.
+    - en: Value, the brightness; hue stays where it was.
+      tr: Value, yani parlaklık; hue olduğu yerde kalır.
+  answer: 2
+  why:
+    en: HSV separates which colour (hue) from how bright (value). In Experiment step 2 the top face goes from V = 255 at scale 1.0 to V = 72 at scale 0.1 while H stays 0 in every row.
+    tr: HSV hangi renk olduğunu (hue) ne kadar parlak olduğundan (value) ayırır. Deney adım 2'de üst yüzün V'si ölçek 1,0'da 255'ten ölçek 0,1'de 72'ye iniyor; H ise her satırda 0'da kalıyor.
+- stage: pre
+  q:
+    en: Perception reports the cube 8 mm from where it really is. The cube is 30 mm wide. Will the scripted pick still work?
+    tr: Perception küpü gerçek yerinden 8 mm uzakta raporluyor. Küp 30 mm genişliğinde. Scripted pick yine de çalışır mı?
+  options:
+    - en: Often not; in simulation 9 of 30 picks fail at an 8 mm aim error.
+      tr: Çoğu zaman hayır; simülasyonda 8 mm nişan hatasında 30 pick'in 9'u başarısız oluyor.
+    - en: Always; 8 mm is well inside the cube's 30 mm.
+      tr: Her zaman; 8 mm, küpün 30 mm'sinin rahatça içinde.
+    - en: Never; any error above 1 mm fails.
+      tr: Asla; 1 mm'nin üstündeki her hata başarısız olur.
+  answer: 0
+  why:
+    en: Experiment step 1 - aim errors of 0, 4 and 8 mm give 30, 29 and 21 of 30 picks. The error budget is a few millimetres, which is why the lesson measures picks, not pixels.
+    tr: Deney adım 1 - 0, 4 ve 8 mm nişan hatası 30, 29 ve 21/30 pick veriyor. Hata bütçesi birkaç milimetre; ders bu yüzden pixel'i değil pick'i ölçüyor.
+- stage: check
+  q:
+    en: You feed a MuJoCo image to `cv2.cvtColor(rgb, cv2.COLOR_BGR2HSV)` and threshold for red. What happens?
+    tr: Bir MuJoCo görüntüsünü `cv2.cvtColor(rgb, cv2.COLOR_BGR2HSV)`'ye veriyor ve kırmızı için eşikliyorsun. Ne olur?
+  options:
+    - en: Nothing changes; HSV does not depend on channel order.
+      tr: Hiçbir şey değişmez; HSV kanal sırasına bağlı değildir.
+    - en: Red and blue swap, a pure red pixel gets hue 120, and the detector silently finds nothing.
+      tr: Kırmızı ile mavi yer değiştirir, saf kırmızı bir pixel hue 120 alır ve detector sessizce hiçbir şey bulmaz.
+    - en: OpenCV raises an error because the image is not BGR.
+      tr: Görüntü BGR olmadığı için OpenCV hata verir.
+  answer: 1
+  why:
+    en: Use it, traps - MuJoCo's renderer returns RGB, `cv2.imread` returns BGR. The conversion cannot tell which one it got, so a wrong flag raises no error.
+    tr: Kütüphaneyle kullan, tuzaklar - MuJoCo'nun renderer'ı RGB, `cv2.imread` BGR döndürür. Dönüşüm hangisini aldığını bilemez; yanlış bayrak hata vermez.
+- stage: check
+  q:
+    en: In Build it, Step 4, back-projecting the blob's centroid pixel gives 1.09 mm max error, averaging the top-face points 0.45 mm. Where does most of the difference come from?
+    tr: Sıfırdan yaz, Adım 4'te blob'un ağırlık merkezi pixel'ini back-project etmek en fazla 1,09 mm, üst yüz noktalarının ortalaması 0,45 mm hata veriyor. Farkın çoğu nereden geliyor?
+  options:
+    - en: "`mask_centroid` disagrees with `cv2.moments`."
+      tr: "`mask_centroid`, `cv2.moments` ile uyuşmuyor."
+    - en: The simulated depth image is noisy.
+      tr: Simülasyondaki depth görüntüsü gürültülü.
+    - en: The centroid has to be rounded to a whole pixel, and one pixel spans 1.11 mm at the top face.
+      tr: Ağırlık merkezi tam bir pixel'e yuvarlanmak zorunda ve bir pixel üst yüzde 1,11 mm kaplıyor.
+  answer: 2
+  why:
+    en: Step 4 prints the moments check (0.0e+00) and the footprint of one pixel (1.11 mm at 0.57 m). Averaging hundreds of back-projected points removes the rounding; dropping side-face points removes their pull.
+    tr: Adım 4 moments kontrolünü (0,0e+00) ve bir pixel'in kapladığı alanı (0,57 m'de 1,11 mm) yazdırıyor. Yüzlerce back-project edilmiş noktanın ortalaması yuvarlamayı, yan yüz noktalarını atmak da onların çekişini ortadan kaldırıyor.
+- stage: post
+  q:
     en: At light scale 3.0 the red cube is brighter than ever, yet the HSV detector finds it in only 1 of 30 scenes. Why?
     tr: Işık ölçeği 3,0'da kırmızı küp hiç olmadığı kadar parlak, ama HSV detector onu 30 sahnenin yalnızca 1'inde buluyor. Neden?
   options:
@@ -14,21 +75,8 @@
   why:
     en: With $\max$ stuck at 255 while $\min$ keeps rising, $S = (\max-\min)/\max$ must fall. Hue stays at 0 in every row of step 2.
     tr: $\max$ 255'te takılıp $\min$ artmaya devam edince $S = (\max-\min)/\max$ düşmek zorunda. Adım 2'nin her satırında hue 0'da kalıyor.
-- q:
-    en: In that one scene only a darker side face passed the threshold. Why is this partial detection worse than none?
-    tr: O tek sahnede eşiği yalnızca daha koyu bir yan yüz geçti. Bu kısmi tespit neden hiç tespitten kötü?
-  options:
-    - en: Its centroid is 14.9 mm off, the robot acts on it, and an aim error that large already fails most picks.
-      tr: Ağırlık merkezi 14,9 mm sapmış, robot ona göre davranıyor ve bu büyüklükte bir nişan hatası pick'lerin çoğunu zaten bozuyor.
-    - en: It takes much longer to compute than a full detection.
-      tr: Hesaplanması tam bir tespitten çok daha uzun sürüyor.
-    - en: The depth image has no values on side faces.
-      tr: Depth görüntüsünde yan yüzlerde değer yok.
-  answer: 0
-  why:
-    en: Step 1 - an aim error of 12 mm gives 15/30 picks, 16 mm 11/30; the 14.9 mm detection gives 0/30. With no detection the robot would at least not act.
-    tr: Adım 1 - 12 mm'lik nişan hatası 15/30, 16 mm 11/30 pick veriyor; 14,9 mm'lik tespit 0/30 veriyor. Hiç tespit olmasa robot en azından harekete geçmezdi.
-- q:
+- stage: post
+  q:
     en: Lowering $V_{\min}$ from 70 to 25 recovers 30/30 picks under grazing sunlight. What is the catch?
     tr: $V_{\min}$'i 70'ten 25'e indirmek yatay güneş ışığında 30/30 pick'i geri getiriyor. Bunun bedeli ne?
   options:

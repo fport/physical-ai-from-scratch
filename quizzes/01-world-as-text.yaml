@@ -1,6 +1,7 @@
 # Lesson 01 · The world as text. Every answer is supported by the lesson page or
-# experiments/01-world-as-text/output.txt. answer = index of the correct option (0-based).
-- q:
+# experiments/01-world-as-text/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: In vacuum, a 1 kg cube and a 100 g cube are released 40 cm above the tabletop. Which one lands first?
     tr: Boşlukta 1 kg'lık ve 100 g'lık iki küp tablanın 40 cm üstünden bırakılıyor. Hangisi önce iner?
   options:
@@ -14,7 +15,53 @@
   why:
     en: $a = F/m = g$, so mass cancels. In Part A both cubes reach the tabletop at step 143 (analytic 0.2856 s).
     tr: $a = F/m = g$, yani kütle sadeleşir. A bölümünde iki küp de tablaya 143. adımda varıyor (analitik 0,2856 s).
-- q:
+- stage: pre
+  q:
+    en: A geom in an MJCF file has a size but no `mass` and no `density`, and its body has no `<inertial>`. What does the compiler do?
+    tr: Bir MJCF dosyasındaki geom'un boyutu var ama `mass` ya da `density`'si yok, body'sinin de `<inertial>`'ı yok. Compiler ne yapar?
+  options:
+    - en: It stops with an error, because the body has no mass.
+      tr: Hata verip durur, çünkü body'nin kütlesi yok.
+    - en: It gives the body zero mass, so the body cannot move.
+      tr: Body'ye sıfır kütle verir, body hareket edemez.
+    - en: It weighs the geom as a uniform solid at the default density of 1000 kg/m³, without a warning.
+      tr: Geom'u default 1000 kg/m³ yoğunlukta düzgün dolu bir cisim olarak, uyarısız tartar.
+  answer: 2
+  why:
+    en: A missing number is never an error; it is a default you did not choose. `geom/density` defaults to 1000 kg/m³ (MJCF in one table), and Build it, Step 1 reproduces the compiler's mass $\rho V$.
+    tr: Eksik bir sayı asla hata değildir; senin seçmediğin bir default'tur. `geom/density`'nin default'u 1000 kg/m³ (Tek tabloda MJCF); Sıfırdan yaz, Adım 1 de compiler'ın kütlesini $\rho V$ olarak yeniden üretiyor.
+- stage: check
+  q:
+    en: In Build it, Step 2, a 1 kg box sits above a 0.5 kg sphere. Why is the body's $I_{xx}$ 0.0155 kg·m² and not 0.002167 kg·m², the sum of the two parts' own inertias?
+    tr: Sıfırdan yaz, Adım 2'de 1 kg'lık bir box, 0,5 kg'lık bir kürenin üstünde duruyor. Body'nin $I_{xx}$'i neden iki parçanın kendi inertia'larının toplamı olan 0,002167 kg·m² değil de 0,0155 kg·m²?
+  options:
+    - en: Each part's inertia must be moved to the common COM with the parallel-axis term $m(\lVert r\rVert^2 I - r r^\top)$.
+      tr: Her parçanın inertia'sı parallel-axis terimiyle $m(\lVert r\rVert^2 I - r r^\top)$ ortak COM'a taşınmalı.
+    - en: MuJoCo doubles the inertia of bodies with more than one geom.
+      tr: MuJoCo birden fazla geom'u olan body'lerin inertia'sını iki katına çıkarır.
+    - en: The sphere is weighed at the default density instead of its `mass`.
+      tr: Küre `mass`'i yerine default yoğunlukta tartılır.
+  answer: 0
+  why:
+    en: '`combine_parts` adds $m(\lVert r\rVert^2 I - r r^\top)$ for each part at offset $r$ from the COM and matches `body_inertia` to 2.2e-16; without that term the body would look seven times easier to tip over.'
+    tr: '`combine_parts`, COM''dan $r$ uzaklıktaki her parça için $m(\lVert r\rVert^2 I - r r^\top)$ ekliyor ve `body_inertia` ile 2,2e-16 farkla örtüşüyor; bu terim olmasa body yedi kat daha kolay devriliyor gibi görünürdü.'
+- stage: check
+  q:
+    en: In Build it, Step 4, your own loop with `quadratic_drag` lands the light cube at step 145, exactly as `mj_step` does. Where does the area in the drag formula come from?
+    tr: Sıfırdan yaz, Adım 4'te `quadratic_drag`'li kendi döngün hafif küpü tam `mj_step` gibi 145. adımda indiriyor. Drag formülündeki alan nereden geliyor?
+  options:
+    - en: From the collision geom's `size`, read at every step.
+      tr: Her adımda okunan collision geom'unun `size`'ından.
+    - en: From a fixed default area of 1 m² that `density` scales.
+      tr: '`density`''nin ölçeklediği sabit 1 m²''lik bir default alandan.'
+    - en: From the body's mass and inertia, through the uniform box with the same mass and inertia (`inertia_box`).
+      tr: Body'nin kütlesi ve inertia'sından, aynı kütle ve inertia'ya sahip düzgün box üzerinden (`inertia_box`).
+  answer: 2
+  why:
+    en: MuJoCo's drag model replaces each body by its equivalent inertia box; for the 100 g, 20 cm cube that box is 0.2 m on each side, and the drag matches `qfrc_fluid` (0.024000 N at 1 m/s). This is also why editing `body_mass` alone changes the drag shape (Use it).
+    tr: MuJoCo'nun drag modeli her body'yi eşdeğer inertia box'ıyla değiştirir; 100 g'lık, 20 cm'lik küp için bu box her kenarda 0,2 m ve drag `qfrc_fluid` ile örtüşüyor (1 m/s'de 0,024000 N). Yalnız `body_mass`'i düzenlemenin drag şeklini de değiştirmesinin sebebi bu (Kütüphaneyle kullan).
+- stage: post
+  q:
     en: With `density="1.2"` (air), how does the light cube's landing delay depend on its mass?
     tr: '`density="1.2"` (hava) ile hafif küpün iniş gecikmesi kütlesine nasıl bağlı?'
   options:
@@ -28,7 +75,8 @@
   why:
     en: The delay table in Part A falls from 93.44 ms at 5 g to 0.45 ms at 500 g and follows the $1/m$ guide line.
     tr: A bölümündeki gecikme tablosu 5 g'da 93,44 ms'den 500 g'da 0,45 ms'ye düşüyor ve $1/m$ kılavuz çizgisini izliyor.
-- q:
+- stage: post
+  q:
     en: The SO-101 file is compiled with `inertiafromgeom="true"`. What happens?
     tr: SO-101 dosyası `inertiafromgeom="true"` ile compile ediliyor. Ne olur?
   options:

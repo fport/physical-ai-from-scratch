@@ -42,15 +42,9 @@ flowchart TD
 ### Kayma testi, kod olarak
 
 ```python
-from math import sin, cos, atan, degrees
-
-def coulomb_slips(theta, mu, m, g):      # theta in radians, g = gravity (m/s²)
-    pull = m * g * sin(theta)              # gravity component along the ramp (N)
-    budget = mu * m * g * cos(theta)       # largest friction force the surface can supply (N)
-    return pull > budget                   # m and g cancel: same as tan(theta) > mu
-
-slip_angle = degrees(atan(mu))             # e.g. mu = 0.5 -> 26.57°
-accel = g * (sin(theta) - mu * cos(theta)) # downhill acceleration once it slides
+pull = m * g * sin(theta)                  # gravity component along the ramp (N)
+budget = mu * m * g * cos(theta)           # largest friction force the surface can supply (N)
+slips = pull > budget                      # m and g cancel: tan(theta) > mu (Build it, Step 1)
 
 def in_elliptic_cone(f_n, f_t1, f_t2, mu):  # MuJoCo's round cone, condim 3
     return f_n >= 0 and f_t1**2 + f_t2**2 <= (mu * f_n)**2
@@ -91,6 +85,125 @@ Daha derine: [Vectors, Matrices & Operations](https://aiengineeringfromscratch.c
 *Satır*, constraint solver'ın o contact için bulması gereken tek bir skaler bilinmeyendir.
 
 <!-- figure: 04-friction-slope -->
+
+## Sıfırdan yaz
+
+Şimdi Coulomb kayma testini, kayma ivmesini ve MuJoCo'nun pyramidal cone'unu yaklaşık 40 satır NumPy ile yazacak; MuJoCo'nun hareketiyle, constraint satırlarıyla ve bir SciPy lineer programıyla karşılaştıracaksın. Adımları kendi dosyana yaz ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/sim.py`](../../physai/sim.py) içinde; `uv run python experiments/04-friction/build.py` dört adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/04-friction/build_output.txt) dosyasında).
+
+### Adım 1 · Kayma testi
+
+```python
+def ramp_slip(theta, mu, g=9.81):
+    """Does a block on a ramp at angle theta slip (tan theta > mu), and its downhill acceleration if so."""
+    slips = np.tan(theta) > mu
+    return slips, g * (np.sin(theta) - mu * np.cos(theta)) if slips else 0.0
+```
+
+Bunu Deney'in 0,05°'lik ızgarasında uygula, sonra Deney'in kendi kriterini (2 s sonunda hızlı ve ivmelenen) bu ideal bloğa uygula; blok durgunluktan sabit ivmeyle başladığı için 0,5–1,0 s ve 1,5–2,0 s'deki ortalama hızları $0{,}75a$ ve $1{,}75a$:
+
+```text
+== Step 1. Slip angle: tan(theta) > mu, then the Experiment's criterion on an ideal Coulomb block ==
+  mu  arctan mu  first grid angle that slips  ideal block + criterion
+ 0.3     16.70°                       16.70°                   16.80°
+ 0.5     26.57°                       26.60°                   26.65°
+ 0.8     38.66°                       38.70°                   38.75°
+ 1.0     45.00°                       45.05°                   45.05°
+```
+
+Deney 16,75°, 26,60°, 38,70° ve 44,90° ölçtü: ideal bloğun kriteri geçtiği açıdan bir ızgara adımı *önce* (μ = 1'de üç). $\arctan\mu$'nün hemen üstünde ideal blok o kadar yavaş ivmeleniyor ki 2 s sonunda hâlâ 2 cm/s'nin altında; MuJoCo küpü buna creep hızını (Gözlemle'de 1,42 cm/s'ye kadar) ekliyor.
+
+### Adım 2 · Kayma ivmesi
+
+Eşiğin üstünde blok $g(\sin\theta - \mu\cos\theta)$ ile ivmelenir. Deney'in 80 cm'lik rampası bunu uzun süre ölçmek için kısa; onun yerine yerçekimini eğ: yerçekimi $(g\sin\theta, 0, -g\cos\theta)$ olan düz zemindeki bir küp, kayıp düşeceği bir kenar olmadan aynı fizik. $x(t)$'ye bir parabol oturt:
+
+```text
+== Step 2. Sliding acceleration (mu = 0.5): g (sin - mu cos) vs MuJoCo, fit over 0.2-1.0 s ==
+ theta  ours (m/s^2)  elliptic  pyramidal
+ 28.0°        0.2747    0.2744     0.2745
+ 30.0°        0.6571    0.6571     0.6567
+ 35.0°        1.6088    1.6207     1.6117
+ 45.0°        3.4684    3.4640     3.5092
+```
+
+Her açıda, iki cone için de %1,2'nin içinde. Kalan fark formülden gelmiyor: kayan bir box ön kenarına devrilip zıplıyor (zaman zaman hiç contact'ı yok), fit de bu tümsekli kaymanın ortalamasını alıyor.
+
+### Adım 3 · Constraint satırları olarak pyramid
+
+`condim=3` için pyramidal cone her contact'ı $n \pm \mu t_1$ ve $n \pm \mu t_2$ boyunca dört kenar kuvvetiyle $f_k \ge 0$ değiştirir. Constraint biçiminde her kenar bir $J_n \pm \mu J_{t_i}$ satırıdır, contact kuvveti de onların toplamı:
+
+```python
+def pyramid_rows(j_normal, j_tangent, mu):
+    """Constraint rows of MuJoCo's pyramidal cone: J_n + mu J_t and J_n - mu J_t for each tangent direction."""
+    return np.array([j_normal + s * m * jt for m, jt in zip(mu, j_tangent) for s in (1, -1)])
+```
+
+```python
+def pyramid_to_force(edge_forces, mu):
+    """Contact-frame force (normal, tangential...) from the non-negative pyramid edge forces."""
+    f = np.asarray(edge_forces, float).reshape(-1, 2)
+    return np.r_[f.sum(), [m * (fp - fm) for m, (fp, fm) in zip(mu, f)]]
+```
+
+$J_n$, $J_t$'yi contact frame'inden (`d.contact[i].frame`, önce normal) ve küpün contact noktasındaki nokta Jacobian'ından (`mj_jac`) kur, sonra MuJoCo'nun `efc_J`'si ve `mj_contactForce` ile karşılaştır:
+
+```text
+== Step 3. Pyramid rows and edge forces vs MuJoCo (cube holding at 20°, mu = 0.5, pyramidal) ==
+4 contacts x 4 rows = 16 rows · max |our rows - efc_J| = 0.0e+00
+max |force from our edge sum - mj_contactForce| = 0.0e+00 N
+```
+
+Birebir: MuJoCo pyramidal bir contact'ı böyle kuruyor.
+
+### Adım 4 · Ne kadar sürtünme, hangi yönde
+
+Birim normal kuvvetle negatif olmayan kenar kuvvetleri $|f_1| + |f_2| \le \mu$ olan her teğet kuvvete ulaşır: çember değil, bir eşkenar dörtgen. Birinci teğetle $\phi$ açısı yapan bir yönde limit bu yüzden $\mu / (|\cos\phi| + |\sin\phi|)$:
+
+```python
+def tangential_limit(phi, mu, cone):
+    """Largest friction force per unit normal force when sliding at angle phi to the first tangent axis."""
+    if cone == "elliptic":
+        return mu
+    return mu / (abs(np.cos(phi)) + abs(np.sin(phi)))  # pyramid: |f1| + |f2| <= mu f_n, a diamond
+```
+
+```text
+== Step 4. Largest friction force per unit normal force, by sliding direction (mu = 0.5) ==
+  phi  elliptic  pyramid (ours)  pyramid (linprog)
+   0°    0.5000          0.5000             0.5000
+  15°    0.5000          0.4082             0.4082
+  30°    0.5000          0.3660             0.3660
+  45°    0.5000          0.3536             0.3536
+MuJoCo: friction impulse / normal impulse on the cube over 0.2-1.0 s (world frame)
+  holding at 20° (tan 20° = 0.3640)  elliptic  0.3640
+  holding at 20° (tan 20° = 0.3640)  pyramidal 0.3640
+  sliding at 35° (mu = 0.5)          elliptic  0.5000
+  sliding at 35° (mu = 0.5)          pyramidal 0.5000
+```
+
+Dört kenar kuvveti üzerindeki SciPy lineer programı her açıda aynı sonucu veriyor. Köşegen boyunca pyramid yalnızca $\mu/\sqrt2$'ye izin veriyor: 0,5 yerine 0,3536. MuJoCo'nun kendi kuvvetleri yasaya uyuyor: duran küp tam ihtiyacı kadar sürtünme kullanıyor, $\tan 20°$ = 0,3640; kayan küp cone'un sınırında, oran μ. Buradaki iki küp de bir teğet ekseni boyunca kayıyor ($\phi = 0$), iki cone'un uyuştuğu yerde. Boz'daki döndürülmüş küpün farklı bir $\phi$'de kayıp kaymadığı ayrıca incelenmedi.
+
+### Elinde kalan
+
+`physai.sim` artık `ramp_slip`, `pyramid_rows`, `pyramid_to_force` ve `tangential_limit` içeriyor. Ders 16, gripper bir nesneyi sıkarken sürtünme limitine ihtiyaç duyuyor. [`tests/test_04_friction.py`](../../tests/test_04_friction.py) bunları MuJoCo'ya sabitliyor; bir şey değiştirdikten sonra `uv run pytest tests/test_04_friction.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+MuJoCo'da sürtünme geom başına üç sayı artı iki global seçenektir:
+
+```python
+<option cone="elliptic" impratio="10"/>          # round cone; impratio > 1 reduces creep (Math details)
+<geom ... friction="1 0.005 0.0001" condim="3"/>  # sliding, torsional, rolling; condim picks which act
+
+f = np.zeros(6)
+mujoco.mj_contactForce(m, d, i, f)               # contact i: f[0] normal, f[1:3] friction, in its frame
+f_world = d.contact[i].frame.reshape(3, 3).T @ f[:3]
+```
+
+Tuzaklar:
+
+- **Dünya değil, contact frame'i.** `mj_contactForce` kuvveti contact frame'inde, önce normal olarak döndürür; contact'ları toplamadan ya da yerçekimiyle karşılaştırmadan önce `frame.T` ile döndür (Adım 4).
+- **İki cisim için tek μ.** `priority` karar vermiyorsa MuJoCo iki geom'un `friction`'ının eleman bazında maksimumunu alır (Matematik ayrıntısı): μ = 1'lik bir gripper pad'indeki kaygan bir nesne μ = 1 alır.
+- **Contact değil, satır.** `d.nefc` satırları sayar: pyramidal `condim=3` contact başına dört, elliptic başına üç (Adım 3 4 contact için 16 satır buldu).
 
 ## Deney
 

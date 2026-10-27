@@ -1,0 +1,37 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Solid shapes: our mass and inertia vs MuJoCo's compiler ==
+geom                size (m)  mass (kg)        I_xx        I_yy        I_zz  max rel. err
+box          [0.1, 0.1, 0.1]     0.1000  6.6667e-04  6.6667e-04  6.6667e-04       1.1e-16
+box        [0.1, 0.05, 0.02]     0.5600  5.4133e-04  1.9413e-03  2.3333e-03       0.0e+00
+sphere                [0.04]     0.2681  1.7157e-04  1.7157e-04  1.7157e-04       0.0e+00
+cylinder         [0.03, 0.1]     1.5268  5.4329e-03  5.4329e-03  6.8707e-04       2.2e-16
+capsule          [0.03, 0.1]     0.6786  3.4383e-03  3.4383e-03  2.9518e-04       2.2e-16
+
+== Step 2. One body from two parts: a 1 kg box above a 0.5 kg sphere ==
+mass 1.5000 kg (body_mass 1.5000) · COM z 0.03333 m (body_ipos z 0.03333)
+inertia about the COM, diagonal: [0.0155   0.0155   0.002167] kg m^2
+body_inertia:                    [0.0155   0.0155   0.002167] kg m^2
+max rel. error 2.2e-16; each part alone about the COM would give I_xx 0.002167 (no parallel-axis term)
+
+== Step 3. Free fall by hand (velocity first, then position) vs mj_step, vacuum ==
+light: lands at step 143 · max |z_ours - z_mujoco| over the fall 1.1e-16 m
+heavy: lands at step 143 · max |z_ours - z_mujoco| over the fall 1.1e-16 m
+analytic sqrt(2 * 0.40 / 9.81) = 0.2856 s = step 142.8
+
+== Step 4. Drag from the equivalent inertia box vs MuJoCo's qfrc_fluid ==
+inertia box of the 100 g cube: [0.2 0.2 0.2] m (the geom is 0.2 m)
+v_z = -1.0 m/s · our drag 0.024000 N · qfrc_fluid 0.024000 N
+v_z = -2.8 m/s · our drag 0.188160 N · qfrc_fluid 0.188160 N
+air drop by hand: light lands at step 145, heavy at step 143 · light is 1.10 cm higher when heavy lands · delay 4.08 ms
+max |z_ours - z_mujoco| for the light cube over its fall: 0.0e+00 m
+
+== Step 5. The mass sweep with air, from our own integrator (heavy = 1 kg) ==
+light     5 g · delay  93.44 ms
+light    10 g · delay  46.25 ms
+light    20 g · delay  22.59 ms
+light    50 g · delay   8.65 ms
+light   100 g · delay   4.08 ms
+light   200 g · delay   1.81 ms
+light   500 g · delay   0.45 ms
+light  1000 g · delay   0.00 ms

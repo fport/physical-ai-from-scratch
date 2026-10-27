@@ -1,6 +1,7 @@
 # Lesson 04 · Friction and friction cones. Every answer is supported by the lesson page or
-# experiments/04-friction/output.txt. answer = index of the correct option (0-based).
-- q:
+# experiments/04-friction/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: On the same ramp (μ = 0.3), does a 10 kg cube slip at a larger angle than a 0.1 kg cube?
     tr: Aynı rampada (μ = 0,3) 10 kg'lık küp, 0,1 kg'lık küpten daha büyük bir açıda mı kayar?
   options:
@@ -14,7 +15,53 @@
   why:
     en: $\tan\theta > \mu$ has no mass in it. In the Experiment table all three masses slip at 16.75° for μ = 0.3 (theory 16.70°).
     tr: $\tan\theta > \mu$ koşulunda kütle yok. Deney tablosunda μ = 0,3 için üç kütle de 16,75°'de kayıyor (teori 16,70°).
-- q:
+- stage: pre
+  q:
+    en: Two cubes, 0.1 kg and 10 kg, slide down the same ramp above the slip angle. Which accelerates faster?
+    tr: 0,1 kg'lık ve 10 kg'lık iki küp aynı rampadan kayma açısının üstünde kayıyor. Hangisi daha hızlı ivmelenir?
+  options:
+    - en: The 10 kg cube, because gravity pulls it harder.
+      tr: 10 kg'lık küp, çünkü yerçekimi onu daha güçlü çeker.
+    - en: The 0.1 kg cube, because friction holds it less.
+      tr: 0,1 kg'lık küp, çünkü sürtünme onu daha az tutar.
+    - en: Neither; both accelerate at $g(\sin\theta - \mu\cos\theta)$, in which the mass cancels.
+      tr: Hiçbiri; ikisi de kütlenin sadeleştiği $g(\sin\theta - \mu\cos\theta)$ ile ivmelenir.
+  answer: 2
+  why:
+    en: Pull and friction budget both scale with $m g$ (In plain words); Build it, Step 2 checks the formula against MuJoCo within 1.2 %, and the Experiment's speed traces of 0.1 kg and 10 kg cubes differ by at most 2.1·10⁻¹² cm/s.
+    tr: Çekiş de sürtünme bütçesi de $m g$ ile ölçeklenir (Sade anlatımla); Sıfırdan yaz, Adım 2 formülü MuJoCo'ya karşı %1,2 içinde doğruluyor, Deney'de 0,1 kg ve 10 kg'lık küplerin hız eğrileri en fazla 2,1·10⁻¹² cm/s farklı.
+- stage: check
+  q:
+    en: In Build it, Step 4, the pyramidal cone with μ = 0.5 allows a friction force of only 0.3536 per unit normal force along the diagonal ($\phi$ = 45°). Why?
+    tr: Sıfırdan yaz, Adım 4'te μ = 0,5'lik pyramidal cone köşegen boyunca ($\phi$ = 45°) birim normal kuvvet başına yalnızca 0,3536'lık sürtünme kuvvetine izin veriyor. Neden?
+  options:
+    - en: The edge forces $n \pm \mu t_1$, $n \pm \mu t_2$ reach only $|f_1| + |f_2| \le \mu$, a diamond whose diagonal limit is $\mu/\sqrt2$.
+      tr: $n \pm \mu t_1$, $n \pm \mu t_2$ kenar kuvvetleri yalnızca $|f_1| + |f_2| \le \mu$'ye ulaşır; köşegen limiti $\mu/\sqrt2$ olan bir eşkenar dörtgen.
+    - en: MuJoCo halves μ for diagonal sliding to save computation.
+      tr: MuJoCo hesaptan tasarruf için köşegen kaymada μ'yü yarıya indirir.
+    - en: The linear program did not converge at 45°.
+      tr: Lineer program 45°'de yakınsamadı.
+  answer: 0
+  why:
+    en: '`tangential_limit` gives $\mu/(|\cos\phi| + |\sin\phi|)$ and SciPy''s `linprog` over the four edge forces gives the same 0.5000, 0.4082, 0.3660, 0.3536 at 0°, 15°, 30°, 45°. The elliptic cone allows 0.5000 in every direction.'
+    tr: '`tangential_limit` $\mu/(|\cos\phi| + |\sin\phi|)$ veriyor; dört kenar kuvveti üzerindeki SciPy `linprog` da 0°, 15°, 30°, 45°''de aynı 0,5000, 0,4082, 0,3660, 0,3536''yı buluyor. Elliptic cone her yönde 0,5000''e izin veriyor.'
+- stage: check
+  q:
+    en: In Build it, Step 1, an ideal Coulomb block judged by the Experiment's criterion slips from 16.80° (μ = 0.3), but the MuJoCo cube slipped from 16.75°. Why does the simulated cube pass the criterion one grid step earlier?
+    tr: Sıfırdan yaz, Adım 1'de Deney'in kriteriyle değerlendirilen ideal bir Coulomb bloğu 16,80°'den (μ = 0,3) itibaren kayıyor, MuJoCo küpü ise 16,75°'den itibaren kaydı. Simüle küp kriteri neden bir ızgara adımı önce geçiyor?
+  options:
+    - en: MuJoCo uses a smaller μ than the file says.
+      tr: MuJoCo dosyada yazandan daha küçük bir μ kullanıyor.
+    - en: Just above $\arctan\mu$ the ideal block is still below 2 cm/s after 2 s; the simulated cube adds its creep speed on top.
+      tr: $\arctan\mu$'nün hemen üstünde ideal blok 2 s sonunda hâlâ 2 cm/s'nin altında; simüle küp buna creep hızını ekliyor.
+    - en: The 0.05° grid rounds the simulated angle down.
+      tr: 0,05°'lik ızgara simüle açıyı aşağı yuvarlıyor.
+  answer: 1
+  why:
+    en: The criterion needs $v_2$ > 2 cm/s; the ideal block's $v_2 = 1.75a$ is too small that close to the threshold. Below the threshold the MuJoCo cube already creeps at up to 0.30 cm/s for μ = 0.3 (Observe).
+    tr: Kriter $v_2$ > 2 cm/s istiyor; eşiğe bu kadar yakın ideal bloğun $v_2 = 1{,}75a$'sı çok küçük. Eşiğin altında MuJoCo küpü μ = 0,3 için zaten 0,30 cm/s'ye kadar creep yapıyor (Gözlemle).
+- stage: post
+  q:
     en: Below the threshold the simulated cube still moves at a small constant speed. What goes wrong if "slipping" just means "faster than 2 cm/s"?
     tr: Eşiğin altında simüle edilen küp hâlâ küçük, sabit bir hızla hareket ediyor. "Kayma" yalnızca "2 cm/s'den hızlı" demekse ne ters gider?
   options:
@@ -28,7 +75,8 @@
   why:
     en: Soft friction creeps. Under Observe, the speed-only criterion gives 16.35° (−0.35°) for μ = 0.3 and 26.25° (−0.32°) for μ = 0.5; requiring acceleration fixes it.
     tr: Yumuşak friction creep yapar. Gözlemle'de yalnızca hıza bakan kriter μ = 0,3 için 16,35° (−0,35°), μ = 0,5 için 26,25° (−0,32°) veriyor; ivmelenme şartı bunu düzeltiyor.
-- q:
+- stage: post
+  q:
     en: The cube is rotated 45° about the ramp normal. Coulomb friction is isotropic, so nothing should change. What did the run show at μ = 0.8?
     tr: Küp rampa normali etrafında 45° döndürülüyor. Coulomb friction izotroptur, hiçbir şey değişmemeli. μ = 0,8'de koşu ne gösterdi?
   options:

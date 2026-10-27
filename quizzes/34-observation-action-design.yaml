@@ -1,20 +1,7 @@
-# Lesson 34 · Observation and action design. Every answer is supported by the lesson page or
-# experiments/34-observation-action-design/output.txt. answer = index of the correct option (0-based).
-- q:
-    en: Absolute joint targets learned best (298/300) but had a torque rate of 1002 N·m/s against 70 N·m/s for raw torques. Where does the jerkiness come from?
-    tr: Mutlak joint hedefleri en iyi öğrendi (298/300), ama torque rate'leri ham torque'un 70 N·m/s'sine karşı 1002 N·m/s idi. Sarsıntı nereden geliyor?
-  options:
-    - en: The target policy explores with more noise than the torque policy.
-      tr: Hedef policy'si torque policy'sinden daha fazla gürültüyle keşfeder.
-    - en: The simulated servo is very stiff, so every new 50 Hz target produces a near bang-bang torque step.
-      tr: Simüle edilen servo çok sert; bu yüzden her yeni 50 Hz hedefi neredeyse bang-bang bir torque adımı üretir.
-    - en: The physics timestep of 5 ms is too large for a PD loop.
-      tr: 5 ms'lik physics timestep'i bir PD döngüsü için fazla büyük.
-  answer: 1
-  why:
-    en: 'Section A: with `kp = 998.22` and a 2.94 N·m cap, a position error of 3 mrad already saturates the actuator. A PD interface is only as gentle as its gains.'
-    tr: 'A bölümü: `kp = 998.22` ve 2,94 N·m sınırla 3 mrad''lık bir konum hatası bile actuator''ı doyuma ulaştırır. Bir PD arayüzü ancak gain''leri kadar yumuşaktır.'
-- q:
+# Lesson 34 · Observation and action design. Every answer is supported by the lesson page,
+# experiments/34-observation-action-design/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: Giving the policy the absolute target position instead of target − gripper took success from 298/300 to 101/300. Why?
     tr: Policy'ye hedef − gripper yerine mutlak hedef konumunu vermek başarıyı 298/300'den 101/300'e düşürdü. Neden?
   options:
@@ -28,7 +15,68 @@
   why:
     en: Section C, observation table. The relative goal is the single most important input; the Go2 observation is built the same way, in the frame the policy acts in.
     tr: C bölümü, observation tablosu. Göreli hedef tek başına en önemli girdi; Go2 observation'ı da aynı şekilde, policy'nin hareket ettiği frame'de kurulur.
-- q:
+- stage: pre
+  q:
+    en: A policy outputs raw joint torques at 50 Hz instead of joint targets for a servo. What extra work does it take on?
+    tr: Bir policy bir servo için eklem hedefleri yerine 50 Hz'te doğrudan eklem torkları veriyor. Hangi ek işi üstlenir?
+  options:
+    - en: None; a torque and a target are the same command.
+      tr: Hiçbiri; tork ve hedef aynı komuttur.
+    - en: Only the inverse kinematics.
+      tr: Yalnızca ters kinematik.
+    - en: Everything the servo's fast loop did, holding the arm against gravity and damping its motion, at 50 Hz instead of the physics rate.
+      tr: Servonun hızlı döngüsünün yaptığı her şeyi, kolu yerçekimine karşı tutmayı ve hareketini sönümlemeyi, fizik hızında değil 50 Hz'te.
+  answer: 2
+  why:
+    en: Plain words and Math details; with targets the PD loop runs every 5 ms physics step. In section A torques reached 272/300 against 298/300 for absolute targets (overlapping only with delta targets).
+    tr: Basit anlatım ve Matematik ayrıntısı; hedeflerle PD döngüsü her 5 ms'lik fizik adımında çalışır. A kısmında torklar 272/300'e, mutlak hedefler 298/300'e ulaştı.
+- stage: check
+  q:
+    en: In Build it, Step 2, a target only 2.95 mrad from the joint already demands the full 2.94 N·m. What follows for a policy that sends a new absolute target every 20 ms?
+    tr: Sıfırdan yaz, Adım 2'de eklemden yalnızca 2,95 mrad uzaktaki bir hedef bile tam 2,94 N·m istiyor. Her 20 ms'de yeni bir mutlak hedef gönderen policy için bu ne demek?
+  options:
+    - en: Nearly every new target produces a torque step at or near the limit, a bang-bang pattern, whatever the policy does.
+      tr: Hemen her yeni hedef, policy ne yaparsa yapsın, sınırda ya da ona yakın bir tork basamağı, bang-bang bir örüntü üretir.
+    - en: The servo ignores targets closer than 3 mrad.
+      tr: Servo 3 mrad'dan yakın hedefleri yok sayar.
+    - en: The arm moves 2.95 mrad per step at most.
+      tr: Kol adım başına en fazla 2,95 mrad hareket eder.
+  answer: 0
+  why:
+    en: '2.94 / 998.22 = 2.95 mrad; in the 1000 random states with targets about 3 mrad away, 1885 of 4000 torques sat at the limit. Hence 1002 N·m/s torque rate for targets against 70 for torques.'
+    tr: '2,94 / 998,22 = 2,95 mrad; hedefleri yaklaşık 3 mrad uzakta olan 1000 rastgele state''te 4000 torkun 1885''i sınırdaydı. Bu yüzden hedeflerde tork hızı 1002 N·m/s, torklarda 70.'
+- stage: check
+  q:
+    en: You move the policy from 50 Hz to 200 Hz and keep the budget of 300,000 policy steps and the 0.4 s horizon. What two things change?
+    tr: Policy'yi 50 Hz'ten 200 Hz'e alıyorsun; 300.000 policy adımı bütçesini ve 0,4 s ufkunu koruyorsun. Hangi iki şey değişir?
+  options:
+    - en: Nothing; the horizon and the budget are both fixed.
+      tr: Hiçbir şey; ufuk da bütçe de sabit.
+    - en: $\gamma$ must rise to 0.9875 to keep 0.4 s, and the policy sees 25 min of simulated time instead of 100 min.
+      tr: 0,4 s'yi korumak için $\gamma$ 0,9875'e çıkmalı ve policy 100 dk yerine 25 dk simüle edilmiş zaman görür.
+    - en: $\gamma$ must fall to 0.8, and the policy sees four times more simulated time.
+      tr: $\gamma$ 0,8'e düşmeli ve policy dört kat daha çok simüle edilmiş zaman görür.
+  answer: 1
+  why:
+    en: Build it, Step 4, $\gamma = 1 - \Delta t / 0.4$ s; at 200 Hz the Experiment scored 96/300, against 298/300 at 50 Hz, with that confound in place.
+    tr: Sıfırdan yaz, Adım 4, $\gamma = 1 - \Delta t / 0{,}4$ s; 200 Hz'te Deney bu karıştırıcı etken varken 96/300 aldı, 50 Hz'te 298/300.
+- stage: post
+  q:
+    en: Absolute joint targets learned best (298/300) but had a torque rate of 1002 N·m/s against 70 N·m/s for raw torques. Where does the jerkiness come from?
+    tr: Mutlak joint hedefleri en iyi öğrendi (298/300), ama torque rate'leri ham torque'un 70 N·m/s'sine karşı 1002 N·m/s idi. Sarsıntı nereden geliyor?
+  options:
+    - en: The target policy explores with more noise than the torque policy.
+      tr: Hedef policy'si torque policy'sinden daha fazla gürültüyle keşfeder.
+    - en: The simulated servo is very stiff, so every new 50 Hz target produces a near bang-bang torque step.
+      tr: Simüle edilen servo çok sert; bu yüzden her yeni 50 Hz hedefi neredeyse bang-bang bir torque adımı üretir.
+    - en: The physics timestep of 5 ms is too large for a PD loop.
+      tr: 5 ms'lik physics timestep'i bir PD döngüsü için fazla büyük.
+  answer: 1
+  why:
+    en: 'Section A: with `kp = 998.22` and a 2.94 N·m cap, a position error of 3 mrad already saturates the actuator. A PD interface is only as gentle as its gains.'
+    tr: 'A bölümü: `kp = 998.22` ve 2,94 N·m sınırla 3 mrad''lık bir konum hatası bile actuator''ı doyuma ulaştırır. Bir PD arayüzü ancak gain''leri kadar yumuşaktır.'
+- stage: post
+  q:
     en: With the Go2's action scale of 0.25 rad, PPO reached 21/300 targets. What does the scripted IK through the same interface (27/100) show?
     tr: Go2'nin 0,25 rad'lık action scale'i ile PPO hedeflerin 21/300'üne ulaştı. Aynı arayüzden geçen scripted IK'nın sonucu (27/100) neyi gösteriyor?
   options:

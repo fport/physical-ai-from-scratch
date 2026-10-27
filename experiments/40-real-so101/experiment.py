@@ -68,6 +68,7 @@ def build(payload=0.0):
         b = grip.add_body(name="payload", pos=site.pos)
         b.add_geom(type=mujoco.mjtGeom.mjGEOM_SPHERE, size=[0.015], contype=0, conaffinity=0, mass=0)
         b.mass, b.inertia, b.explicitinertial = payload, [1e-5, 1e-5, 1e-5], True
+        b.ipos = [0, 0, 0]                     # centre of mass at the gripper frame (left unset, it lands 9.8 cm off)
     return spec.compile()
 
 

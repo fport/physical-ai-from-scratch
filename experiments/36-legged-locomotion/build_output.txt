@@ -1,0 +1,24 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+Go2: nq 19, nv 18, nu 12, timestep 2 ms, decimation 4 -> policy step 8 ms
+
+== Step 1. One model, 8 MjData: the batch vs 8 independent loops (100 policy steps) ==
+max |qpos batch - qpos alone| over 8 robots: 0.0e+00
+episodes ended: 0 (base heights 26.0, 26.1, 25.9, 26.3, 26.3, 26.2, 26.0, 26.5 cm)
+
+== Step 2. Projected gravity and roll / pitch from the base quaternion ==
+projected gravity vs MuJoCo xmat^T g: max diff 3.9e-16
+roll, pitch vs SciPy as_euler('ZYX'): max diff 1.6e-15
+standing start: projected gravity [ 0.  0. -1.], base height 27.0 cm
+
+== Step 3. Auto-reset: 16 robots standing, a roll / pitch kick of up to 18 rad/s every 25 steps, episodes of at most 150 steps ==
+300 policy steps (2.4 s per robot): 22 falls, 18 time-outs, episodes ended 40
+first fall after 13 policy steps; every ended row came back at base height 27.0-27.0 cm (the keyframe height) in the same step
+steps since reset now, per robot: [0, 0, 0, 12, 135, 0, 143, 22, 12, 48, 65, 108, 49, 35, 0, 121]
+
+== Step 4. Accounting ==
+Step 3 counters: policy steps 4,800 = 16 x 300, physics steps 19,200 = x4, simulated time 38.4 robot-seconds
+Go2 training config: samples per update 98,304, policy steps 147,456,000, physics steps 589,824,000
+each robot advances 24 x 0.02 s = 0.48 s per update
+
+== Use it. mujoco.rollout: the same batch in C, open loop ==
+rollout (4 threads) vs VecEnv after 100 policy steps: max |qpos diff| = 0.0e+00

@@ -82,7 +82,7 @@ This is the **geometric Jacobian** (Lynch & Park, *Modern Robotics*, Ch. 5). MuJ
 
 **Finite-difference error.** A Taylor expansion gives a truncation error of order $\varepsilon$ for the forward difference and $\varepsilon^2$ for the central one. Floating-point round-off adds an error of about $\epsilon_{\text{mach}}\lvert x\rvert/\varepsilon$, where $\epsilon_{\text{mach}}$ is the machine epsilon (the relative precision of a double). Minimizing the sum gives a best step of roughly $\sqrt{\epsilon_{\text{mach}}}$ for forward and $\sqrt[3]{\epsilon_{\text{mach}}}$ for central differences.
 
-**Rotation columns are special.** Moving one hinge by $\varepsilon$ rotates the tool by exactly $\varepsilon$ about that hinge's axis, so the orientation difference quotient has no truncation error, only round-off (Step 2).
+**Rotation columns are special.** Moving one hinge by $\varepsilon$ rotates the tool by exactly $\varepsilon$ about that hinge's axis, so the orientation difference quotient has no truncation error, only round-off (Experiment, Step 2).
 
 Go deeper: AIEFS [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems); Lynch & Park, *Modern Robotics*, Ch. 5 "Velocity Kinematics and Statics".
 
@@ -92,111 +92,38 @@ Go deeper: AIEFS [Calculus for Machine Learning](https://aiengineeringfromscratc
 
 ## Build it
 
-You will now write the SO-101's Jacobian yourself in about 70 lines of NumPy, and check every step against MuJoCo. The only thing your code takes from MuJoCo is the model's static numbers: where each body sits on its parent, which way each hinge points, and where the tool point is. Everything that depends on the pose is yours.
+You will now write the SO-101's Jacobian yourself in about 30 lines of NumPy on top of lesson 08, and check every step against MuJoCo. From [lesson 08](08-forward-kinematics.md) you have `chain_from_mujoco` and `fk`, which returns every hinge's world axis $\hat a_i$, a point $o_i$ on it, and the tool point $p$: exactly the three things the column formula needs. Nothing new comes from MuJoCo.
 
-Type the steps into a file of your own (for example `scratch/my_jacobian.py`) instead of copying them, and run it after each step. The finished functions are in [`physai/kinematics.py`](../physai/kinematics.py); `uv run python experiments/09-jacobians/build.py` runs all five steps with the checks (output in [`build_output.txt`](../experiments/09-jacobians/build_output.txt)).
+Type the steps into a file of your own (for example `scratch/my_jacobian.py`) and run it after each step. The finished functions are in [`physai/kinematics.py`](../physai/kinematics.py); `uv run python experiments/09-jacobians/build.py` runs all four steps with the checks (output in [`build_output.txt`](../experiments/09-jacobians/build_output.txt)).
 
-### Step 1 · Describe the chain
+### Step 1 · One hinge column
 
-A serial arm is a list of links from the base to the tip. Each link is a rigid body: its origin and orientation relative to the previous body at $q = 0$, and the hinge it turns about. Two small dataclasses hold that:
-
-```python
-@dataclass
-class Link:
-    pos: np.ndarray    # body origin in the parent body's frame (m)
-    rot: np.ndarray    # body orientation in the parent frame, 3x3, at q = 0
-    axis: np.ndarray   # hinge axis in this body's frame (unit)
-    anchor: np.ndarray  # a point on the hinge axis, in this body's frame (m)
-```
-
-```python
-@dataclass
-class Chain:
-    links: list        # base to tip, one hinge each
-    tool_pos: np.ndarray  # tool point in the last body's frame (m)
-```
-
-The reader walks from the tool site up to the world body, then turns the list around so it runs base to tip. Bodies without a hinge (the SO-101's base) become fixed offsets.
-
-```python
-def chain_from_mujoco(m, site_name):
-    """Read the hinge chain from the world down to a site (static model data only)."""
-    site = m.site(site_name)
-    bodies, b = [], int(site.bodyid[0])
-    while b != 0:                                  # walk up to the world body
-        bodies.append(b)
-        b = int(m.body_parentid[b])
-    links = []
-    for b in reversed(bodies):
-        hinges = [j for j in range(m.njnt) if m.jnt_bodyid[j] == b and m.jnt_type[j] == 3]
-        j = hinges[0] if hinges else None          # bodies without a hinge are fixed offsets
-        links.append(Link(m.body_pos[b].copy(), quat_to_mat(m.body_quat[b]),
-                          m.jnt_axis[j].copy() if j is not None else None,
-                          m.jnt_pos[j].copy() if j is not None else None))
-    return Chain(links, site.pos.copy())
-```
-
-```text
-== Step 1. The chain: world -> gripperframe ==
-link       offset in parent (m)  hinge axis (body frame)
-   0                 [0. 0. 0.]                    fixed
-   1     [0.0388 0.     0.0624]               [0. 0. 1.]
-   2  [-0.0304 -0.0183 -0.0542]               [0. 0. 1.]
-   3  [-0.1126 -0.028   0.    ]               [0. 0. 1.]
-   4  [-0.1349  0.0052  0.    ]               [0. 0. 1.]
-   5  [ 0.     -0.0611  0.0181]               [0. 0. 1.]
-tool point in the last body: [ 0.012  -0.0002 -0.0981] m
-```
-
-Every hinge of this arm turns about its own body's $z$ axis; the arm's shape lives in the offsets and in the body orientations (`body_quat`, turned into matrices with `quat_to_mat` from [`physai/spatial.py`](../physai/spatial.py), the formula from [lesson 06](../part-2-spatial-math/06-rotations.md)).
-
-### Step 2 · Forward kinematics by hand
-
-Walk from the base to the tip and keep the current body's pose in the world, a rotation $R$ and a position $p$. At each link: step to the body's origin ($p \leftarrow p + R\,\text{pos}$), take on its orientation ($R \leftarrow R\,\text{rot}$). At a hinge, write down its axis and a point on it in world coordinates, then turn everything beyond it about that line by $q_i$. Rodrigues' formula builds the turn:
-
-```python
-def axis_angle_to_mat(axis, angle):
-    """Rotation by `angle` (rad) about the unit vector `axis` (Rodrigues' formula)."""
-    k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
-    return np.eye(3) + np.sin(angle) * k + (1 - np.cos(angle)) * (k @ k)
-```
-
-```python
-def fk(chain, q):
-    """Joint axes and anchor points in the world, and the tool position, at joint angles q."""
-    R, p = np.eye(3), np.zeros(3)                  # pose of the current body in the world
-    axes, anchors, i = [], [], 0
-    for link in chain.links:
-        p = p + R @ link.pos                       # step to this body's origin...
-        R = R @ link.rot                           # ...and its orientation at q = 0
-        if link.axis is not None:
-            a, o = R @ link.axis, p + R @ link.anchor
-            axes.append(a)
-            anchors.append(o)
-            turn = axis_angle_to_mat(a, q[i])      # turn everything beyond about the hinge line
-            R, p = turn @ R, o + turn @ (p - o)
-            i += 1
-    return np.array(axes), np.array(anchors), p + R @ chain.tool_pos
-```
-
-The turn is about a line, not about the world origin, which is why the position update is $o + T(p - o)$: shift so the line passes through the origin, rotate, shift back.
-
-```text
-== Step 2. Forward kinematics by hand vs mj_kinematics (50 random poses) ==
-max |p_ours - site_xpos| = 2.2e-16 m
-```
-
-A difference of one floating-point rounding step: your forward kinematics is MuJoCo's.
-
-### Step 3 · Columns into a Jacobian
-
-Now the formula from Core idea, one column per hinge, using the axes and anchors that `fk` already returns:
+The formula from Core idea, for one hinge: the linear part is the axis crossed with the lever from the axis to the tool, the angular part is the axis itself.
 
 ```python
 def hinge_column(axis, o, p):
     """Tool twist per 1 rad/s of one hinge: linear part a x (p - o), angular part a."""
     return np.r_[np.cross(axis, p - o), axis]
 ```
+
+```python
+chain = chain_from_mujoco(m, "gripperframe")              # lesson 08
+axes, anchors, p = fk(chain, Q0)
+col = hinge_column(axes[1], anchors[1], p)                # shoulder_lift
+```
+
+```text
+== Step 1. One hinge column at q = (0, -0.6, 0.9, 0.4, 0.3) ==
+shoulder_lift column, ours:    -0.0198   0.0000  -0.2193   0.0000   1.0000   0.0000
+shoulder_lift column, MuJoCo:  -0.0198   0.0000  -0.2193   0.0000   1.0000   0.0000
+lever |a x (p - o)| = 0.2202 m, max difference 8.3e-17
+```
+
+The lift column is $(-0.0198, 0, -0.2193)$ m/s per rad/s: turning the lift moves the tool mostly straight down, at the speed of a 0.2202 m lever.
+
+### Step 2 · Columns into a Jacobian
+
+One column per hinge, stacked, using the axes and anchors that `fk` already returns:
 
 ```python
 def jacobian(chain, q):
@@ -206,34 +133,33 @@ def jacobian(chain, q):
 ```
 
 ```text
-== Step 3. Jacobian from hinge columns vs mj_jacSite (50 poses) ==
+== Step 2. Jacobian from hinge columns vs mj_jacSite (50 poses) ==
 max entry error: linear rows 3.9e-16, angular rows 1.0e-15
 ```
 
-### Step 4 · Use the matrix
+### Step 3 · Use the matrix
 
 With $J$ in hand, the two questions from The problem are one line each:
 
 ```python
-Q0 = np.array([0.0, -0.6, 0.9, 0.4, 0.3])
 J = jacobian(chain, Q0)
 speed = np.linalg.norm(J[:3] @ (np.ones(5) / np.sqrt(5)))   # tool speed, every joint at 1/sqrt(5) rad/s
 tau = J[:3].T @ np.array([0, 0, -2.0])                       # torques for a 2 N push down
 ```
 
 ```text
-== Step 4. Use it at q = (0, -0.6, 0.9, 0.4, 0.3) ==
+== Step 3. Use it at q = (0, -0.6, 0.9, 0.4, 0.3) ==
 tool speed for every joint at 1/sqrt(5) rad/s: 0.312 m/s
 F =     [0, 0, -2.0] N  ->  J^T F =  0.0000  0.4385  0.5194  0.2586  0.0042 N m
 F =      [2.0, 0, 0] N  ->  J^T F =  0.0052 -0.0397 -0.2571 -0.1873 -0.0036 N m
 F =      [0, 1.5, 0] N  ->  J^T F = -0.3745  0.0000  0.0000  0.0000  0.0175 N m
 ```
 
-Compare with the Experiment's Step 3 table: the servo held 0.4383 N m at the lift, here you get 0.4385 N m. The 0.0002 is not a bug. The servos give a little under the load, the arm settles at a slightly different pose, and $J$ depends on the pose; at the settled pose the two agree to 4.2e-14. The pan entry is zero for the reason the first exercise asks about.
+The lift torque for the downward push is 2 N times the vertical entry of the lift column from Step 1. Compare with the Experiment's Step 3 table: the servo held 0.4383 N m at the lift, here you get 0.4385 N m. The 0.0002 is not a bug. The servos give a little under the load, the arm settles at a slightly different pose, and $J$ depends on the pose; at the settled pose the two agree to 4.2e-14. The pan entry is zero for the reason the first exercise asks about.
 
-### Step 5 · Check yourself with finite differences
+### Step 4 · Check yourself with finite differences
 
-The last step is the test you can run on any Jacobian, including one of a learned model: nudge each joint and difference your own forward kinematics.
+The test you can run on any Jacobian, including one of a learned model: nudge each joint and difference your own forward kinematics.
 
 ```python
 def fd_jacobian(tool_pos, q, eps=1e-5):
@@ -247,7 +173,7 @@ def fd_jacobian(tool_pos, q, eps=1e-5):
 ```
 
 ```text
-== Step 5. Central differences of our FK vs our analytic Jacobian (eps = 1e-5) ==
+== Step 4. Central differences of our FK vs our analytic Jacobian (eps = 1e-5) ==
 median max entry error: 4.7e-12
 ```
 
@@ -255,7 +181,7 @@ That is the error the Experiment's ε sweep finds for central differences at ε 
 
 ### What you keep
 
-`physai.kinematics` now has `chain_from_mujoco`, `fk`, `jacobian` and `fd_jacobian`. Lesson 10 builds inverse kinematics on `jacobian`. [`tests/test_09_jacobians.py`](../tests/test_09_jacobians.py) pins them to MuJoCo; run `uv run pytest tests/test_09_jacobians.py` after you change anything.
+`physai.kinematics` now also has `hinge_column`, `jacobian` and `fd_jacobian`. Lesson 10 builds inverse kinematics on them, lesson 14 a task-space controller. [`tests/test_09_jacobians.py`](../tests/test_09_jacobians.py) pins them to MuJoCo; run `uv run pytest tests/test_09_jacobians.py` after you change anything.
 
 ## Use it
 
@@ -266,7 +192,7 @@ mujoco.mj_kinematics(m, d)
 mujoco.mj_comPos(m, d)                     # mj_jac* reads data that only mj_comPos fills
 jacp, jacr = np.zeros((3, m.nv)), np.zeros((3, m.nv))
 mujoco.mj_jacSite(m, d, jacp, jacr, site_id)
-J = np.r_[jacp, jacr]                      # equals jacobian(chain, q) to 1e-15 (Step 3)
+J = np.r_[jacp, jacr]                      # equals jacobian(chain, q) to 1e-15 (Build it, Step 2)
 ```
 
 Other tools return the same information with different conventions. Check which one you have before you mix numbers:

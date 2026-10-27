@@ -1,0 +1,23 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. One DLS step vs the SVD formula (q = 0, a 1 cm error) ==
+singular values of J_p at q = 0: 0.4764 0.3527 0.0771 m/rad
+lam = 0     |dq| = 0.1008 rad, max diff to sum sigma/(sigma^2+lam^2) v u^T e: 4.2e-17
+lam = 0.01  |dq| = 0.0992 rad, max diff to sum sigma/(sigma^2+lam^2) v u^T e: 2.8e-17
+lam = 0.1   |dq| = 0.0394 rad, max diff to sum sigma/(sigma^2+lam^2) v u^T e: 2.1e-17
+lam = 0 vs np.linalg.pinv(J) @ e: max diff 4.2e-17
+
+== Step 2. Solve for (0.20, 0.05, 0.05) m from q = 0, check with mj_kinematics ==
+lam = 0    success True,   5 iterations, q = [-0.306 -1.745  1.573  0.949  0.012] rad, MuJoCo tool error 0.189 mm
+lam = 0.1  success True,  13 iterations, q = [-0.306 -0.922  1.091  0.969  0.009] rad, MuJoCo tool error 0.392 mm
+
+== Step 3. The Experiment's sweep: 500 reachable targets, q0 = 0, tol 0.5 mm, 200 iterations ==
+lam = 0.1: success 88.6%, median 15 iterations, p95 92; 56 of 57 failures end at a joint limit
+
+== Step 4. Stretching the arm: singular values, manipulability, joint speed for 5 cm/s ==
+    s  sigma1  sigma2    sigma3          w  |qdot| pinv  |qdot| DLS 0.1
+ 0.00  0.4764  0.2419  7.71e-02  8.879e-03         0.65           0.242
+ 0.50  0.5155  0.3885  4.42e-02  8.857e-03         1.13           0.185
+ 0.90  0.5295  0.4397  9.20e-03  2.143e-03         5.43           0.046
+ 0.99  0.5301  0.4412  9.35e-04  2.187e-04        53.47           0.005
+ 1.00  0.5301  0.4411  1.05e-04  2.444e-05       478.33           0.001

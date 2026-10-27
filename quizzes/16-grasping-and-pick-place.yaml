@@ -1,6 +1,37 @@
-# Lesson 16 · Grasping and scripted pick-and-place. Every answer is supported by the lesson page
-# or experiments/16-grasping-and-pick-place/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 16 · Grasping and scripted pick-and-place. Every answer is supported by the lesson page,
+# experiments/16-grasping-and-pick-place/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: You pinch a cube between two fingertips on opposite faces and lift it. What carries its weight?
+    tr: Bir küpü karşılıklı iki yüzünden iki parmak ucuyla sıkıştırıp kaldırıyorsun. Ağırlığını ne taşır?
+  options:
+    - en: The squeeze itself, since the normal forces point upward.
+      tr: Sıkmanın kendisi, çünkü normal kuvvetler yukarı bakar.
+    - en: Nothing; the cube is held by the shape of the fingers.
+      tr: Hiçbir şey; küpü parmakların şekli tutar.
+    - en: Friction at the fingertips, at most μ times the total squeeze.
+      tr: Parmak uçlarındaki sürtünme, en fazla μ çarpı toplam sıkma.
+  answer: 2
+  why:
+    en: The jaws press horizontally; only friction acts upward, $\mu(N_1+N_2) \ge mg$. Build it, Step 2 - the contact forces on a held 0.4 kg cube sum to 3.924 N upward, exactly $mg$.
+    tr: Çeneler yatay bastırır; yukarı yalnızca sürtünme etki eder, $\mu(N_1+N_2) \ge mg$. Sıfırdan yaz, Adım 2 - tutulan 0,4 kg'lık küpe gelen contact kuvvetleri yukarı doğru 3,924 N ediyor, tam $mg$.
+- stage: pre
+  q:
+    en: On a slippery cube, does a stronger jaw always make the grasp more reliable?
+    tr: Kaygan bir küpte daha güçlü bir çene grasp'i her zaman daha güvenilir yapar mı?
+  options:
+    - en: No; a hard squeeze while the jaws still move can shoot the cube out.
+      tr: Hayır; çeneler hâlâ hareket ederken sert sıkmak küpü fırlatabilir.
+    - en: Yes; more squeeze always means more friction.
+      tr: Evet; daha fazla sıkma her zaman daha fazla sürtünme demektir.
+    - en: Yes, as long as the friction-cone ratio is above 1.
+      tr: Evet, friction-cone oranı 1'in üstünde olduğu sürece.
+  answer: 0
+  why:
+    en: The wet-soap picture of Core idea. Part B at μ = 0.05 - the 2.94 N·m cap (ratio 15.11) held 7/10 and shot 3 cubes out, the 1.0 N·m cap held 10/10.
+    tr: Ana fikir'deki ıslak sabun. μ = 0,05'te B bölümü - 2,94 N·m cap (oran 15,11) 7/10 tuttu ve 3 küpü fırlattı, 1,0 N·m cap 10/10 tuttu.
+- stage: check
+  q:
     en: A stalled jaw servo presses the moving jaw on the cube with about $\tau_{\max}/r_j$. What is the total squeeze $N_1 + N_2$?
     tr: Takılan çene servo'su hareketli çeneyi küpe yaklaşık $\tau_{\max}/r_j$ ile bastırıyor. Toplam sıkma $N_1 + N_2$ ne olur?
   options:
@@ -12,9 +43,25 @@
       tr: μ'ye bağlıdır, çünkü sürtünme normal kuvvete eklenir.
   answer: 1
   why:
-    en: Each contact carries about $\tau_{\max}/r_j$; the force is not split (Math details). That is why part B's squeeze grows roughly with the cap - 7.04 → 12.74 → 27.23 N for 0.3 → 0.5 → 1.0 N·m.
-    tr: Her contact yaklaşık $\tau_{\max}/r_j$ taşır; kuvvet bölünmez (Matematik ayrıntısı). B bölümünde sıkmanın cap'le kabaca büyümesi bundan - 0,3 → 0,5 → 1,0 N·m için 7,04 → 12,74 → 27,23 N.
-- q:
+    en: Build it, Step 3 - the two jaws press equally (fixed / moving 1.001 at 0.5 N·m) and the squeeze, 12.66 N, lies inside the band $2(\tau \pm \text{loss})/r$ = [12.07, 14.87] N with $r$ = 7.42 cm.
+    tr: Sıfırdan yaz, Adım 3 - iki çene eşit bastırıyor (0,5 N·m'de sabit / hareketli 1,001) ve 12,66 N'luk sıkma, $r$ = 7,42 cm ile $2(\tau \pm \text{kayıp})/r$ = [12,07, 14,87] N bandının içinde.
+- stage: check
+  q:
+    en: You report part C's 10/10 with `scipy.stats.binomtest(10, 10).proportion_ci()` and get a different interval than the table's [0.72, 1.00]. Why?
+    tr: C bölümünün 10/10'unu `scipy.stats.binomtest(10, 10).proportion_ci()` ile raporluyorsun ve tablonun [0,72, 1,00]'ından farklı bir aralık alıyorsun. Neden?
+  options:
+    - en: SciPy uses $z$ = 1.95996 instead of 1.96, which moves the bound visibly.
+      tr: SciPy 1,96 yerine $z$ = 1,95996 kullanıyor, bu da sınırı gözle görülür kaydırıyor.
+    - en: The default method is `"exact"` (Clopper–Pearson), which is wider; pass `method="wilson"`.
+      tr: Varsayılan yöntem `"exact"` (Clopper–Pearson) ve daha geniş; `method="wilson"` ver.
+    - en: SciPy expects the number of failures, not successes.
+      tr: SciPy başarı sayısını değil, başarısızlık sayısını bekliyor.
+  answer: 1
+  why:
+    en: Use it, traps. With `method="wilson"` Step 5 agrees with SciPy to 7.4e-06; the $z$ difference only explains that last 1e-5.
+    tr: Kütüphaneyle kullan, tuzaklar. `method="wilson"` ile Adım 5 SciPy'la 7,4e-06'ya kadar örtüşüyor; $z$ farkı yalnızca o son 1e-5'i açıklıyor.
+- stage: post
+  q:
     en: In part C a 0.45 kg cube has a friction-cone ratio of 1.12, above 1, yet all 10 lifts drop it. Why?
     tr: C bölümünde 0,45 kg'lık bir küpün friction-cone oranı 1,12, yani 1'in üstünde; ama 10 kaldırmanın hepsinde düşüyor. Neden?
   options:
@@ -28,7 +75,8 @@
   why:
     en: Every mass with ratio ≥ 1.24 held, every mass with ratio ≤ 1.12 dropped during the lift (part C). The cube was given priority 2, so its μ is the one that counts.
     tr: Oranı ≥ 1,24 olan her kütle tuttu, ≤ 1,12 olan her kütle kaldırma sırasında düştü (C bölümü). Küpe priority 2 verildi, yani geçerli olan onun μ'sü.
-- q:
+- stage: post
+  q:
     en: At μ ≤ 0.03 (30 g, cap 0.5 N·m) almost every grasp fails. When does it fail?
     tr: μ ≤ 0,03'te (30 g, cap 0,5 N·m) neredeyse her grasp başarısız. Ne zaman başarısız oluyor?
   options:

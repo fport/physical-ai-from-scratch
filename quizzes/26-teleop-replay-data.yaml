@@ -1,6 +1,66 @@
 # Lesson 26 · Teleoperation, replay and data collection. Every answer is supported by the lesson page or
 # experiments/26-teleop-replay-data/output.txt. answer = index of the correct option (0-based).
 - q:
+    en: Replay only needs the recorded actions. Why must a demonstration dataset store the observation next to every action?
+    tr: Replay için kaydedilmiş action'lar yeter. Bir demonstration dataset'i neden her action'ın yanında observation'ı da saklamalı?
+  options:
+  - en: Observations compress the actions, so the file gets smaller.
+    tr: Observation'lar action'ları sıkıştırır, dosya küçülür.
+  - en: Replay itself needs them to time the frames.
+    tr: Replay'in kendisi frame'leri zamanlamak için onlara ihtiyaç duyar.
+  - en: A learner can only imitate the mapping from what was seen to what was done if both are stored aligned in time; actions alone cannot react to a different start state.
+    tr: Öğrenen, görülenden yapılana giden eşlemeyi ancak ikisi zamanda hizalı saklanırsa taklit edebilir; tek başına action'lar farklı bir başlangıç state'ine tepki veremez.
+  answer: 2
+  why:
+    en: Math details, "What the recording must keep"; our recording stores 9 observation values and 6 joint targets per frame, 13680 frames in 120 episodes (part B).
+    tr: Matematik ayrıntısı, "Kaydın tutması gerekenler"; kaydımız frame başına 9 observation değeri ve 6 joint hedefi saklıyor, 120 episode'da 13680 frame (B kısmı).
+  stage: pre
+- stage: pre
+  q:
+    en: A recorded pick is replayed exactly, but the cube now sits 3 cm from where it was during the recording. What do you expect?
+    tr: Kaydedilmiş bir pick birebir tekrar oynatılıyor, ama küp artık kayıttaki yerinden 3 cm uzakta. Ne beklersin?
+  options:
+  - en: It usually fails, because replay is a fixed list of joint targets that never looks at the cube.
+    tr: Genellikle başarısız olur, çünkü replay küpe hiç bakmayan sabit bir joint hedefleri listesidir.
+  - en: It succeeds, because the follower repeats the recording flawlessly.
+    tr: Başarılı olur, çünkü follower kaydı kusursuz tekrarlar.
+  - en: It succeeds, because the servos correct the position error.
+    tr: Başarılı olur, çünkü servo'lar konum hatasını düzeltir.
+  answer: 0
+  why:
+    en: The servos only track the recorded joint targets. Part A, 3 cm row; replay 1/8, re-planning from the cube pose 8/8.
+    tr: Servo'lar yalnız kaydedilen joint hedeflerini izler. A kısmı, 3 cm satırı; replay 1/8, küp pozundan yeniden planlama 8/8.
+- stage: check
+  q:
+    en: In Build it, Step 5 the re-targeted frames pick the cube 24/24 where open-loop replay managed 10/24. What did re-targeting add?
+    tr: Sıfırdan yaz, Adım 5'te yeniden hedeflenen frame'ler küpü 24/24 alıyor, open-loop replay ise 10/24. Yeniden hedefleme neyi ekledi?
+  options:
+  - en: A faster frame rate than the recording.
+    tr: Kayıttan daha yüksek bir frame hızı.
+  - en: One observation of the cube before moving, used to shift every frame by pinv(J_p) times the cube shift.
+    tr: Hareketten önce küpün tek bir gözlemi; her frame'i pinv(J_p) çarpı küp kayması kadar kaydırmak için kullanılıyor.
+  - en: A learned policy trained on the 120 demonstrations.
+    tr: 120 gösterim üzerinde eğitilmiş bir policy.
+  answer: 1
+  why:
+    en: '`retarget` computes q'' = q + pinv(J_p(q)) shift for every frame with the lesson-09 Jacobian; the rest of the replay is unchanged.'
+    tr: '`retarget` her frame için ders 09''un Jacobian''ıyla q'' = q + pinv(J_p(q)) shift hesaplıyor; replay''in geri kalanı değişmiyor.'
+- stage: check
+  q:
+    en: After re-targeting, the tool point is off by 0.28 mm for a 1 cm shift, 1.10 mm for 2 cm and 2.48 mm for 3 cm. Why does it grow like that?
+    tr: Yeniden hedeflemeden sonra alet noktası 1 cm kayma için 0,28 mm, 2 cm için 1,10 mm, 3 cm için 2,48 mm sapıyor. Neden böyle büyüyor?
+  options:
+  - en: The Jacobian is wrong at large shifts.
+    tr: Jacobian büyük kaymalarda yanlış.
+  - en: Float32 rounding in the saved frames.
+    tr: Kaydedilmiş frame'lerdeki float32 yuvarlaması.
+  - en: The correction is first order, so what remains grows with the square of the shift.
+    tr: Düzeltme birinci dereceden, yani kalan hata kaymanın karesiyle büyür.
+  answer: 2
+  why:
+    en: Build it, Step 4; the Experiment's re-planning solves IK exactly instead (0.18 mm). Doubling the shift from 1 to 2 cm about quadruples the error.
+    tr: Sıfırdan yaz, Adım 4; Deney'in yeniden planlaması bunun yerine IK'yı tam çözüyor (0,18 mm). Kaymayı 1'den 2 cm'ye çıkarmak hatayı yaklaşık dört katına çıkarıyor.
+- q:
     en: Replay never looks at the cube. Why does it still pick the cube after small shifts?
     tr: Replay küpe hiç bakmıyor. Küçük kaymalardan sonra küpü yine de neden alıyor?
   options:
@@ -14,6 +74,7 @@
   why:
     en: 'Math details, "Why replay tolerates anything at all"; part A: replay 8/8 at 0.5 cm, 4/8 at 1.5 cm, 0/8 from 4.5 cm, against 81/81 for re-planning.'
     tr: 'Matematik ayrıntısı, "Replay neden biraz da olsa tolere eder"; A kısmı: replay 0,5 cm''de 8/8, 1,5 cm''de 4/8, 4,5 cm''den itibaren 0/8; yeniden planlama ise 81/81.'
+  stage: post
 - q:
     en: Replay still succeeds 4 cm toward +y but only 0.5 cm toward −y. What is the lesson's reading?
     tr: Replay +y yönünde 4 cm'de hâlâ başarılı, −y yönünde ise yalnızca 0,5 cm'de. Dersin yorumu ne?
@@ -28,17 +89,4 @@
   why:
     en: 'Break it table: farthest replay success 4 cm at 90° (+y), 0.5 cm at 270° (−y). The lesson marks the mechanism as its reading; contacts were not instrumented.'
     tr: 'Boz tablosu: en uzak replay başarısı 90°''de (+y) 4 cm, 270°''de (−y) 0,5 cm. Ders mekanizmayı kendi yorumu olarak işaretliyor; contact''lar ölçülmedi.'
-- q:
-    en: Replay only needs the recorded actions. Why must a demonstration dataset store the observation next to every action?
-    tr: Replay için kaydedilmiş action'lar yeter. Bir demonstration dataset'i neden her action'ın yanında observation'ı da saklamalı?
-  options:
-  - en: Observations compress the actions, so the file gets smaller.
-    tr: Observation'lar action'ları sıkıştırır, dosya küçülür.
-  - en: Replay itself needs them to time the frames.
-    tr: Replay'in kendisi frame'leri zamanlamak için onlara ihtiyaç duyar.
-  - en: A learner can only imitate the mapping from what was seen to what was done if both are stored aligned in time; actions alone cannot react to a different start state.
-    tr: Öğrenen, görülenden yapılana giden eşlemeyi ancak ikisi zamanda hizalı saklanırsa taklit edebilir; tek başına action'lar farklı bir başlangıç state'ine tepki veremez.
-  answer: 2
-  why:
-    en: Math details, "What the recording must keep"; our recording stores 9 observation values and 6 joint targets per frame, 13680 frames in 120 episodes (part B).
-    tr: Matematik ayrıntısı, "Kaydın tutması gerekenler"; kaydımız frame başına 9 observation değeri ve 6 joint hedefi saklıyor, 120 episode'da 13680 frame (B kısmı).
+  stage: post

@@ -1,0 +1,24 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. The edge check on the straight line start -> goal ==
+start free: True | goal free: True | length 1.60 rad
+res (rad)  poses on edge  tested until answer  edge_free says
+    0.005            320                   98           False
+    0.050             32                   10           False
+    0.250              7                    3           False
+    0.500              4                    2           False
+    1.000              2                    1           False
+dense truth: worst penetration on the line = 139.0 mm
+
+== Step 2. Steer and nearest neighbour vs scipy cKDTree (1000 random nodes, 200 queries) ==
+nearest index identical in 200/200 queries
+steer 0.5 rad toward the goal: step length 0.5000 rad; with eps = 2 it returns the goal itself: True
+
+== Step 3. RRT-Connect, res 0.05 rad, 100 seeds, budget 2000 iterations ==
+success 100/100 | median iterations 33 | median collision checks 431
+
+== Step 4. Shortcutting (200 tries, same res) ==
+median length raw 5.57 rad -> shortcut 3.59 rad | median waypoints after: 4
+
+== Step 5. Dense re-check of every returned path at 0.005 rad ==
+paths in collision: 7/100 | worst penetration 4.5 mm

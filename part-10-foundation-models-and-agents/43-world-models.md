@@ -102,19 +102,181 @@ Go deeper: [World Models & Video Diffusion](https://aiengineeringfromscratch.com
 
 The model sees $\cos\theta$ and $\sin\theta$ instead of $\theta$ so that $\theta$ and $\theta + 2\pi$ look the same; $\mathrm{wrap}$ maps an angle difference into $[-\pi, \pi)$, so the cost is lowest upright ($\theta = \pi$).
 
-## Experiment
+## Build it
 
-**System.** A MuJoCo pendulum: 1 kg point mass at 0.5 m, hinge damping 0.05 N·m·s/rad, torque limit 2 N·m, which is less than the 4.91 N·m gravity torque at horizontal, so the swing-up (bringing it from hanging to upright) needs pumping: swinging back and forth to build up energy. Control step 0.05 s (5 × 10 ms, semi-implicit Euler). **Data:** 400 trajectories × 50 steps = 20,000 transitions from random starts and random torques. **Model:** MLP 4-128-128-2 (17,410 parameters), 1200 Adam steps of batch 512, train MSE (mean squared error on the training data) 2.47e-06.
+You will now build the whole chain in NumPy: the true dynamics, a dataset, a world model, open-loop rollouts and an MPC planner. One change from the Experiment: instead of an MLP trained with Adam, $\hat f_\theta$ is linear in polynomial features of $(\cos\theta, \sin\theta, \dot\theta, u)$ and fitted with one least-squares solve. That makes the model's capacity a single knob (the degree) and the build deterministic in a few seconds. The functions are in [`physai/foundation.py`](../physai/foundation.py); `uv run python experiments/43-world-models/build.py` runs the steps (output in [`build_output.txt`](../experiments/43-world-models/build_output.txt)).
+
+### Step 1 · The true dynamics
+
+Five substeps of semi-implicit Euler. MuJoCo's Euler integrator treats joint damping implicitly: that is the $I + h b$ in the denominator.
+
+```python
+def pendulum_step(s, u, p=PEND):
+    """One 0.05 s control step of the torque-limited pendulum, s = (theta, theta_dot), theta = 0 hanging.
+    Semi-implicit Euler with implicit joint damping, as MuJoCo's Euler integrator; works on batches."""
+    th, w = s[..., 0], s[..., 1]
+    u = np.clip(u, -p["u_max"], p["u_max"])
+    for _ in range(p["substeps"]):
+        tau = u - p["mgl"] * np.sin(th) - p["damping"] * w
+        w = w + p["h"] * tau / (p["inertia"] + p["h"] * p["damping"])   # damping taken at the new speed
+        th = th + p["h"] * w
+    return np.stack([th, w], axis=-1)
+```
+
+```text
+== Step 1. The pendulum step by hand vs MuJoCo (5 x mj_step of 10 ms) ==
+inertia from MuJoCo's mass matrix: 0.25036 kg m^2 (0.25 + 2/5 m r^2 = 0.25036)
+max |ours - MuJoCo| over 200 random states and torques: 1.8e-15
+```
+
+### Step 2 · Data
+
+The Experiment's recipe: random starts over the whole circle, random torques held for two control steps, 400 trajectories of 50 steps. Every trajectory is a row of one batch, so collecting 20,000 transitions is 50 calls to `pendulum_step`.
+
+```text
+== Step 2. Data: 400 random-action trajectories x 50 steps ==
+training transitions 20000, held-out transitions 5000
+|delta theta| up to 0.589 rad per step, |delta theta_dot| up to 1.433 rad/s per step
+```
+
+### Step 3 · Fit the change of state
+
+```python
+def poly_features(s, u, degree):
+    """All monomials up to `degree` of (cos theta, sin theta, theta_dot / 8, u / 2), constant included."""
+    base = np.stack([np.cos(s[..., 0]), np.sin(s[..., 0]), s[..., 1] / 8, u / 2], axis=-1)
+    cols = [np.ones(base.shape[:-1])]
+    for d in range(1, degree + 1):
+        for idx in itertools.combinations_with_replacement(range(4), d):
+            cols.append(np.prod(base[..., list(idx)], axis=-1))
+    return np.stack(cols, axis=-1)
+```
+
+```python
+def fit_world_model(S, A, S_next, degree):
+    """Least-squares fit of the change of state: S_next - S ~ poly_features(S, A) @ W. Returns W."""
+    return np.linalg.lstsq(poly_features(S, A, degree), S_next - S, rcond=None)[0]
+```
+
+```python
+def predict(W, s, u, degree):
+    """Learned dynamics: the next state is the current one plus the predicted change."""
+    return s + poly_features(s, u, degree) @ W
+```
+
+```text
+== Step 3. Fit the change of state, feature degree 1-4 ==
+degree features  one-step |angle err| rad  one-step |vel err| rad/s
+     1        5                   7.9e-04                   3.9e-02
+     2       15                   5.6e-05                   3.3e-03
+     3       35                   1.9e-06                   1.3e-04
+     4       70                   1.1e-07                   8.4e-06
+```
+
+Every extra degree buys more than an order of magnitude of one-step accuracy. Degree 2 (15 features) predicts one step to 5.6e-05 rad on held-out data, already better than the Experiment's 17,410-parameter MLP (0.0004 rad): this system is smooth in these features, and least squares finds the exact minimum where Adam stops after 1200 steps.
+
+### Step 4 · Roll it out
+
+```python
+def rollout_errors(step_true, step_model, s0, U, horizons):
+    """Feed the same actions U (n, T) to the true system and to the model from the same states s0 (n, 2);
+    return {H: (mean, median) |angle error|} after H steps of open-loop prediction."""
+    s_true, s_model, out = s0.copy(), s0.copy(), {}
+    for k in range(U.shape[1]):
+        s_true, s_model = step_true(s_true, U[:, k]), step_model(s_model, U[:, k])
+        if k + 1 in horizons:
+            e = np.abs(wrap(s_model[:, 0] - s_true[:, 0]))
+            out[k + 1] = (e.mean(), np.median(e))
+    return out
+```
+
+```text
+== Step 4. Open-loop rollouts: 200 held-out starts, the same random torques to model and truth ==
+degree       H=1       H=5      H=10      H=20      H=40      H=60     H=100  H100/H1   (mean |angle err| rad; med 2: median, degree 2)
+     1   1.1e-03   2.8e-02   8.6e-02   2.2e-01   4.2e-01   5.9e-01   7.8e-01      735
+     2   5.6e-05   1.8e-03   5.0e-03   9.1e-03   2.3e-02   4.4e-02   8.6e-02     1528
+     3   2.4e-06   8.7e-05   2.5e-04   7.8e-04   2.7e-03   5.0e-03   1.3e-02     5355
+     4   1.1e-07   4.2e-06   1.1e-05   3.2e-05   8.6e-05   1.3e-04   3.2e-04     2959
+ med 2   4.7e-05   1.4e-03   4.1e-03   7.2e-03   1.4e-02   2.1e-02   2.6e-02
+```
+
+The growth over 100 steps is 735× for degree 1 and between 1528× and 5355× for the better models: a more accurate model does not compound more slowly. The degree-2 row is the closest to the Experiment's MLP (100-step mean 8.6e-02 vs 0.0966 rad), and its mean again runs away from its median (8.6e-02 vs 2.6e-02 at H = 100), the signature of a few divergent trajectories.
+
+### Step 5 · Plan inside it
+
+```python
+def wrap(a):
+    """Angle difference mapped into [-pi, pi)."""
+    return (a + np.pi) % (2 * np.pi) - np.pi
+```
+
+```python
+def swing_up_cost(s, u):
+    """Per-step cost: angle from upright, speed, torque."""
+    return wrap(s[..., 0] - np.pi) ** 2 + 0.1 * s[..., 1] ** 2 + 0.001 * u ** 2
+```
+
+```python
+def shooting_mpc(step_plan, step_true, s0, H, K, rng, steps=100, hold=5, u_max=2.0):
+    """Random-shooting MPC: K piecewise-constant torque sequences of length H, rolled out with step_plan;
+    the first action of the cheapest one goes to step_true, then replan from the measured state.
+    Returns success (within 0.2 rad of upright for the last 20 steps), mean tail error, first upright step."""
+    s, angles = s0.copy(), []
+    for _ in range(steps):
+        U = np.repeat(rng.uniform(-u_max, u_max, (K, -(-H // hold))), hold, axis=1)[:, :H]
+        x, cost = np.repeat(s[None], K, axis=0), np.zeros(K)
+        for t in range(H):
+            x = step_plan(x, U[:, t])
+            cost += swing_up_cost(x, U[:, t])
+        s = step_true(s, U[np.argmin(cost), 0])
+        angles.append(abs(wrap(s[0] - np.pi)))
+    a = np.array(angles)
+    first = int(np.argmax(a < 0.2)) if np.any(a < 0.2) else -1
+    return bool(np.all(a[-20:] < 0.2)), float(np.mean(a[-20:])), first
+```
+
+```text
+== Step 5. Random-shooting MPC swing-up, K = 100, 3 starts, 5 s ==
+planner            H  success  mean tail err rad  first upright step
+true dynamics     10      0/3              0.831                   -
+true dynamics     30      3/3              0.023                  66
+degree-2 model    10      0/3              0.831                   -
+degree-2 model    30      3/3              0.028                  67
+```
+
+With the true dynamics as the planner's model your MPC reproduces the Experiment's "true" rows exactly (0/3 at H = 10; 3/3, 0.023 rad, first upright at step 66 at H = 30): same seeds, same candidates, a step that equals MuJoCo's to 1.8e-15. Inside the 15-feature model it also swings up 3/3 at H = 30, upright one step later.
+
+### What you keep
+
+`physai.foundation` now has `pendulum_step`, `poly_features`, `fit_world_model`, `predict`, `wrap`, `rollout_errors`, `swing_up_cost` and `shooting_mpc`. The capstone (lesson 44) uses the same replan-from-measurement loop at the task level. [`tests/test_43_world_models.py`](../tests/test_43_world_models.py) pins the pendulum to MuJoCo: `uv run pytest tests/test_43_world_models.py`.
+
+## Use it
+
+The library way is the Experiment's: a PyTorch MLP that predicts the normalized change of state, trained with Adam, and `mujoco.rollout` to evaluate all K candidates of the true planner in C.
 
 ```python
 def forward(self, s, u):                                   # predict the change, not the state
     x = (features(s, u) - self.x_mu) / self.x_sd
     return s + self.net(x) * self.d_sd + self.d_mu
 
-U = np.repeat(rng.uniform(-U_MAX, U_MAX, (K, H // 5)), 5, axis=1)   # K piecewise-constant sequences
-u = U[np.argmin(planner(s, U)), 0]                         # best first action
-s = sim_step(s, u)                                         # always applied to the TRUE simulator
+st, _ = rollout.rollout(M, D_ROLL, x0[None], ctrl)          # ctrl: (K, H * 5, 1), all candidates at once
 ```
+
+| Model of $s_{t+1}$ | Where | Fit | One-step error |
+|---|---|---|---|
+| polynomial, degree 2 | `physai.foundation` | one `lstsq`, 15 weights per output | 5.6e-05 rad (Build it) |
+| MLP 4-128-128-2 | Experiment, PyTorch | 1200 Adam steps, 17,410 parameters | 0.0004 rad (part A) |
+| the simulator itself | `mujoco.rollout` | none | 0 |
+
+Traps:
+
+- **Angles wrap.** Feed $\cos\theta, \sin\theta$, not $\theta$, and compare angles with `wrap`; otherwise $\pi$ and $-\pi$ look 6.28 rad apart.
+- **Predict the change.** $s_{t+1}$ is mostly a copy of $s_t$; a model trained on it spends its capacity copying.
+- **One-step error is the wrong yardstick.** Report the H-step table on held-out data; degree 4 is 500 times better than degree 2 at one step but compounds 2959×.
+
+## Experiment
+
+**System.** A MuJoCo pendulum: 1 kg point mass at 0.5 m, hinge damping 0.05 N·m·s/rad, torque limit 2 N·m, which is less than the 4.91 N·m gravity torque at horizontal, so the swing-up (bringing it from hanging to upright) needs pumping: swinging back and forth to build up energy. Control step 0.05 s (5 × 10 ms, semi-implicit Euler). **Data:** 400 trajectories × 50 steps = 20,000 transitions from random starts and random torques. **Model:** MLP 4-128-128-2 (17,410 parameters), 1200 Adam steps of batch 512, train MSE (mean squared error on the training data) 2.47e-06.
 
 Full script: [`experiments/43-world-models/experiment.py`](../experiments/43-world-models/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU, 1 thread), Python 3.14, Apple M5. Deterministic: a rerun reproduces every error and success number; only the timings change. Total ~2 min on a heavily loaded machine (approximate).
 

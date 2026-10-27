@@ -1,4 +1,4 @@
-"""Lesson 09: physai.kinematics against MuJoCo, plus properties the lesson relies on."""
+"""Lesson 09: physai.kinematics Jacobians against MuJoCo, plus properties the lesson relies on (fk: test_08)."""
 import mujoco
 import numpy as np
 import pytest
@@ -23,12 +23,6 @@ def mujoco_site_jac(m, d, q):
     sid = m.site("gripperframe").id
     mujoco.mj_jacSite(m, d, jp, jr, sid)
     return d.site_xpos[sid].copy(), np.r_[jp[:, :5], jr[:, :5]]
-
-
-def test_fk_matches_mujoco(arm):
-    m, d, chain, qs = arm
-    for q in qs:
-        assert np.allclose(fk(chain, q)[2], mujoco_site_jac(m, d, q)[0], atol=1e-12)
 
 
 def test_jacobian_matches_mj_jacsite(arm):

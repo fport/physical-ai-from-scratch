@@ -1,0 +1,25 @@
+NumPy 2.5.4 | SciPy 1.18.1
+
+== Step 1. The task and the expert ==
+lane y = sin(x/2), half-width 0.5 m, 1 m/s, 200 steps of 0.05 s; gust std 0.04 rad per step
+20 noise-free demonstrations: 4000 states, lateral offset from the centre at most 8.0 cm
+expert with gusts: 50/50 episodes stay in the lane
+
+== Step 2. Plain BC: a 1-nearest-neighbour learner on the demonstrations ==
+nearest_distance vs brute force on 200 points: max diff 0.0e+00
+  demos  success   dist to demos [m] in 0-2.5 / 2.5-5 / 5-7.5 / 7.5-10 s
+     20     3/50    0.080  0.171  0.176  0.226
+     40     4/50    0.084  0.214  0.140  0.198
+     60     4/50    0.071  0.176  0.166  0.166
+ expert    50/50    0.021  0.035  0.028  0.032
+
+== Step 3. DAgger: 10 learner episodes per iteration, labelled by the expert, all data kept ==
+ iter  expert-labelled episodes  success   dist to demos [m] per window
+    0                        20     3/50    0.080  0.171  0.176  0.226
+    1                        30    36/50    0.025  0.053  0.084  0.109
+    2                        40    50/50    0.023  0.041  0.036  0.043
+    3                        50    50/50    0.022  0.040  0.032  0.038
+    4                        60    50/50    0.022  0.038  0.030  0.036
+
+== Step 4. Break it: train each iteration only on its newest 10 learner episodes ==
+success per iteration 0..4: 3/50 2/50 0/50 40/50 50/50

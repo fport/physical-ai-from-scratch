@@ -1,6 +1,7 @@
 # Lesson 05 · Joints and actuators. Every answer is supported by the lesson page or
-# experiments/05-joints-and-actuators/output.txt. answer = index of the correct option (0-based).
-- q:
+# experiments/05-joints-and-actuators/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: A `<position>` servo holds a link against gravity. You raise kp from 10 to 100. What happens to the sag and the rise time?
     tr: Bir `<position>` servo bir link'i yerçekimine karşı tutuyor. kp'yi 10'dan 100'e çıkarıyorsun. Sarkmaya ve yükselme süresine ne olur?
   options:
@@ -14,7 +15,53 @@
   why:
     en: Sag $\approx \tau_g/k_p$ and rise time $\propto 1/\sqrt{k_p}$. In the kp sweep the sag goes 1.685° → 0.169° and the rise time 185.6 → 56.7 ms.
     tr: Sarkma $\approx \tau_g/k_p$, yükselme süresi $\propto 1/\sqrt{k_p}$. kp sweep'inde sarkma 1,685° → 0,169°, yükselme süresi 185,6 → 56,7 ms.
-- q:
+- stage: pre
+  q:
+    en: The SO-101 model adds `armature="0.028"` to every joint. In a real geared servo, what does armature stand for?
+    tr: SO-101 modeli her joint'e `armature="0.028"` ekliyor. Gerçek, dişli bir servoda armature neyi temsil eder?
+  options:
+    - en: The friction in the gearbox.
+      tr: Dişli kutusundaki sürtünmeyi.
+    - en: The spinning motor rotor, which the gearbox makes feel much heavier at the joint (rotor inertia × gear ratio²).
+      tr: Dişli kutusunun joint'te çok daha ağır hissettirdiği dönen motor rotorunu (rotor inertia'sı × dişli oranı²).
+    - en: The mass of the servo's plastic case.
+      tr: Servo'nun plastik kutusunun kütlesini.
+  answer: 1
+  why:
+    en: Armature adds to the joint's diagonal of the mass matrix; for a geared motor it is the reflected rotor inertia (In plain words, Math details). Numerically it lowers $\omega = \sqrt{k_p/I}$.
+    tr: Armature kütle matrisinin joint köşegenine eklenir; dişli bir motor için yansıyan rotor inertia'sıdır (Sade anlatımla, Matematik ayrıntısı). Sayısal olarak $\omega = \sqrt{k_p/I}$'yı düşürür.
+- stage: check
+  q:
+    en: In Build it, Step 1, `<position kp="40" kv="2"/>` compiles to `gainprm[0]` = 40 and `biasprm[:3]` = (0, −40, −2). Which force does `actuator_force` compute from these numbers?
+    tr: Sıfırdan yaz, Adım 1'de `<position kp="40" kv="2"/>`, `gainprm[0]` = 40 ve `biasprm[:3]` = (0, −40, −2) olarak compile ediliyor. `actuator_force` bu sayılardan hangi kuvveti hesaplar?
+  options:
+    - en: $40\,u - 2\,\dot q$, with no term in $q$.
+      tr: $q$'da terim olmadan $40\,u - 2\,\dot q$.
+    - en: $40\,(u - q)$, because the damping is applied by the integrator.
+      tr: $40\,(u - q)$, çünkü damping'i integrator uygular.
+    - en: $40\,u - 40\,q - 2\,\dot q = k_p(u - q) - k_v\dot q$, then clamped to `forcerange`.
+      tr: $40\,u - 40\,q - 2\,\dot q = k_p(u - q) - k_v\dot q$, sonra `forcerange`'e kırpılır.
+  answer: 2
+  why:
+    en: Force = gain · ctrl + bias₀ + bias₁ · length + bias₂ · velocity; for a joint actuator the length is the joint angle (times `gear`). The hand-written law matches `actuator_force` to 3.6e-15 N m.
+    tr: Kuvvet = gain · ctrl + bias₀ + bias₁ · uzunluk + bias₂ · hız; bir joint actuator'ünde uzunluk joint açısıdır (`gear` ile çarpılmış). Elle yazılan yasa `actuator_force` ile 3,6e-15 N m farkla örtüşüyor.
+- stage: check
+  q:
+    en: In Build it, Step 4, the SO-101 servo with armature 0.005 has growth 1.650 under `Euler` (MuJoCo diverges) but 0.595 under `implicitfast` (stable). What differs between the two steps?
+    tr: Sıfırdan yaz, Adım 4'te armature 0,005'li SO-101 servo'sunun büyümesi `Euler` altında 1,650 (MuJoCo ıraksıyor), `implicitfast` altında 0,595 (stabil). İki adım arasında ne farklı?
+  options:
+    - en: '`implicitfast` also treats the actuator''s $k_v$ implicitly (`c_implicit` = $(k_v + \text{damping})/I$), which raises the limit to $h^2\omega^2 < 4 + 2hc$; `Euler` treats only the joint damping implicitly.'
+      tr: '`implicitfast` actuator''ün $k_v$''sini de implicit çözer (`c_implicit` = $(k_v + \text{damping})/I$), bu limiti $h^2\omega^2 < 4 + 2hc$''ye yükseltir; `Euler` yalnızca joint damping''i implicit çözer.'
+    - en: '`implicitfast` uses a smaller timestep internally.'
+      tr: '`implicitfast` içeride daha küçük bir timestep kullanır.'
+    - en: '`implicitfast` integrates the position term implicitly as well.'
+      tr: '`implicitfast` konum terimini de implicit integre eder.'
+  answer: 0
+  why:
+    en: Only `discrete` is implicit in position. With $k_v$ explicit the damping lowers the bound ($h^2\omega^2 < 4 - 2hc$), so `Euler` already fails at $h\omega$ = 1.65; the growth column marks exactly the cells where MuJoCo diverges.
+    tr: Konumda implicit olan yalnızca `discrete`. $k_v$ explicit iken damping sınırı düşürür ($h^2\omega^2 < 4 - 2hc$), bu yüzden `Euler` daha $h\omega$ = 1,65'te çöküyor; büyüme sütunu tam olarak MuJoCo'nun ıraksadığı hücreleri işaretliyor.
+- stage: post
+  q:
     en: You copy the SO-101 servo gains (kp 998.22, kv 2.731) into a model at `dt` = 5 ms but drop the armature. What does `Euler` do?
     tr: SO-101 servo gain'lerini (kp 998,22, kv 2,731) `dt` = 5 ms'lik bir modele kopyalıyor ama armature'ı atıyorsun. `Euler` ne yapar?
   options:
@@ -28,7 +75,8 @@
   why:
     en: Break it A, Euler diverges from 0.005 on while `implicitfast` and `discrete` stay stable; with explicit damping the bound becomes $h^2\omega^2 < 4 - 2hc$, below 2.
     tr: Boz A, Euler 0,005'ten itibaren ıraksıyor, `implicitfast` ve `discrete` stabil kalıyor; damping explicit integre edilince sınır $h^2\omega^2 < 4 - 2hc$ olur, yani 2'nin altına iner.
-- q:
+- stage: post
+  q:
     en: Why does the armature matter most for the SO-101's wrist roll and gripper joints?
     tr: Armature neden en çok SO-101'in wrist roll ve gripper joint'leri için önemli?
   options:

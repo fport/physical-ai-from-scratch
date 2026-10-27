@@ -1,6 +1,7 @@
-# Lesson 31 · Action chunking (ACT). Every answer is supported by the lesson page or
-# experiments/31-act/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 31 · Action chunking (ACT). Every answer is supported by the lesson page,
+# experiments/31-act/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: Why does the $k = 1$ policy stay on the target instead of leaving late?
     tr: $k = 1$ policy'si neden geç ayrılmak yerine hedefte kalıyor?
   options:
@@ -14,7 +15,53 @@
   why:
     en: 'Experiment table: 543 of 600 episodes stuck at $k = 1$; the observation $(q, \dot q, q_{goal})$ has no timer and no phase.'
     tr: 'Deney tablosu: $k = 1$''de 600 episode''un 543''ü takılı; $(q, \dot q, q_{goal})$ observation''ında zamanlayıcı da faz da yok.'
-- q:
+- stage: pre
+  q:
+    en: A policy predicts the next 32 actions at every step and you execute only the first of each. How could you use the other predictions for the current step?
+    tr: Bir policy her adımda sonraki 32 action'ı tahmin ediyor ve sen her birinin yalnızca ilkini uyguluyorsun. Diğer tahminleri şimdiki adım için nasıl kullanabilirsin?
+  options:
+    - en: Average all the predictions that earlier queries made for this step, weighting older ones slightly more.
+      tr: Önceki sorguların bu adım için yaptığı tüm tahminlerin ortalamasını al, eskilere biraz daha çok ağırlık ver.
+    - en: Ignore them; only the newest prediction can be right.
+      tr: Onları yok say; yalnızca en yeni tahmin doğru olabilir.
+    - en: Execute all 32 at once.
+      tr: 32'sini birden uygula.
+  answer: 0
+  why:
+    en: That is temporal ensembling, $a_t = \sum_i w_i \hat a_t^{(i)} / \sum_i w_i$ with $w_i = e^{-m i}$ and $i = 0$ the oldest; at $k = 32$ it gave the best row, 552/600 (92.0%).
+    tr: Bu temporal ensembling'dir, $a_t = \sum_i w_i \hat a_t^{(i)} / \sum_i w_i$, $w_i = e^{-m i}$ ve $i = 0$ en eskisi; $k = 32$'de en iyi satırı verdi, 552/600 (%92,0).
+- stage: check
+  q:
+    en: In Build it, Step 2, 26 resting steps share one observation and the arm leaves after the 25th hold. From which chunk entry does the per-entry median (the L1 optimum) move a full step?
+    tr: Sıfırdan yaz, Adım 2'de 26 dinlenme adımı aynı gözlemi paylaşıyor ve kol 25. bekletmeden sonra ayrılıyor. Entry başına median (L1 optimumu) hangi chunk entry'sinden itibaren tam bir adım hareket eder?
+  options:
+    - en: From entry 0; the median follows the mean.
+      tr: Entry 0'dan; median ortalamayı izler.
+    - en: From entry 25, the length of the pause.
+      tr: Duraklamanın uzunluğu olan entry 25'ten.
+    - en: From entry 13, where more than half of the 26 chunks are already moving.
+      tr: 26 chunk'ın yarısından fazlasının zaten hareket ettiği entry 13'ten.
+  answer: 2
+  why:
+    en: Entry $i$ departs in $(i+1)$ of 26 chunks; at entry 12 exactly half do, so the median moves half a step (0.060 rad), and from 13 a full step. A chunk of $k \le 12$ is all "hold".
+    tr: Entry $i$, 26 chunk'ın $(i+1)$'inde ayrılır; entry 12'de tam yarısı ayrılır, bu yüzden median yarım adım (0,060 rad), 13'ten itibaren tam adım hareket eder. $k \le 12$ olan bir chunk tamamen "bekle"dir.
+- stage: check
+  q:
+    en: You switch on temporal ensembling in LeRobot's ACT with `temporal_ensemble_coeff=0.01` and keep the default `n_action_steps=100`. What happens?
+    tr: LeRobot'un ACT'sinde `temporal_ensemble_coeff=0.01` ile temporal ensembling'i açıyorsun ve varsayılan `n_action_steps=100`'ü koruyorsun. Ne olur?
+  options:
+    - en: It ensembles over 100 steps, which is smoother.
+      tr: 100 adım üzerinden ensemble yapar, bu daha yumuşaktır.
+    - en: An error; ensembling requires one action per query, `n_action_steps=1`.
+      tr: Bir hata; ensembling sorgu başına tek action ister, `n_action_steps=1`.
+    - en: The coefficient is ignored and the chunk runs open-loop.
+      tr: Katsayı yok sayılır ve chunk open-loop çalışır.
+  answer: 1
+  why:
+    en: Use it, traps. With ensembling the model is queried every step and the running average (`ACTTemporalEnsembler.update`, like `TemporalEnsembler` in Step 3) gives the action.
+    tr: Kütüphaneyle kullan, tuzaklar. Ensembling'de model her adımda sorgulanır ve action'ı kayan ortalama (`ACTTemporalEnsembler.update`, Adım 3'teki `TemporalEnsembler` gibi) verir.
+- stage: post
+  q:
     en: A chunk predicted at rest on the goal departs at a median index of about 8–9. What follows for $k \le 8$?
     tr: Hedefin üstünde dururken tahmin edilen bir chunk, medyan olarak 8–9 civarındaki indekste ayrılıyor. Bu $k \le 8$ için ne demek?
   options:
@@ -28,7 +75,8 @@
   why:
     en: 'Departure table: 0/200 chunks contain a departure at $k = 1$ and 4, 8/200 at $k = 8$, 200/200 at $k = 16$ and 32.'
     tr: 'Ayrılış tablosu: $k = 1$ ve 4''te chunk''ların 0/200''ü, $k = 8$''de 8/200''ü, $k = 16$ ve 32''de 200/200''ü bir ayrılış içeriyor.'
-- q:
+- stage: post
+  q:
     en: At $k = 32$, open-loop succeeds in 49.5% of episodes and temporal ensembling in 92.0%. What explains the gap?
     tr: $k = 32$'de open-loop episode'ların %49,5'inde, temporal ensembling %92,0'ında başarılı. Farkı ne açıklar?
   options:

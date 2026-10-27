@@ -4,40 +4,88 @@
     en: You do the same quintic move in half the time. What happens to the reference's peak acceleration and peak jerk?
     tr: Aynı quintic hareketi yarı sürede yapıyorsun. Referansın tepe ivmesine ve tepe jerk'üne ne olur?
   options:
-    - en: Both double, because everything happens twice as fast.
-      tr: İkisi de iki katına çıkar, çünkü her şey iki kat hızlı olur.
-    - en: Acceleration ×4, jerk ×8.
-      tr: İvme ×4, jerk ×8.
-    - en: Neither changes; the shape alone fixes them.
-      tr: İkisi de değişmez; onları yalnızca şekil belirler.
+  - en: Both double, because everything happens twice as fast.
+    tr: İkisi de iki katına çıkar, çünkü her şey iki kat hızlı olur.
+  - en: Acceleration ×4, jerk ×8.
+    tr: İvme ×4, jerk ×8.
+  - en: Neither changes; the shape alone fixes them.
+    tr: İkisi de değişmez; onları yalnızca şekil belirler.
   answer: 1
   why:
     en: By the chain rule $\ddot q \propto 1/T^2$ and $\dddot q \propto 1/T^3$. Part B, quintic from 1 s to 0.5 s - acceleration 3.46 → 13.86 rad/s², jerk 35.8 → 284.6 rad/s³.
     tr: Zincir kuralıyla $\ddot q \propto 1/T^2$ ve $\dddot q \propto 1/T^3$. B bölümü, quintic 1 s'den 0,5 s'ye - ivme 3,46 → 13,86 rad/s², jerk 35,8 → 284,6 rad/s³.
-- q:
+  stage: pre
+- stage: pre
+  q:
+    en: 'Which elevator ride feels smoother: speed ramps up at a constant rate and down again, or the acceleration itself eases in and out?'
+    tr: 'Hangi asansör yolculuğu daha yumuşak hissettirir: hızın sabit oranla artıp azaldığı mı, yoksa ivmenin kendisinin yavaşça başlayıp bittiği mi?'
+  options:
+  - en: The constant-rate ramp, because its acceleration is lower.
+    tr: Sabit oranlı rampa, çünkü ivmesi daha düşüktür.
+  - en: Both feel the same if they take the same time.
+    tr: Aynı sürede biterlerse ikisi de aynı hissettirir.
+  - en: 'The one whose acceleration eases in: a jump in acceleration is the lurch you feel (jerk).'
+    tr: 'İvmesi yavaşça başlayan: ivmedeki sıçrama hissettiğin sarsıntıdır (jerk).'
+  answer: 2
+  why:
+    en: 'In plain words: jerk is the rate of change of acceleration. The trapezoid''s acceleration jumps (robot jerk 1003 rad/s³), the quintic''s does not (35 rad/s³).'
+    tr: 'Sade anlatımla: jerk ivmenin değişim hızıdır. Trapezoid''in ivmesi sıçrar (robot jerk''ü 1003 rad/s³), quintic''inki sıçramaz (35 rad/s³).'
+- stage: check
+  q:
+    en: How does Build it, Step 1 get the quintic's coefficients?
+    tr: Sıfırdan yaz, Adım 1 quintic'in katsayılarını nasıl buluyor?
+  options:
+  - en: From six boundary conditions (s, s', s'' at both ends), one linear equation each, solved together.
+    tr: Altı sınır koşulundan (iki uçta s, s', s''), her biri bir doğrusal denklem, birlikte çözülerek.
+  - en: By fitting a polynomial to the Experiment's measured joint angles.
+    tr: Deney'in ölçtüğü joint açılarına polinom uydurarak.
+  - en: By integrating the cubic once more.
+    tr: Cubic'in integralini bir kez daha alarak.
+  answer: 0
+  why:
+    en: '`poly_from_boundary` returns 0, 0, 0, 10, −15, 6; one more pair (zero jerk) gives the degree-7 shape 35u⁴ − 84u⁵ + 70u⁶ − 20u⁷.'
+    tr: '`poly_from_boundary` 0, 0, 0, 10, −15, 6 döndürür; bir çift koşul daha (sıfır jerk) 7. derece 35u⁴ − 84u⁵ + 70u⁶ − 20u⁷ biçimini verir.'
+- stage: check
+  q:
+    en: The formula gives the cubic's peak acceleration at T = 1 s as 3.60 rad/s², the Experiment's table 3.59. Why (Build it, Step 4)?
+    tr: Formül T = 1 s'de cubic'in tepe ivmesini 3,60 rad/s² veriyor, Deney'in tablosu 3,59. Neden (Sıfırdan yaz, Adım 4)?
+  options:
+  - en: The Panda's torque limits cut the acceleration.
+    tr: Panda'nın tork limitleri ivmeyi kırpıyor.
+  - en: The Experiment samples the reference every 2 ms and counts it as at rest at t = 0, so its first sample is at 2 ms, where s'' = 6 − 12·0.002.
+    tr: Deney referansı 2 ms'de bir örnekliyor ve t = 0'da durağan sayıyor; ilk örneği 2 ms'de, orada s'' = 6 − 12·0,002.
+  - en: The cubic's coefficients are rounded in the Experiment.
+    tr: Deney'de cubic'in katsayıları yuvarlanmış.
+  answer: 1
+  why:
+    en: 'Same reason for the quintic''s jerk, 35.78 instead of 36.00: a 2 ms finite difference. At T = 0.25 s the gap grows (56.68 vs 57.60).'
+    tr: 'Quintic''in jerk''ü için de sebep aynı, 36,00 yerine 35,78: 2 ms''lik finite difference. T = 0,25 s''de fark büyüyor (56,68''e karşı 57,60).'
+- stage: post
+  q:
     en: The trapezoid has the lowest reference peak acceleration (2.70 rad/s²) at T = 1 s. Why does the Panda still see far more jerk with it than with the quintic?
     tr: T = 1 s'de en düşük referans tepe ivmesi trapezoid'de (2,70 rad/s²). Panda neden yine de onunla quintic'e göre çok daha fazla jerk görüyor?
   options:
-    - en: Its acceleration jumps at the corners; only the quintic starts and ends with zero acceleration.
-      tr: İvmesi köşelerde sıçrıyor; sıfır ivmeyle başlayıp biten yalnızca quintic.
-    - en: Its cruise phase is too fast for the PD gains.
-      tr: Sabit hız fazı PD gain'leri için fazla hızlı.
-    - en: It saturates the joint torques, like the step.
-      tr: Step gibi joint torque'larını saturation'a sokuyor.
+  - en: Its acceleration jumps at the corners; only the quintic starts and ends with zero acceleration.
+    tr: İvmesi köşelerde sıçrıyor; sıfır ivmeyle başlayıp biten yalnızca quintic.
+  - en: Its cruise phase is too fast for the PD gains.
+    tr: Sabit hız fazı PD gain'leri için fazla hızlı.
+  - en: It saturates the joint torques, like the step.
+    tr: Step gibi joint torque'larını saturation'a sokuyor.
   answer: 0
   why:
     en: Jerk follows continuity of acceleration - part A measures 1003 rad/s³ robot jerk for the trapezoid vs 35 for the quintic, with 0.0% saturated steps for both.
     tr: Jerk ivmenin sürekliliğini izler - A bölümünde robot jerk'ü trapezoid için 1003 rad/s³, quintic için 35; ikisinde de saturation'daki adımlar %0,0.
-- q:
+- stage: post
+  q:
     en: All smooth shapes track with about 1° of error at T = 1 s. What brought the quintic's error down to 0.01°?
     tr: T = 1 s'de bütün yumuşak şekiller yaklaşık 1° hatayla takip ediyor. Quintic'in hatasını 0,01°'ye ne indirdi?
   options:
-    - en: Switching from the cubic to the quintic.
-      tr: Cubic'ten quintic'e geçmek.
-    - en: Making the move twice as long.
-      tr: Hareketi iki kat uzatmak.
-    - en: Adding the model feedforward $M\ddot q_r$ and cancelling `qfrc_passive`.
-      tr: Model feedforward'ı $M\ddot q_r$'yi eklemek ve `qfrc_passive`'i iptal etmek.
+  - en: Switching from the cubic to the quintic.
+    tr: Cubic'ten quintic'e geçmek.
+  - en: Making the move twice as long.
+    tr: Hareketi iki kat uzatmak.
+  - en: Adding the model feedforward $M\ddot q_r$ and cancelling `qfrc_passive`.
+    tr: Model feedforward'ı $M\ddot q_r$'yi eklemek ve `qfrc_passive`'i iptal etmek.
   answer: 2
   why:
     en: The shape decides jerk, the model decides tracking error. Part A - quintic 1.32°, quintic + feedforward 0.01°; doubling T only reaches 0.65° (part B).

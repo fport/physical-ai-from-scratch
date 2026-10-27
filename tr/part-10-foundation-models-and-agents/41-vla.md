@@ -24,9 +24,7 @@ LeRobot'un SmolVLA kılavuzu bir SO-101 sahibine yaklaşık 50 episode kaydetmes
 
 Resimlere bakabilen bir sohbet modeli düşün. Ona üç kamera karesini, robotun o anki eklem açılarını ve "lego'yu kutuya koy" cümlesini göster; cevabı kelimelerle değil motor komutlarıyla versin. Vision-language-action model'i (VLA) budur: çıkış token'ları joint hedefleri olan bir LLM. Ağın çoğu pretrained görüntü-metin modelidir; robota özgü kısım sondaki küçük bir parçadır, yani modelin iç feature'larını bir servonun izleyebileceği sayılara çeviren **action head**.
 
-Bu head'i kurmanın iki yolu var. Birincisi action'a metin gibi davranır: her joint hedefini 256 seviyeden birine yuvarlar ve her seviyeyi bir kelime olarak yazar; joint başına bir kelime, kelime başına bir decoder geçişi. İkincisi küçük ek bir ağa, gerçek sayılardan oluşan bütün bir **chunk**'ı, örneğin sonraki 50 adımı, tek seferde yazdırır: rastgele gürültüden başlar ve onu 10 küçük adımda temizler, tıpkı görüntü diffusion modellerinin gürültüyü resme çevirmesi gibi.
-
-Ödünleşim, yazılım açısından bekleyeceğin şeydir. Yuvarlamak çözünürlüğe mal olur (ne kadar, deneyin sorusu), joint başına bir kelime yazmak ise joint başına milyarlarca parametrelik bir modelin bir forward pass'ine mal olur. Bir chunk 50 action için tek bir çağrıdır; yavaş bir modelin hızlı bir servo döngüsünü sürebilmesini sağlayan da budur.
+Bu head'i kurmanın iki yolu var. Birincisi action'a metin gibi davranır: her joint hedefini 256 seviyeden birine yuvarlar ve her seviyeyi bir kelime olarak yazar; kelime başına bir decoder geçişi. İkincisi küçük ek bir ağa gerçek sayılardan oluşan bütün bir **chunk**'ı, örneğin sonraki 50 adımı, tek seferde yazdırır: rastgele gürültüden başlar ve onu 10 küçük adımda temizler, görüntü diffusion modellerinin resim yapması gibi. Yuvarlamak çözünürlüğe, joint başına bir kelime ise joint başına milyarlarca parametrelik bir modelin bir geçişine mal olur; chunk 50 action için tek çağrıdır, bu da yavaş bir modelin hızlı bir servo döngüsünü sürmesini sağlar.
 
 ### Veri akışı
 
@@ -44,24 +42,12 @@ flowchart TD
 
 ### İki action head, kod olarak
 
-Token head'i, muhtemelen başka bir iş için daha önce yazdığın bir quantizer'dır. Flow head'i ise hızını bir ağdan alan küçük bir ODE çözücüsüdür.
+Token head'i bir quantizer'dır; flow head'i ise hızını bir ağdan alan küçük bir ODE çözücüsü (ikisini de Sıfırdan yaz'da yazıyorsun).
 
 ```python
-# Token head (OpenVLA-style), per action dimension
-def tokenize(a, lo, hi, n_bins=256):          # lo, hi: 1st and 99th percentile of the training actions
-    x = (np.clip(a, lo, hi) - lo) / (hi - lo)  # 0..1
-    return np.minimum((x * n_bins).astype(int), n_bins - 1)   # bin index = the "word"
-
-def detokenize(k, lo, hi, n_bins=256):
-    return lo + (k + 0.5) / n_bins * (hi - lo)  # centre of the bin
-
-# Flow head (π0 / SmolVLA): turn noise into a chunk of H actions in N Euler steps
-def sample_chunk(v_theta, obs, H=50, dim=32, N=10):
-    A = np.random.randn(H, dim)                 # start: pure Gaussian noise
-    for i in range(N):
-        tau = i / N                             # 0 = noise, 1 = clean actions
-        A = A + (1 / N) * v_theta(A, tau, obs)  # follow the learned velocity field
-    return A                                    # H future actions, real numbers
+k = tokenize(a, lo, hi, 256)                  # lo, hi: 1st and 99th percentile of the training actions
+a_hat = detokenize(k, lo, hi, 256)            # the bin centre: |a - a_hat| <= Delta / 2
+A = sample_chunk(lambda x, tau: v_theta(x, tau, obs), np.random.randn(50 * 32), 10)   # noise -> 50 x 32 chunk
 ```
 
 | Head | Çıkış | Hata | Kontrol adımı başına maliyet |
@@ -108,6 +94,143 @@ Daha derine: [Embodied VLAs: RT-2, OpenVLA, π0, GR00T](https://aiengineeringfro
 
 **Cross-embodiment**, gövdeleri farklı robotlar için tek bir ağ demek. Robotların action boyutu farklıdır; bu yüzden aşağıdaki config'ler state ve action'ı sabit bir `max_action_dim` = 32'ye pad'liyor (küçük bir robot fazla slot'ları padding olarak bırakır): 6 boyutlu bir SO-101 ile daha yüksek boyutlu iki kollu bir sistem tek bir ağı paylaşıyor. **Fine-tuning** ardından pretrained model'i tek bir robota ve göreve uyarlıyor: SmolVLA'nın config'i vision encoder'ı donduruyor ve yalnızca expert'i eğitiyor; OpenVLA'nın LoRA'sı (dondurulmuş weight'lere eklenen küçük low-rank matrisler) model parametrelerinin yalnızca %1,4'ünü eğiterek full fine-tuning'e denk geliyor ([arXiv 2406.09246](https://arxiv.org/abs/2406.09246), §5.3).
 
+## Sıfırdan yaz
+
+Şimdi iki action head'i de ağsız yazacaksın: Deney'in kullandığı haliyle token quantizer'ı ve kusursuz eğitilmiş bir ağın vereceği velocity ile çalışan bir flow-matching sampler. Veri, ders 16'nın scripted pick'inin 229 action'ı (Deney'in `demo()`'su kaydediyor). Fonksiyonlar [`physai/foundation.py`](../../physai/foundation.py) içinde; `uv run python experiments/41-vla/build.py` adımları koşturur (çıktı [`build_output.txt`](../../experiments/41-vla/build_output.txt) dosyasında).
+
+### Adım 1 · Token'lar
+
+```python
+def tokenize(a, lo, hi, n_bins=256):
+    """OpenVLA-style action tokens: clip each dimension to [lo, hi], cut it into n_bins equal bins, return the index."""
+    x = (np.clip(a, lo, hi) - lo) / (hi - lo)               # 0..1
+    return np.minimum((x * n_bins).astype(int), n_bins - 1)
+```
+
+```python
+def detokenize(k, lo, hi, n_bins=256):
+    """Back to an action: the centre of bin k."""
+    return lo + (k + 0.5) / n_bins * (hi - lo)
+```
+
+```text
+== Step 1. Tokens per dimension, bins between the 1st and 99th percentile ==
+demonstration: 229 actions x 6 dims; arm-joint ranges (deg): 3.7 69.4 26.1 31.2 0.4
+ bins  same tokens as experiment.py  re-tokenized = same  max |err| / (Delta/2)
+    4                          True                 True                  1.000
+    8                          True                 True                  1.000
+   16                          True                 True                  1.000
+   64                          True                 True                  1.000
+  256                          True                 True                  1.000
+ 1024                          True                 True                  1.000
+```
+
+Token'ların her bin sayısında Deney'inkilerle aynı, de-tokenize edip yeniden tokenize etmek aynı token'ı veriyor ve en büyük hata tam olarak yarım bin. Tam olarak, yalnızca altında değil: bu demonstration uç pozlarını tutuyor, 1. ve 99. percentile'ları minimum ve maksimumu ve bu değerler en dıştaki bin kenarlarında duruyor.
+
+### Adım 2 · Yarım bin ve $\Delta/\sqrt{12}$
+
+```text
+== Step 2. RMS error of the arm joints vs Delta / sqrt(12) ==
+ bins  RMS err deg  Delta/sqrt(12) deg  max err deg  Delta/2 (widest) deg
+    4        3.161               2.598        8.672                 8.672
+    8        1.566               1.299        4.336                 4.336
+   16        0.745               0.650        2.168                 2.168
+   64        0.209               0.162        0.542                 0.542
+  256        0.048               0.041        0.136                 0.136
+ 1024        0.012               0.010        0.034                 0.034
+```
+
+RMS hata her bit'te yarıya iniyor, $\Delta/\sqrt{12}$'nin öngördüğü gibi, ama onun %17–29 üstünde kalıyor (256 bin'de 0,048°'ye karşı 0,041°): formül değerlerin bin içinde eşit yayıldığını varsayıyor, tutulan uç pozlar ise hep en kötü yerde, bir merkezden yarım bin uzakta. Sayılar Deney'in tablosuyla uyuşuyor.
+
+### Adım 3 · Gripper'da
+
+Joint hataları forward kinematics ile tip hatasına dönüşüyor; [`physai/kinematics.py`](../../physai/kinematics.py)'deki `fk` (ders 09) gripper-frame konumunu döndürür.
+
+```text
+== Step 3. At the gripper: forward kinematics of the de-tokenized actions ==
+ bins  mean tip err mm  max tip err mm
+    4            15.69           40.36
+    8             8.83           19.75
+   16             3.51            9.54
+   64             1.24            2.00
+  256             0.26            0.60
+ 1024             0.07            0.17
+```
+
+Deney'in tablosuyla aynı tip hataları: 256 bin'de ortalama 0,26 mm, 4 bin'de en kötü 40,36 mm, 30 mm'lik küpten fazla.
+
+### Adım 4 · Head'in maliyeti
+
+```text
+== Step 4. Network passes per second at a 30 Hz control loop ==
+tokens, one action per call, 6 dims: 30 x 6 = 180 decoder passes/s
+tokens for the 7-D OpenVLA action: 30 x 7 = 210 decoder passes/s
+chunk of 50, execute 50 before re-planning, 10 flow steps: 0.6 VLM passes/s, 6 expert passes/s, 1667 ms without reacting to new images
+chunk of 50, execute 10 before re-planning, 10 flow steps: 3.0 VLM passes/s, 30 expert passes/s, 333 ms without reacting to new images
+```
+
+Token'lar her adımda boyut başına bütün dil modelinin bir geçişine mal oluyor; bir chunk 50 action için bir VLM geçişine ve 10 küçük expert geçişine. Bedel son sütunda: 50'lik bir chunk 30 Hz'de oynarken policy 1,67 s boyunca yeni görüntülere bakmıyor; chunk başına 10 action yürütmek tepki süresini beş kat hesapla satın alıyor.
+
+### Adım 5 · Flow head
+
+Bir velocity ağını eğitmek GPU kısmı (Ek B), ama hedefinin sonlu bir training chunk listesi için kapalı bir formu var: gürültülü noktadan onu üretmiş olabilecek chunk'lara ortalama yön. Ağ yerine bu tam velocity'yi kullan:
+
+```python
+def flow_velocity(x, tau, data):
+    """The flow-matching velocity a perfectly trained network would output when the training set is `data` (n, d):
+    for x_tau = tau a + (1 - tau) eps, E[a - eps | x_tau = x] = (weighted mean of the data - x) / (1 - tau)."""
+    logw = -((x[None] - tau * data) ** 2).sum(axis=1) / (2 * (1 - tau) ** 2)   # posterior over training chunks
+    w = np.exp(logw - logw.max())
+    return (w @ data / w.sum() - x) / (1 - tau)
+```
+
+```python
+def sample_chunk(velocity, x0, n_steps):
+    """Flow-matching inference: integrate dx/dtau = v(x, tau) from noise (tau = 0) to an action chunk (tau = 1)."""
+    x = x0.copy()
+    for i in range(n_steps):
+        x = x + velocity(x, i / n_steps) / n_steps        # Euler step of size 1 / n_steps
+    return x
+```
+
+```text
+== Step 5. Flow head: Euler steps through the exact velocity of the demonstration's chunks ==
+training set: 180 chunks of 50 x 6 = 300 numbers; 20 samples from noise
+flow steps  RMS to nearest chunk rad  within 0.01 rad  RMS to the mean chunk rad
+         1                    0.2576             0/20                     0.0000
+         2                    0.0473             0/20                     0.2466
+         5                    0.0045            18/20                     0.2890
+        10                    0.0032            20/20                     0.2912
+        20                    0.0006            20/20                     0.2921
+```
+
+Tek Euler adımı tam olarak *ortalama* chunk'a iniyor (ona 0,0000 rad), 180 farklı hareketin ortalaması, hiçbir gerçeğine 0,2576 rad'dan yakın değil: ortalamaya tek bir regression'ın ürettiği bulanıklık (ders 30). Adım arttıkça örnek tek bir demonstration'a bağlanıyor: 5 adımdan sonra 20 örneğin 18'i bir training chunk'ının 0,01 rad yakınında, 10 adımdan sonra 20'si de; π0'ın ve SmolVLA'nın adım sayısı.
+
+### Elinde kalan
+
+`physai.foundation` artık `tokenize`, `detokenize`, `flow_velocity` ve `sample_chunk` içeriyor. Ders 42 bu tür çıktılarla robot arasına bir validation katmanı koyuyor. [`tests/test_41_vla.py`](../../tests/test_41_vla.py) quantization sınırlarını ve sampler'ı kontrol eder: `uv run pytest tests/test_41_vla.py`.
+
+## Kütüphaneyle kullan
+
+LeRobot'ta head policy'nin içinde. `select_action` her çağrıda `n_action_steps` action'lık bir kuyruktan bir action döndürür ve modeli yalnızca kuyruk boşalınca çalıştırır ([`modeling_smolvla.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/smolvla/modeling_smolvla.py)); burada çalıştırılmadı:
+
+```python
+policy = SmolVLAPolicy.from_pretrained("lerobot/smolvla_base")
+action = policy.select_action(batch)      # images, state, task text -> one action; a new chunk every n_action_steps calls
+```
+
+| Araç | Action çıktısı | Kontrol edilecek gelenek |
+|---|---|---|
+| physai | `tokenize(a, lo, hi, 256)`, `sample_chunk(v, noise, 10)` | gürültü $\tau = 0$'da, temiz action'lar $\tau = 1$'de |
+| OpenVLA | boyut başına 1. ile 99. quantile arasında 256 bin ([arXiv 2406.09246](https://arxiv.org/abs/2406.09246), §3.2) | bin token'ları Llama'nın en az kullanılan 256 token'ının üzerine yazılır |
+| LeRobot SmolVLA | `chunk_size` 50'lik chunk, `n_action_steps` kadarı yürütülür, `num_steps` 10 flow adımı (Deney, A bölümü) | training kodu geleneğine [`FlowConvention.NOISE_AT_ONE`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/common/flow_matching.py) diyor (gürültü t = 1'de, 1 → 0 integre edilir): zaman ters yönde akıyor |
+
+Tuzaklar:
+
+- **Aralık dondurulmuştur.** Bin'ler training verisinin 1.–99. percentile'ını kaplar; daha geniş hareketli yeni bir görev sessizce kırpılır.
+- **Flow zamanının yönü.** Bazı kodlar gürültüyü $\tau = 0$'a, bazıları $t = 1$'e koyar; ikisini karıştırmak ters yönde integre eder.
+- **Padding.** Config'ler action'ları `max_action_dim` 32'ye pad'ler; SO-101'i yalnızca ilk 6 sayı sürer.
+
 ## Deney
 
 **A. Artifact'leri oku.** Bir `.safetensors` weight dosyası 8 baytlık bir uzunlukla ve ardından tensor adları ile şekillerinden oluşan bir JSON tablosuyla başlar. Her model için `config.json`'u ve yalnızca bu header'ı çekiyoruz (HTTP Range isteğiyle; bu istek sunucudan dosyanın tamamı yerine bir bayt aralığı ister), sonra parametreleri bileşen başına topluyoruz.
@@ -150,11 +273,11 @@ Toplamlar makalelerdeki 450M ve 7B ile uyuşuyor. Saklanan π0 checkpoint'i maka
 | 8 | 3 | 1,566 | 4,336 | 8,83 | 19,75 | kalktı | 5,19 |
 | 4 | 2 | 3,161 | 8,672 | 15,69 | 40,36 | **kalkmadı** | 0,00 |
 
-Orijinal demonstration küpü 7,37 cm'ye kaldırdı; token'laştırılmamış 50 Hz replay'i 7,25 cm'ye. 256 bin'de hata gripper'da 0,26 mm, döngüdeki diğer her şeyin çok altında: token'ın bedeli çözünürlük değil. Bedel, bir action'ın boyut başına bir decoder geçişine mal olması ve clipping aralığının training verisinden dondurulmuş olması. Burada değerlerin %0,00'ı aralığın dışına düştü: bu demonstration uç pozlarını uzun süre tutuyor, bu yüzden 1. ve 99. percentile'ları minimum ve maksimumuna eşit. (Grafik, `output.txt`'teki 32 ve 128 bin satırlarını da gösteriyor.)
+Orijinal demonstration küpü 7,37 cm'ye kaldırdı; token'laştırılmamış 50 Hz replay'i 7,25 cm'ye. 256 bin'de hata gripper'da 0,26 mm, döngüdeki her şeyin altında: token'ın bedeli çözünürlük değil, boyut başına bir decoder geçişi ve training verisinden dondurulmuş bir clipping aralığı (burada değerlerin %0,00'ı dışarıda kaldı: 1. ve 99. percentile'lar minimum ve maksimuma eşit). Grafik `output.txt`'teki 32 ve 128 bin satırlarını da gösteriyor.
 
 ## Boz
 
-Bin sayısını düşür. Çıkarılan her bit hatayı kabaca ikiye katlıyor, uniform quantization'ın öngördüğü gibi (kol joint'i RMS 0,745° → 1,566° → 3,161°, 16 → 8 → 4 bin). Grasp 8 bin'e kadar 19,75 mm'lik en kötü tip hatasıyla dayanıyor, ama küp daha alçakta kalıyor (5,19 cm). 4 bin'de en kötü tip hatası, 40,36 mm, 30 mm'lik küpten büyük ve replay küpü kaldırmıyor. Token head'i, hata sınırı bilinen bir quantizer'dır; bin sayısını vocabulary boyutundan değil, görevin toleransından seç (burada: çenede birkaç milimetre).
+Bin sayısını düşür. Çıkarılan her bit hatayı kabaca ikiye katlıyor (kol joint'i RMS 0,745° → 1,566° → 3,161°, 16 → 8 → 4 bin). Grasp 8 bin'e kadar 19,75 mm'lik en kötü tip hatasıyla dayanıyor, küp daha alçakta kalıyor (5,19 cm). 4 bin'de en kötü durum, 40,36 mm, 30 mm'lik küpü aşıyor ve replay küpü kaldırmıyor. Bin sayısını vocabulary boyutundan değil, görevin toleransından seç (çenede birkaç milimetre).
 
 ## Gerçek robotta
 

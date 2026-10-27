@@ -102,19 +102,181 @@ Daha derine: [World Models & Video Diffusion](https://aiengineeringfromscratch.c
 
 Model $\theta$ yerine $\cos\theta$ ve $\sin\theta$ görür; böylece $\theta$ ile $\theta + 2\pi$ aynı görünür. $\mathrm{wrap}$ bir açı farkını $[-\pi, \pi)$ aralığına taşır; dolayısıyla cost dik konumda ($\theta = \pi$) en düşüktür.
 
-## Deney
+## Sıfırdan yaz
 
-**Sistem.** Bir MuJoCo sarkacı: 0,5 m'de 1 kg'lık noktasal kütle, hinge damping 0,05 N·m·s/rad, tork limiti 2 N·m; bu, yataydaki 4,91 N·m'lik yerçekimi torkundan küçük, dolayısıyla swing-up (sarkacı aşağıdan dik konuma getirmek) pompalama gerektiriyor: enerji biriktirmek için ileri geri sallamak. Kontrol adımı 0,05 s (5 × 10 ms, semi-implicit Euler). **Veri:** rastgele başlangıçlardan ve rastgele torklardan 400 trajectory × 50 adım = 20.000 geçiş. **Model:** MLP 4-128-128-2 (17.410 parametre), batch 512 ile 1200 Adam adımı, train MSE (training verisindeki ortalama karesel hata) 2,47e-06.
+Şimdi bütün zinciri NumPy ile kuracaksın: gerçek dinamik, bir veri seti, bir world model, open-loop rollout'lar ve bir MPC planner. Deney'den tek fark: Adam ile eğitilen bir MLP yerine $\hat f_\theta$, $(\cos\theta, \sin\theta, \dot\theta, u)$'nun polinom feature'larında doğrusal ve tek bir least-squares çözümüyle fit ediliyor. Böylece modelin kapasitesi tek bir düğme (derece) oluyor ve build birkaç saniyede deterministik koşuyor. Fonksiyonlar [`physai/foundation.py`](../../physai/foundation.py) içinde; `uv run python experiments/43-world-models/build.py` adımları koşturur (çıktı [`build_output.txt`](../../experiments/43-world-models/build_output.txt) dosyasında).
+
+### Adım 1 · Gerçek dinamik
+
+Beş alt adımlık semi-implicit Euler. MuJoCo'nun Euler integrator'ü joint damping'i implicit uygular: paydadaki $I + h b$ bu.
+
+```python
+def pendulum_step(s, u, p=PEND):
+    """One 0.05 s control step of the torque-limited pendulum, s = (theta, theta_dot), theta = 0 hanging.
+    Semi-implicit Euler with implicit joint damping, as MuJoCo's Euler integrator; works on batches."""
+    th, w = s[..., 0], s[..., 1]
+    u = np.clip(u, -p["u_max"], p["u_max"])
+    for _ in range(p["substeps"]):
+        tau = u - p["mgl"] * np.sin(th) - p["damping"] * w
+        w = w + p["h"] * tau / (p["inertia"] + p["h"] * p["damping"])   # damping taken at the new speed
+        th = th + p["h"] * w
+    return np.stack([th, w], axis=-1)
+```
+
+```text
+== Step 1. The pendulum step by hand vs MuJoCo (5 x mj_step of 10 ms) ==
+inertia from MuJoCo's mass matrix: 0.25036 kg m^2 (0.25 + 2/5 m r^2 = 0.25036)
+max |ours - MuJoCo| over 200 random states and torques: 1.8e-15
+```
+
+### Adım 2 · Veri
+
+Deney'in tarifi: bütün çember üzerinde rastgele başlangıçlar, iki kontrol adımı boyunca tutulan rastgele torklar, 50 adımlık 400 trajectory. Her trajectory tek bir batch'in bir satırı; yani 20.000 transition toplamak `pendulum_step`'e 50 çağrı demek.
+
+```text
+== Step 2. Data: 400 random-action trajectories x 50 steps ==
+training transitions 20000, held-out transitions 5000
+|delta theta| up to 0.589 rad per step, |delta theta_dot| up to 1.433 rad/s per step
+```
+
+### Adım 3 · State değişimini fit et
+
+```python
+def poly_features(s, u, degree):
+    """All monomials up to `degree` of (cos theta, sin theta, theta_dot / 8, u / 2), constant included."""
+    base = np.stack([np.cos(s[..., 0]), np.sin(s[..., 0]), s[..., 1] / 8, u / 2], axis=-1)
+    cols = [np.ones(base.shape[:-1])]
+    for d in range(1, degree + 1):
+        for idx in itertools.combinations_with_replacement(range(4), d):
+            cols.append(np.prod(base[..., list(idx)], axis=-1))
+    return np.stack(cols, axis=-1)
+```
+
+```python
+def fit_world_model(S, A, S_next, degree):
+    """Least-squares fit of the change of state: S_next - S ~ poly_features(S, A) @ W. Returns W."""
+    return np.linalg.lstsq(poly_features(S, A, degree), S_next - S, rcond=None)[0]
+```
+
+```python
+def predict(W, s, u, degree):
+    """Learned dynamics: the next state is the current one plus the predicted change."""
+    return s + poly_features(s, u, degree) @ W
+```
+
+```text
+== Step 3. Fit the change of state, feature degree 1-4 ==
+degree features  one-step |angle err| rad  one-step |vel err| rad/s
+     1        5                   7.9e-04                   3.9e-02
+     2       15                   5.6e-05                   3.3e-03
+     3       35                   1.9e-06                   1.3e-04
+     4       70                   1.1e-07                   8.4e-06
+```
+
+Her ek derece tek adım doğruluğunda bir büyüklük mertebesinden fazlasını kazandırıyor. Derece 2 (15 feature) ayrılmış veride tek adımı 5,6e-05 rad ile tahmin ediyor, Deney'in 17.410 parametreli MLP'sinden (0,0004 rad) bile iyi: bu sistem bu feature'larda pürüzsüz, least squares ise Adam'ın 1200 adımda durduğu yerde tam minimumu buluyor.
+
+### Adım 4 · Rollout et
+
+```python
+def rollout_errors(step_true, step_model, s0, U, horizons):
+    """Feed the same actions U (n, T) to the true system and to the model from the same states s0 (n, 2);
+    return {H: (mean, median) |angle error|} after H steps of open-loop prediction."""
+    s_true, s_model, out = s0.copy(), s0.copy(), {}
+    for k in range(U.shape[1]):
+        s_true, s_model = step_true(s_true, U[:, k]), step_model(s_model, U[:, k])
+        if k + 1 in horizons:
+            e = np.abs(wrap(s_model[:, 0] - s_true[:, 0]))
+            out[k + 1] = (e.mean(), np.median(e))
+    return out
+```
+
+```text
+== Step 4. Open-loop rollouts: 200 held-out starts, the same random torques to model and truth ==
+degree       H=1       H=5      H=10      H=20      H=40      H=60     H=100  H100/H1   (mean |angle err| rad; med 2: median, degree 2)
+     1   1.1e-03   2.8e-02   8.6e-02   2.2e-01   4.2e-01   5.9e-01   7.8e-01      735
+     2   5.6e-05   1.8e-03   5.0e-03   9.1e-03   2.3e-02   4.4e-02   8.6e-02     1528
+     3   2.4e-06   8.7e-05   2.5e-04   7.8e-04   2.7e-03   5.0e-03   1.3e-02     5355
+     4   1.1e-07   4.2e-06   1.1e-05   3.2e-05   8.6e-05   1.3e-04   3.2e-04     2959
+ med 2   4.7e-05   1.4e-03   4.1e-03   7.2e-03   1.4e-02   2.1e-02   2.6e-02
+```
+
+100 adımdaki büyüme derece 1 için 735×, daha iyi modeller için 1528× ile 5355× arası: daha doğru bir model daha yavaş birikmiyor. Deney'in MLP'sine en yakın satır derece 2 (100 adım ortalaması 8,6e-02'ye karşı 0,0966 rad) ve ortalaması yine medyanından kopuyor (H = 100'de 8,6e-02'ye karşı 2,6e-02): birkaç ıraksayan trajectory'nin imzası.
+
+### Adım 5 · İçinde planla
+
+```python
+def wrap(a):
+    """Angle difference mapped into [-pi, pi)."""
+    return (a + np.pi) % (2 * np.pi) - np.pi
+```
+
+```python
+def swing_up_cost(s, u):
+    """Per-step cost: angle from upright, speed, torque."""
+    return wrap(s[..., 0] - np.pi) ** 2 + 0.1 * s[..., 1] ** 2 + 0.001 * u ** 2
+```
+
+```python
+def shooting_mpc(step_plan, step_true, s0, H, K, rng, steps=100, hold=5, u_max=2.0):
+    """Random-shooting MPC: K piecewise-constant torque sequences of length H, rolled out with step_plan;
+    the first action of the cheapest one goes to step_true, then replan from the measured state.
+    Returns success (within 0.2 rad of upright for the last 20 steps), mean tail error, first upright step."""
+    s, angles = s0.copy(), []
+    for _ in range(steps):
+        U = np.repeat(rng.uniform(-u_max, u_max, (K, -(-H // hold))), hold, axis=1)[:, :H]
+        x, cost = np.repeat(s[None], K, axis=0), np.zeros(K)
+        for t in range(H):
+            x = step_plan(x, U[:, t])
+            cost += swing_up_cost(x, U[:, t])
+        s = step_true(s, U[np.argmin(cost), 0])
+        angles.append(abs(wrap(s[0] - np.pi)))
+    a = np.array(angles)
+    first = int(np.argmax(a < 0.2)) if np.any(a < 0.2) else -1
+    return bool(np.all(a[-20:] < 0.2)), float(np.mean(a[-20:])), first
+```
+
+```text
+== Step 5. Random-shooting MPC swing-up, K = 100, 3 starts, 5 s ==
+planner            H  success  mean tail err rad  first upright step
+true dynamics     10      0/3              0.831                   -
+true dynamics     30      3/3              0.023                  66
+degree-2 model    10      0/3              0.831                   -
+degree-2 model    30      3/3              0.028                  67
+```
+
+Planner'ın modeli gerçek dinamik olunca MPC'n Deney'in "true" satırlarını birebir üretiyor (H = 10'da 0/3; H = 30'da 3/3, 0,023 rad, ilk dik konum 66. adımda): aynı seed'ler, aynı adaylar, MuJoCo'nunkine 1,8e-15 kadar eşit bir adım. 15 feature'lık modelin içinde de H = 30'da 3/3 kaldırıyor, bir adım sonra dik.
+
+### Elinde kalan
+
+`physai.foundation` artık `pendulum_step`, `poly_features`, `fit_world_model`, `predict`, `wrap`, `rollout_errors`, `swing_up_cost` ve `shooting_mpc` içeriyor. Capstone (ders 44) aynı ölçümden-yeniden-planla döngüsünü görev seviyesinde kullanıyor. [`tests/test_43_world_models.py`](../../tests/test_43_world_models.py) pendulum'u MuJoCo'ya sabitler: `uv run pytest tests/test_43_world_models.py`.
+
+## Kütüphaneyle kullan
+
+Kütüphane yolu Deney'inki: normalize edilmiş state değişimini tahmin eden, Adam ile eğitilen bir PyTorch MLP ve gerçek planner'ın K adayının hepsini C'de değerlendiren `mujoco.rollout`.
 
 ```python
 def forward(self, s, u):                                   # predict the change, not the state
     x = (features(s, u) - self.x_mu) / self.x_sd
     return s + self.net(x) * self.d_sd + self.d_mu
 
-U = np.repeat(rng.uniform(-U_MAX, U_MAX, (K, H // 5)), 5, axis=1)   # K piecewise-constant sequences
-u = U[np.argmin(planner(s, U)), 0]                         # best first action
-s = sim_step(s, u)                                         # always applied to the TRUE simulator
+st, _ = rollout.rollout(M, D_ROLL, x0[None], ctrl)          # ctrl: (K, H * 5, 1), all candidates at once
 ```
+
+| $s_{t+1}$ modeli | Nerede | Fit | Tek adım hatası |
+|---|---|---|---|
+| polinom, derece 2 | `physai.foundation` | tek `lstsq`, çıktı başına 15 ağırlık | 5,6e-05 rad (Sıfırdan yaz) |
+| MLP 4-128-128-2 | Deney, PyTorch | 1200 Adam adımı, 17.410 parametre | 0,0004 rad (A bölümü) |
+| simülatörün kendisi | `mujoco.rollout` | yok | 0 |
+
+Tuzaklar:
+
+- **Açılar sarılır.** $\theta$ yerine $\cos\theta, \sin\theta$ ver ve açıları `wrap` ile karşılaştır; yoksa $\pi$ ile $-\pi$ 6,28 rad uzak görünür.
+- **Değişimi tahmin et.** $s_{t+1}$ çoğunlukla $s_t$'nin kopyasıdır; onunla eğitilen model kapasitesini kopyalamaya harcar.
+- **Tek adım hatası yanlış ölçüt.** Ayrılmış veride H adımlık tabloyu raporla; derece 4 tek adımda derece 2'den 500 kat iyi ama 2959× birikiyor.
+
+## Deney
+
+**Sistem.** Bir MuJoCo sarkacı: 0,5 m'de 1 kg'lık noktasal kütle, hinge damping 0,05 N·m·s/rad, tork limiti 2 N·m; bu, yataydaki 4,91 N·m'lik yerçekimi torkundan küçük, dolayısıyla swing-up (sarkacı aşağıdan dik konuma getirmek) pompalama gerektiriyor: enerji biriktirmek için ileri geri sallamak. Kontrol adımı 0,05 s (5 × 10 ms, semi-implicit Euler). **Veri:** rastgele başlangıçlardan ve rastgele torklardan 400 trajectory × 50 adım = 20.000 geçiş. **Model:** MLP 4-128-128-2 (17.410 parametre), batch 512 ile 1200 Adam adımı, train MSE (training verisindeki ortalama karesel hata) 2,47e-06.
 
 Script'in tamamı: [`experiments/43-world-models/experiment.py`](../../experiments/43-world-models/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU, 1 thread), Python 3.14, Apple M5. Deterministik: yeniden koşu her hata ve başarı sayısını aynen üretiyor; yalnızca süreler değişiyor. Ağır yüklü bir makinede toplam ~2 dk (yaklaşık).
 

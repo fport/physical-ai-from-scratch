@@ -1,0 +1,36 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Quaternion algebra vs MuJoCo (1000 random rotations) ==
+quat_mul    vs mju_mulQuat     2.2e-16
+quat_conj   vs mju_negQuat     0.0e+00
+quat_rotate vs mju_rotVecQuat  1.3e-15
+R(a * b) vs R(a) @ R(b)        1.2e-15
+R(-q) vs R(q)                  0.0e+00
+
+== Step 2. Axis-angle and matrix -> quaternion vs MuJoCo and SciPy ==
+axis_angle_to_quat vs mju_axisAngle2Quat       1.1e-16
+mat_to_quat vs mju_mat2Quat (w >= 0)           5.6e-16
+mat_to_quat vs SciPy as_quat(scalar_first)     2.2e-16
+quat_to_mat(mat_to_quat(R)) round trip         7.8e-16
+180 deg about x: mat_to_quat gives [0. 1. 0. 0.] (trace -1: the x branch)
+
+== Step 3. Euler z-y'-x'' vs mju_euler2Quat('zyx') and SciPy from_euler('ZYX') ==
+vs MuJoCo 'zyx' (lowercase = intrinsic there)  8.9e-16
+vs SciPy 'ZYX' (uppercase = intrinsic there)   5.6e-16
+vs SciPy 'zyx' (extrinsic: a different rotation) 2.00
+mat_to_euler_zyx round trip, angles            9.9e-14 rad
+pitch 89.0 deg: (yaw, roll) = (0.7, 0.3) and (0.9, 0.5) give matrices 3.2e-03 apart
+pitch 90.0 deg: (yaw, roll) = (0.7, 0.3) and (0.9, 0.5) give matrices 1.1e-16 apart
+
+== Step 4. The Euler-rate matrix E (roll = 30 deg) ==
+pitch  0.00 deg: det E 1.000e+00 (cos 1.000e+00) · cond      1.00 · |E - E_fd| 5e-11
+pitch 60.00 deg: det E 5.000e-01 (cos 5.000e-01) · cond      3.73 · |E - E_fd| 8e-11
+pitch 80.00 deg: det E 1.736e-01 (cos 1.736e-01) · cond     11.43 · |E - E_fd| 8e-11
+pitch 89.00 deg: det E 1.745e-02 (cos 1.745e-02) · cond    114.59 · |E - E_fd| 7e-11
+pitch 89.90 deg: det E 1.745e-03 (cos 1.745e-03) · cond   1145.92 · |E - E_fd| 7e-11
+pitch 89.99 deg: det E 1.745e-04 (cos 1.745e-04) · cond  11459.16 · |E - E_fd| 7e-11
+
+== Step 5. Slerp vs SciPy, and the sign check (300 pairs, 60 deg apart) ==
+slerp(q0, q1, 0.3) vs SciPy Slerp (w >= 0): 3.3e-16 · pairs with q0.q1 < 0: 143
+sign check True : rotation travelled min   60.0 deg, max   60.0 deg
+sign check False: rotation travelled min   60.0 deg, max  300.0 deg

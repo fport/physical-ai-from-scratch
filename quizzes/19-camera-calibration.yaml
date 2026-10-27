@@ -1,20 +1,67 @@
 # Lesson 19 · Camera model, calibration and hand-eye calibration. Every answer is supported by the
-# lesson page or experiments/19-camera-calibration/output.txt. answer = index of the correct option (0-based).
-- q:
+# lesson page, experiments/19-camera-calibration/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: From 3 to 40 board views the training reprojection RMS stays at 0.088–0.093 px. What does that tell you about the focal length?
     tr: 3'ten 40 board görüntüsüne eğitim reprojection RMS'i 0,088–0,093 px'te kalıyor. Bu sana focal length hakkında ne söyler?
   options:
-    - en: Nothing on its own - the focal error drops about 14-fold over the same range.
-      tr: Tek başına hiçbir şey - aynı aralıkta focal hatası yaklaşık 14 kat düşüyor.
     - en: It is already correct with 3 views, since the error does not improve.
       tr: 3 görüntüyle zaten doğru, çünkü hata iyileşmiyor.
     - en: It is wrong by about 0.09 px.
       tr: Yaklaşık 0,09 px hatalı.
-  answer: 0
+    - en: Nothing on its own - the focal error drops about 14-fold over the same range.
+      tr: Tek başına hiçbir şey - aynı aralıkta focal hatası yaklaşık 14 kat düşüyor.
+  answer: 2
   why:
     en: The reprojection error measures how well the model fits these corners, not whether $K$ is right - $f_x$ error 0.292% with 3 views, 0.021% with 40. Ground truth is the only honest check.
     tr: Reprojection error, modelin bu köşelere ne kadar iyi oturduğunu ölçer, $K$'nın doğru olup olmadığını değil - $f_x$ hatası 3 görüntüyle %0,292, 40 ile %0,021. Tek dürüst kontrol ground truth.
-- q:
+- stage: pre
+  q:
+    en: To find where a wrist camera sits on the gripper (hand-eye), how should the arm move between the photos of a fixed board?
+    tr: Bilekteki bir kameranın gripper'da nerede durduğunu (hand-eye) bulmak için, sabit bir board'un fotoğrafları arasında kol nasıl hareket etmeli?
+  options:
+    - en: Slide the gripper along one straight line without turning it, so the geometry stays simple.
+      tr: Gripper'ı döndürmeden tek bir doğru boyunca kaydır; geometri basit kalsın.
+    - en: Rotate the wrist a lot, about different axes.
+      tr: Bileği çok, farklı eksenler etrafında döndür.
+    - en: Keep still and take many photos to average the noise.
+      tr: Kıpırdama ve noise'u ortalamak için çok fotoğraf çek.
+  answer: 1
+  why:
+    en: The mount is pinned down only if the wrist rotates about different axes. In Break it, a median 3.6° between poses gives a 27.18 mm error, 116.4° gives 1.33 mm.
+    tr: Montaj ancak bilek farklı eksenler etrafında dönerse sabitlenir. Boz bölümünde pozlar arası medyan 3,6° 27,18 mm hata veriyor, 116,4° 1,33 mm.
+- stage: check
+  q:
+    en: In Build it, Step 3, Zhang's closed form on 10 flat boards returns $f_x$ = 24982 px. What do the singular values of $V$ show?
+    tr: Sıfırdan yaz, Adım 3'te Zhang'ın kapalı çözümü 10 düz board'da $f_x$ = 24982 px döndürüyor. $V$'nin tekil değerleri ne gösteriyor?
+  options:
+    - en: The second-smallest falls from 3.4e-4 (tilted) to 6.7e-7 of the largest, so two directions of $b$ fit almost equally well and the answer is noise.
+      tr: Sondan ikinci değer en büyüğün 3,4e-4'ünden (tilt'li) 6,7e-7'sine düşüyor; $b$'nin iki yönü neredeyse eşit iyi uyuyor ve cevap noise.
+    - en: The smallest one is exactly zero, which means the homographies are exact.
+      tr: En küçüğü tam sıfır; bu, homography'lerin hatasız olduğu anlamına gelir.
+    - en: All six are equal, so the corners were not detected.
+      tr: Altısı da eşit; demek ki köşeler bulunamadı.
+  answer: 0
+  why:
+    en: The last singular vector is the solution; the one before decides whether it is unique. Step 3 prints 3.4e-4 at 35° tilt and 6.7e-7 at 0° - the flat-board ambiguity of Break it, visible before any fit.
+    tr: Son tekil vektör çözümdür; ondan önceki, çözümün tek olup olmadığına karar verir. Adım 3, 35° tilt'te 3,4e-4, 0°'de 6,7e-7 yazıyor - Boz'daki düz board belirsizliği, daha hiçbir uydurma yapılmadan görünüyor.
+- stage: check
+  q:
+    en: Your Levenberg–Marquardt fit matches `cv2.calibrateCamera` with $k_1, k_2$ only to 7.0e-08 px, but OpenCV's default call gives $c_x$ = 319.57 instead of 319.30. Why?
+    tr: Senin Levenberg–Marquardt uydurman, yalnızca $k_1, k_2$'li `cv2.calibrateCamera` ile 7,0e-08 px içinde aynı; ama OpenCV'nin varsayılan çağrısı $c_x$ = 319,30 yerine 319,57 veriyor. Neden?
+  options:
+    - en: OpenCV uses float32 and loses precision.
+      tr: OpenCV float32 kullanıyor ve hassasiyet kaybediyor.
+    - en: Your finite-difference Jacobian is not accurate enough.
+      tr: Senin sonlu fark Jacobian'ın yeterince doğru değil.
+    - en: The default model also fits $p_1, p_2, k_3$, which trade against $c_x$ on a lens without distortion while the RMS stays 0.091 px.
+      tr: Varsayılan model $p_1, p_2, k_3$'ü de uyduruyor; distortion'sız bir lenste bunlar $c_x$ ile takas ediliyor, RMS ise 0,091 px'te kalıyor.
+  answer: 2
+  why:
+    en: Step 4 prints all three rows with the same 0.091 px RMS - another fit the error number cannot judge. Both focal lengths stay within 0.025 % of the truth.
+    tr: Adım 4 üç satırı da aynı 0,091 px RMS ile yazıyor - hata sayısının yargılayamadığı bir uydurma daha. İki focal length de gerçeğin %0,025'i içinde.
+- stage: post
+  q:
     en: With boards held parallel to the image (0° tilt), the training RMS is 0.088 px but the focal length is off by 1193%. Why?
     tr: Görüntüye paralel tutulan board'larla (0° tilt) eğitim RMS'i 0,088 px ama focal length %1193 hatalı. Neden?
   options:
@@ -28,17 +75,18 @@
   why:
     en: Tilt makes the depth vary across the board, and the foreshortening separates $f$ from $Z$ - 5° of tilt already brings the error down to 1.93%, 35° to 0.02% (Break it).
     tr: Tilt derinliği board boyunca değiştirir ve perspektif kısalması $f$'yi $Z$'den ayırır - 5° tilt hatayı %1,93'e, 35° %0,02'ye indiriyor (Boz).
-- q:
-    en: For hand-eye calibration the wrist barely rotates between poses (median 3.6°). Why does the camera offset come out 27.18 mm wrong?
-    tr: Hand-eye calibration için bilek pozlar arasında neredeyse hiç dönmüyor (medyan 3,6°). Kamera ofseti neden 27,18 mm hatalı çıkıyor?
+- stage: post
+  q:
+    en: Twenty views are warped with a known $k_1 = -0.15$. What happens if you calibrate them with distortion forced to zero?
+    tr: Yirmi görüntü bilinen $k_1 = -0{,}15$ ile bükülüyor. Bunları distortion sıfıra zorlanmış olarak kalibre edersen ne olur?
   options:
-    - en: Small rotations make forward kinematics inaccurate.
-      tr: Küçük rotation'lar forward kinematics'i hatalı yapar.
-    - en: The board leaves the camera's field of view.
-      tr: Board kameranın görüş alanından çıkar.
-    - en: Translation enters through $(R_A - I)\,t_X$; with $R_A - I \approx 0$ the noise is divided by a near-zero matrix.
-      tr: Translation $(R_A - I)\,t_X$ üzerinden girer; $R_A - I \approx 0$ olunca noise sıfıra yakın bir matrise bölünür.
-  answer: 2
+    - en: The RMS rises to 0.252 px and the focal length is off by 1.24 %; the missing lens model bends $f$.
+      tr: RMS 0,252 px'e çıkar ve focal length %1,24 hatalı olur; eksik lens modeli $f$'yi büker.
+    - en: Nothing changes; distortion only affects the image corners, not $K$.
+      tr: Hiçbir şey değişmez; distortion yalnızca görüntü köşelerini etkiler, $K$'yı değil.
+    - en: Calibration fails with an error because the corners are curved.
+      tr: Köşeler eğri olduğu için calibration hata vererek durur.
+  answer: 0
   why:
-    en: It is the hand-eye version of the flat board - the data do not constrain the unknown. With a median 116.4° between poses the error is 1.33 mm.
-    tr: Bu, düz board'un hand-eye karşılığı - veri bilinmeyeni kısıtlamıyor. Pozlar arasında medyan 116,4° ile hata 1,33 mm.
+    en: Experiment, Distortion - with $k_1$ free the fit recovers $k_1 = -0.1558$ at 0.096 % focal error; forced to zero, the RMS is 0.252 px and the focal error 1.24 %.
+    tr: Deney, Distortion - $k_1$ serbestken uydurma $k_1 = -0{,}1558$'i %0,096 focal hatasıyla buluyor; sıfıra zorlanınca RMS 0,252 px ve focal hatası %1,24.

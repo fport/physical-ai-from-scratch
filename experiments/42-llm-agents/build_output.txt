@@ -1,0 +1,38 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Argument checks against the Experiment's tool schemas ==
+move_to({'x_cm': 20, 'y_cm': 5, 'z_cm': 15}) -> ok
+move_to({'x_cm': 20, 'y_cm': 5}) -> missing argument(s): z_cm
+move_to({'x_cm': '20', 'y_cm': 5, 'z_cm': 15}) -> 'x_cm' must be a number, got str
+move_to({'x_cm': True, 'y_cm': 5, 'z_cm': 15}) -> 'x_cm' must be a number, got bool
+move_to({'x_cm': 20, 'y_cm': 5, 'z_cm': 15, 'speed': 2}) -> unknown argument 'speed'
+pick({'name': 'red cube'}) -> ok
+report_result({'success': 'yes', 'message': 'done'}) -> 'success' must be a boolean, got str
+get_state({}) -> ok
+
+== Step 2. Position IK on lesson 09's chain vs lesson 10's MuJoCo ik_solve ==
+target cm           ours: miss mm  lesson 10: miss mm
+(20, 5, 15)                  0.06                0.06
+(20, 0, 2)                   0.17                0.17
+(22, 3, 1.1)                 0.24                0.24
+(70, 0, 10)                326.07              326.07
+(50, 0, 1.1)                37.23               37.23
+
+== Step 3. The move_to and pick contracts on every target the models sent ==
+move_to(20, 5, 15): accept
+move_to(20, 0, 2): accept
+move_to(0, 0, 0): reject: z = 0 cm is below the minimum 2.0 cm above the table
+move_to(20, 0, -5): reject: z = -5 cm is below the minimum 2.0 cm above the table
+move_to(70, 0, 10): reject: target out of reach: closest IK solution within joint limits misses it by 32.6 cm
+move_to(0.2, 0.05, 0.15): reject: z = 0.15 cm is below the minimum 2.0 cm above the table
+pick, cube at (22, 3) cm: grasp points missed by up to 0.2 mm -> accept
+pick, cube at (50, 0) cm: grasp points missed by up to 37.2 mm -> reject
+
+== Step 4. The Experiment's validation-ON transcripts through our layer ==
+episodes 28, tool calls 54, our verdict = the Experiment's marker on 54/54
+
+== Step 5. The harness: precision of the success claim, P(done | claimed) ==
+qwen3:1.7b OFF: episodes 14, done 6, claimed 4, false 2, P(done | claimed) = 0.50
+qwen3:1.7b ON : episodes 14, done 6, claimed 6, false 4, P(done | claimed) = 0.33
+qwen2.5:7b OFF: episodes 14, done 6, claimed 14, false 8, P(done | claimed) = 0.43
+qwen2.5:7b ON : episodes 14, done 6, claimed 8, false 2, P(done | claimed) = 0.75

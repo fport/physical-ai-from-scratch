@@ -89,6 +89,149 @@ Go deeper: [Introduction to JAX](https://aiengineeringfromscratch.com/lesson?pat
 
 Every row is a lesson-34 or lesson-35 decision. Randomizing friction over $[0.5, 1.25]$ means each of the 4096 robots learns on a slightly different floor (Part 9).
 
+## Build it
+
+You will now write the vectorized environment that the "as code" loop above assumes: one model, one `MjData` per robot, batched actions in, batched observations out, episodes that end and restart on their own, and counters that say how much was simulated. The robot is the Experiment's PD-servo Go2 (`load_go2`). Nothing here measures time; the Experiment does that. The code is in [`physai/vecenv.py`](../physai/vecenv.py); `uv run python experiments/36-legged-locomotion/build.py` runs the steps (output in [`build_output.txt`](../experiments/36-legged-locomotion/build_output.txt)).
+
+### Step 1 · One model, many datas
+
+An `MjModel` holds what never changes (masses, geometry, gains); an `MjData` holds one robot's state. N robots therefore need one model and N datas, and the batch step is a loop over them:
+
+```python
+class VecEnv:
+    """N robots, one model. reset_fn(m, d, rng) puts one MjData into a start state."""
+
+    def __init__(self, m, n, reset_fn, rng, decimation=4, max_steps=1000, max_roll=0.8, max_pitch=1.0,
+                 min_height=0.15):
+        self.m, self.n, self.reset_fn, self.rng = m, n, reset_fn, rng
+        self.decimation, self.max_steps = decimation, max_steps
+        self.max_roll, self.max_pitch, self.min_height = max_roll, max_pitch, min_height
+        self.datas = [mujoco.MjData(m) for _ in range(n)]
+        self.t = np.zeros(n, dtype=int)                # policy steps in the current episode, per robot
+        self.policy_steps = self.physics_steps = self.episodes = 0
+
+    def obs_one(self, d):
+        """Base height, projected gravity, base velocity (6), joint angles and speeds."""
+        return np.r_[d.qpos[2], projected_gravity(d.qpos[3:7]), d.qvel[:6], d.qpos[7:], d.qvel[6:]]
+
+    def reset(self):
+        for d in self.datas:
+            self.reset_fn(self.m, d, self.rng)
+        self.t[:] = 0
+        return np.array([self.obs_one(d) for d in self.datas])
+
+    def step(self, actions):
+        """actions: (n, nu) control targets. Returns obs, fell, timed_out (one row / entry per robot)."""
+        for d, a in zip(self.datas, actions):
+            d.ctrl[:] = a
+            mujoco.mj_step(self.m, d, nstep=self.decimation)
+        self.t += 1
+        self.policy_steps += self.n
+        self.physics_steps += self.n * self.decimation
+        fell, timed_out = np.zeros(self.n, bool), self.t >= self.max_steps
+        for i, d in enumerate(self.datas):
+            roll, pitch = roll_pitch(d.qpos[3:7])
+            fell[i] = abs(roll) > self.max_roll or abs(pitch) > self.max_pitch or d.qpos[2] < self.min_height
+        for i in np.flatnonzero(fell | timed_out):     # auto-reset in the same step
+            self.reset_fn(self.m, self.datas[i], self.rng)
+            self.t[i] = 0
+            self.episodes += 1
+        return np.array([self.obs_one(d) for d in self.datas]), fell, timed_out
+```
+
+```text
+== Step 1. One model, 8 MjData: the batch vs 8 independent loops (100 policy steps) ==
+max |qpos batch - qpos alone| over 8 robots: 0.0e+00
+episodes ended: 0 (base heights 26.0, 26.1, 25.9, 26.3, 26.3, 26.2, 26.0, 26.5 cm)
+```
+
+The batch is bit for bit the same as eight separate simulations: robots in one batch do not interact, they only share the model. With small random targets nobody fell, and the base heights stay near the Experiment's 26.2 cm.
+
+### Step 2 · What the policy sees
+
+The observation carries the gravity direction in the base frame (the policy cannot see the world frame) and the episode ends when roll or pitch passes legged_gym's limits (0.8 and 1.0 rad). Both come from the base quaternion, through `quat_to_mat` from lesson 06:
+
+```python
+def projected_gravity(quat):
+    """Gravity direction (0, 0, -1) seen in the base frame: R^T g for the base quaternion (w, x, y, z)."""
+    return quat_to_mat(quat).T @ np.array([0.0, 0.0, -1.0])
+```
+
+```python
+def roll_pitch(quat):
+    """Roll and pitch of the base (rad), from R = Rz(yaw) Ry(pitch) Rx(roll)."""
+    R = quat_to_mat(quat)
+    return np.arctan2(R[2, 1], R[2, 2]), np.arcsin(np.clip(-R[2, 0], -1.0, 1.0))
+```
+
+```text
+== Step 2. Projected gravity and roll / pitch from the base quaternion ==
+projected gravity vs MuJoCo xmat^T g: max diff 3.9e-16
+roll, pitch vs SciPy as_euler('ZYX'): max diff 1.6e-15
+standing start: projected gravity [ 0.  0. -1.], base height 27.0 cm
+```
+
+### Step 3 · Auto-reset
+
+```text
+== Step 3. Auto-reset: 16 robots standing, a roll / pitch kick of up to 18 rad/s every 25 steps, episodes of at most 150 steps ==
+300 policy steps (2.4 s per robot): 22 falls, 18 time-outs, episodes ended 40
+first fall after 13 policy steps; every ended row came back at base height 27.0-27.0 cm (the keyframe height) in the same step
+steps since reset now, per robot: [0, 0, 0, 12, 135, 0, 143, 22, 12, 48, 65, 108, 49, 35, 0, 121]
+```
+
+Twenty-two falls, each reset in the step it happened, so the returned observation is already the fresh start (27.0 cm, the keyframe height); a robot that stays up times out after 150 steps. After the falls the episode clocks are scattered (12, 135, 143, …). That is the normal state of a vectorized environment: every robot is at a different point of its own episode, which is what makes 4096 of them 4096 different samples.
+
+### Step 4 · Accounting
+
+```python
+def samples_per_update(n_envs, steps_per_env):
+    """On-policy batch size: every robot contributes steps_per_env transitions to one PPO update."""
+    return n_envs * steps_per_env
+```
+
+```text
+== Step 4. Accounting ==
+Step 3 counters: policy steps 4,800 = 16 x 300, physics steps 19,200 = x4, simulated time 38.4 robot-seconds
+Go2 training config: samples per update 98,304, policy steps 147,456,000, physics steps 589,824,000
+each robot advances 24 x 0.02 s = 0.48 s per update
+```
+
+The counters are exact by construction and give the arithmetic of The problem: 98,304 samples per PPO update, 589,824,000 physics steps for one run of the config. Multiply by the Experiment's 11–17 µs of CPU per Go2 step to price it.
+
+### What you keep
+
+`physai.vecenv` now has `VecEnv`, `projected_gravity`, `roll_pitch` and `samples_per_update`. Part 9 randomizes the model fields of such a batch (lesson 39). [`tests/test_36_legged_locomotion.py`](../tests/test_36_legged_locomotion.py) checks them against SciPy and `mujoco.rollout`: `uv run pytest tests/test_36_legged_locomotion.py`.
+
+## Use it
+
+For open-loop batches MuJoCo's C rollout does the same loop without Python, over a thread pool; Gymnasium wraps N environments with a vector API.
+
+```python
+state, _ = rollout.rollout(m, [mujoco.MjData(m) for _ in range(4)], x0, U)   # x0: (n, nstate), U: (n, steps, nu)
+envs = gymnasium.vector.SyncVectorEnv([make_env] * n, autoreset_mode="SameStep")   # default is "NextStep"
+```
+
+```text
+== Use it. mujoco.rollout: the same batch in C, open loop ==
+rollout (4 threads) vs VecEnv after 100 policy steps: max |qpos diff| = 0.0e+00
+```
+
+| Tool | When an episode ends | The observation returned in that step |
+|---|---|---|
+| physai `VecEnv` | reset in the same step | the fresh start |
+| `unitree_rl_gym` | `reset_idx` in the same step, then `compute_observations` ([`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)) | the fresh start for joints; base velocity and projected gravity are computed before the reset |
+| Gymnasium 1.4 vector, default `NextStep` | reset on the *next* `step()` call, whose action is ignored and whose reward is 0 | the terminal observation |
+| Gymnasium 1.4 vector, `SameStep` | reset in the same step | the fresh start; the terminal one is in `info["final_obs"]` |
+
+(The two Gymnasium rows were checked with `CartPole-v1` and Gymnasium 1.4.0; `mujoco.rollout` is open loop, so a policy that reacts to observations needs the Python loop or MJX.)
+
+Traps:
+
+- **Which observation is terminal.** With next-step reset, the value target of the last transition must use the terminal observation; with same-step reset it must come from `final_obs`, not from the returned one.
+- **Time-outs are not failures.** A robot that timed out could have kept going; PPO should bootstrap its value there, unlike after a fall. Keep the two flags apart, as `step` does.
+- **`nq` vs `nv`.** The Go2 has 19 positions but 18 velocities: the base quaternion has four numbers and three rotational speeds, so slice `qpos[7:]` but `qvel[6:]` for the joints.
+
 ## Experiment
 
 ### CPU part (measured): how many Go2 steps per second?
@@ -105,7 +248,7 @@ datas = [mujoco.MjData(m) for _ in range(nthread)]
 state, _ = rollout.rollout(m, datas, X0, U)   # X0: (nbatch, nstate), U: (nbatch, nstep, nu)
 ```
 
-MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5, 4 performance + 6 efficiency cores). Other jobs were running on the machine, so all rates are approximate and change noticeably from run to run; sections A and B are deterministic, and the load average (roughly, how many processes compete for the cores) is printed in the output. The script took 119 s wall-clock; `python experiment.py --quick` (one timing round, no 4096 batch) is a smoke test whose rates do not reproduce the tables.
+MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5, 4 performance + 6 efficiency cores). Other jobs were running, so all rates are approximate and change from run to run; sections A and B are deterministic, and the load average (how many processes compete for the cores) is printed. The script took 119 s; `python experiment.py --quick` is a smoke test whose rates do not reproduce the tables.
 
 **A. Contact basics.** After 2 s of standing: base height 26.2 cm, exactly four floor contacts (FL, FR, RL, RR), and the sum of contact normal forces is 149.2 N against $m g = 15.21\,\text{kg} \times 9.81 = 149.2$ N. The feet carry the whole weight; nothing else touches the floor.
 
@@ -139,7 +282,7 @@ Read the two tables together:
 
 - **The cost of one Go2 step is roughly fixed**: 58,368–88,725 steps per CPU-second in every cell, i.e. about 11–17 µs of CPU per step. Threads do not make a step cheaper (with 8 threads it gets slightly dearer: 62,351–78,729); they run more steps at once.
 - **Threads need batch.** With one robot, extra threads give nothing (53,682 → 52,672). With 8 to 4096 robots, 8 threads give 6.7–8.6× the single-thread wall rate. Ratios at or above 8× most likely mean the single-thread cell got a smaller share of a machine with ~20 other runnable processes; treat the wall-clock table as approximate.
-- **C++ alone is not the win.** One robot through `rollout` on one thread (53,682 steps/s) is no faster than the Python `mj_step` loop (66,222 steps/s): for a model this size the per-call Python overhead is small. The best cell (7.4× the Python loop) comes from spreading a batch over threads.
+- **C++ alone is not the win.** One robot through `rollout` on one thread (53,682 steps/s) is no faster than the Python `mj_step` loop (66,222 steps/s); the best cell (7.4× the Python loop) comes from spreading a batch over threads.
 - **Very large batches cost more per step** (4096 robots: 58,368–61,575 steps per CPU-second); plausibly because `rollout` stores every state of every robot and the memory traffic grows with the batch; we did not profile it.
 - **Arithmetic (section E):** the Go2 training config needs 589,824,000 physics steps. At the best rate here that is 0.3 h of physics alone on this CPU, before any policy inference or learning, with our 2 ms step instead of the config's 5 ms. And that best rate assumed 8 cores and robots that stand still.
 
@@ -164,7 +307,7 @@ Section C started every robot from a settled stance. Start the same 512-robot ba
 | settled stance (+ small joint velocities) | 379,209 | 1.7 | 4.0 |
 | released from keyframe pose, joints ±0.1 rad | 34,194 | 10.3 | 4.4 |
 
-The same model, batch and threads run about eleven times slower. The number of contacts barely changes (4.0 vs 4.4), but the constraint solver (the part of MuJoCo that computes contact forces) needs 10.3 iterations per step instead of 1.7 while feet land and contact forces are redistributed. Per-step cost depends on what the robots are doing: impacts, slipping and falling robots, which is most of early locomotion training, cost far more than standing. A throughput benchmark run on calm robots overstates training speed, and a "speedup" measured on one scenario does not carry over to another. Benchmark with the states your training will actually visit.
+The same model, batch and threads run about eleven times slower. The number of contacts barely changes (4.0 vs 4.4), but the constraint solver (the part of MuJoCo that computes contact forces) needs 10.3 iterations per step instead of 1.7 while feet land. Impacts, slipping and falling robots, most of early locomotion training, cost far more than standing: a benchmark on calm robots overstates training speed. Benchmark with the states your training will visit (Build it, Step 3, makes such falls on purpose).
 
 ## On the real robot
 

@@ -1,0 +1,24 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | Gymnasium 1.4.0
+
+== Step 1. Timing ==
+physics step h = 5 ms, frame_skip 4 -> policy period 20 ms (50 Hz), 80 steps = 1.6 s
+4 x mj_step vs mj_step(nstep=4): max |qpos diff| = 0.0e+00, time 0.020 s vs 0.020 s
+
+== Step 2. reset(seed) vs the lesson's ReachEnv, seeds 0-199 ==
+max |target ours - ReachEnv| = 0.0e+00 m, max |first observation diff| = 0.0e+00
+reset(seed=7), reset(seed=8), reset(seed=7): same target True, target [0.273 0.098 0.153] m, start distance 0.113 m
+reset() without a seed continues the generator: new target [0.238 0.105 0.143] m
+
+== Step 3. step(action) vs ReachEnv, and the zero-action baseline ==
+5 episodes of random actions: max |obs or reward diff| = 0.0e+00
+zero action, 200 episodes: return -12.87 +- 4.92, median final distance 170.8 mm, success 1/200
+
+== Step 4. terminated vs truncated ==
+scripted IK, terminate_on_success=True, 50 episodes: terminated 50, truncated 0, mean length 11.4 steps
+last episode with terminate_on_success=False: terminated False, truncated True, t = 80
+V(s) = r / (1 - gamma) = -0.200; target at the time limit: bootstrap -0.200, treated as terminal -0.010
+
+== Step 5. Gymnasium's env_checker ==
+check_env passed, 2 warnings
+  warning: WARN: A Box observation space minimum value is -infinity. This is probably too low.
+  warning: WARN: A Box observation space maximum value is infinity. This is probably too high.

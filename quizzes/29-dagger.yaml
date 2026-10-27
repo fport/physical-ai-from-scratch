@@ -1,6 +1,7 @@
-# Lesson 29 · Distribution shift and DAgger. Every answer is supported by the lesson page or
-# experiments/29-dagger/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 29 · Distribution shift and DAgger. Every answer is supported by the lesson page,
+# experiments/29-dagger/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: In the DAgger loop, who chooses the states and who chooses the actions that end up in the dataset?
     tr: DAgger döngüsünde dataset'e giren state'leri kim, action'ları kim seçiyor?
   options:
@@ -14,7 +15,53 @@
   why:
     en: 'Core idea, DAgger as code: the learner drives, `data.append((s, expert(s)))` stores each visited state with the expert''s label, and the policy is retrained on all of it.'
     tr: 'Ana fikir, kod olarak DAgger: öğrenen sürüyor, `data.append((s, expert(s)))` ziyaret edilen her state''i expert''in etiketiyle saklıyor ve policy hepsiyle yeniden eğitiliyor.'
-- q:
+- stage: pre
+  q:
+    en: You learned to drive by watching an instructor who always stays in the middle of the lane. On your first solo drive a small error puts you half a metre to the left. What tends to happen next?
+    tr: Şeridin hep ortasında kalan bir eğitmeni izleyerek araba kullanmayı öğrendin. İlk tek başına sürüşünde küçük bir hata seni yarım metre sola atıyor. Sonra genelde ne olur?
+  options:
+    - en: You return to the middle at once, because you saw so many correct drives.
+      tr: Hemen ortaya dönersin, çünkü çok sayıda doğru sürüş gördün.
+    - en: Nothing; a small error stays small.
+      tr: Hiçbir şey; küçük bir hata küçük kalır.
+    - en: Your next decision is a guess about a place you never saw, it is a little off, and you drift further; errors compound.
+      tr: Bir sonraki kararın hiç görmediğin bir yer hakkında tahmindir, biraz yanlıştır ve daha çok kayarsın; hatalar birikir.
+  answer: 2
+  why:
+    en: That is distribution shift. In Build it, Step 2, a cloned driver is 0.080 m from the demonstrations in the first 2.5 s and 0.171–0.226 m later, and stays in the lane in 3 of 50 episodes.
+    tr: Bu distribution shift'tir. Sıfırdan yaz, Adım 2'de klonlanmış sürücü ilk 2,5 s'de demonstration'lardan 0,080 m, sonra 0,171–0,226 m uzakta ve 50 episode'un 3'ünde şeritte kalıyor.
+- stage: check
+  q:
+    en: In Build it, Step 2, plain BC stays in the lane in 3/50 episodes with 20 demonstrations and 4/50 with 40 or 60. Why do more demonstrations barely help?
+    tr: Sıfırdan yaz, Adım 2'de düz BC 20 demonstration'la 50 episode'un 3'ünde, 40 veya 60 ile 4'ünde şeritte kalıyor. Daha çok demonstration neden neredeyse hiç yardım etmiyor?
+  options:
+    - en: Every new demonstration again lies in the middle of the lane, so none of them shows what to do where the learner drifts.
+      tr: Her yeni demonstration yine şeridin ortasında, yani hiçbiri öğrenenin kaydığı yerde ne yapılacağını göstermiyor.
+    - en: The nearest-neighbour learner can store only 20 demonstrations.
+      tr: En yakın komşu öğrenen yalnızca 20 demonstration saklayabiliyor.
+    - en: The gusts are stronger when there are more demonstrations.
+      tr: Daha çok demonstration olunca rüzgâr darbeleri daha güçlü oluyor.
+  answer: 0
+  why:
+    en: The 20 demonstrations never leave a band of 8.0 cm around the centre. DAgger with the same budget reaches 36/50 after one round and 50/50 after two (Step 3).
+    tr: 20 demonstration merkezin etrafındaki 8,0 cm'lik bandın dışına hiç çıkmıyor. Aynı bütçeyle DAgger bir turda 36/50'ye, iki turda 50/50'ye ulaşıyor (Adım 3).
+- stage: check
+  q:
+    en: With `lerobot-rollout --strategy.type=dagger` on the SO-101, which states get an expert label?
+    tr: SO-101'de `lerobot-rollout --strategy.type=dagger` ile hangi state'ler expert etiketi alır?
+  options:
+    - en: Every state the policy visits, as in Step 3.
+      tr: Adım 3'teki gibi policy'nin ziyaret ettiği her state.
+    - en: Only the stretches where the operator pauses the policy and takes over with the leader arm (HG-DAgger gating).
+      tr: Yalnızca operatörün policy'yi durdurup leader kolla kontrolü devraldığı bölümler (HG-DAgger kapılaması).
+    - en: None; the strategy only records the policy's own actions.
+      tr: Hiçbiri; strateji yalnızca policy'nin kendi action'larını kaydeder.
+  answer: 1
+  why:
+    en: Use it, the table. Both autonomous and human segments are recorded, and the policy is fine-tuned on demonstrations plus the new data merged.
+    tr: Kütüphaneyle kullan, tablo. Otonom ve insan bölümlerinin ikisi de kaydedilir; policy demonstration'lar ile yeni verinin birleşimi üzerinde fine-tune edilir.
+- stage: post
+  q:
     en: Plain BC scores 0/60 with 20, 40 and 60 expert-labelled episodes. What does DAgger do with the same expert budget?
     tr: Düz BC 20, 40 ve 60 expert etiketli episode'la 0/60 yapıyor. DAgger aynı expert bütçesiyle ne yapıyor?
   options:
@@ -28,7 +75,8 @@
   why:
     en: 'Part B table: 26/60, 42/60, 50/60, 45/60 for iterations 1–4, distance 6.09° at iteration 3 against 24.76° for plain BC at 60 episodes; success is not monotonic, hence "return the best policy on validation".'
     tr: 'B kısmı tablosu: iterasyon 1–4 için 26/60, 42/60, 50/60, 45/60; uzaklık 3. iterasyonda 6,09°, 60 episode''daki düz BC''de 24,76°. Başarı monoton değil, bu yüzden "validation''da en iyi policy''yi döndür".'
-- q:
+- stage: post
+  q:
     en: Break it trains each iteration only on its newest 10 learner episodes, without the demonstrations or earlier rounds. What happens?
     tr: Boz, her iterasyonu yalnızca en yeni 10 öğrenen episode'uyla eğitiyor; demonstration'lar ve önceki turlar yok. Ne oluyor?
   options:

@@ -1,0 +1,45 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+5 layouts read from output.txt, e.g. layout 1: blue (23.3, -8.0), green (20.9, 8.8), red (23.8, 1.7) cm
+
+== Step 1. Perception: estimate of the requested cube (plain, filler, terse x 5 layouts) ==
+K: f = 514.68 px, centre (319.5, 239.5); camera 0.6 m above the table, looking down
+tilt deg  median err mm  max err mm  > 8 mm  Experiment median mm
+     0.0            0.4         0.7    0/15                   0.4
+     0.5            5.1         5.6    0/15                   4.9
+     1.0           10.1        10.6   15/15                   9.8
+     1.5           14.9        15.5   15/15                  14.9
+     2.0           20.0        20.6   15/15                  19.8
+small-angle estimate h * alpha at 1 deg: 9.9 mm
+
+== Step 2. Reach: workspace radius and IK residual of the three grasp points ==
+layout   cube  radius cm  reach miss mm    ours  Experiment
+     0   blue       14.7           0.21  accept          ok
+     0  green       21.2           0.13  accept          ok
+     0    red       18.1           0.44  accept          ok
+     1   blue       21.0           0.16  accept      REJ:IK
+     1  green       19.2           0.31  accept          ok
+     1    red       20.0           0.25  accept          ok
+     2   blue       21.4           0.34  accept      REJ:IK
+     2  green       17.6           0.27  accept          ok
+     2    red       13.8           0.23  accept          ok
+     3   blue       18.3           0.42  accept          ok
+     3  green       15.9           0.19  accept          ok
+     3    red       14.2           0.35  accept          ok
+     4   blue       13.1           0.24  accept          ok
+     4  green       19.8           0.26  accept          ok
+     4    red       16.6           0.20  accept          ok
+
+== Step 3. The harness: contracts from each logged episode, first broken layer ==
+failed episodes in output.txt: 33; our first broken layer = the Experiment's on 33/33
+qwen2.5:7b: language 0, perception 0, IK/limits 4, grasp 0, place 0; success 26/30
+qwen3:1.7b: language 5, perception 0, IK/limits 4, grasp 0, place 0; success 21/30
+
+== Step 4. Failure budget and what 30 episodes certify ==
+language    reached 30 passed 30  p = 1.000
+perception  reached 30 passed 30  p = 1.000
+IK/limits   reached 30 passed 26  p = 0.867
+grasp       reached 26 passed 26  p = 1.000
+place       reached 26 passed 26  p = 1.000
+product of layer pass rates 0.867 = end-to-end 26/30 = 0.867; Wilson 95% [0.70, 0.95]
+even split of 0.90 over 5 layers: 0.979 per layer; a layer that passed 30/30 has Wilson lower bound 0.886
+clean episodes needed before the lower bound reaches 0.979: 181

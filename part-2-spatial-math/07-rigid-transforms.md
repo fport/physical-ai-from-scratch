@@ -44,15 +44,7 @@ flowchart TD
 ```python
 import numpy as np
 
-def T(R, t):                     # 4x4 transform from rotation R (3x3) and translation t (3,)
-    M = np.eye(4)
-    M[:3, :3], M[:3, 3] = R, t
-    return M
-
-def T_inv(M):                    # closed-form inverse, no np.linalg.inv needed
-    R, t = M[:3, :3], M[:3, 3]
-    return T(R.T, -R.T @ t)
-
+# T(R, t) builds [R t; 0 1]; T_inv(M) = [R^T  -R^T t; 0 1] (Build it, Step 1 writes both)
 # Naming: T_AB maps coordinates in frame B to coordinates in frame A ("A from B").
 p_B = np.array([x, y, z, 1.0])   # homogeneous point: append a 1 so the shift is part of the product
 p_A = T_AB @ p_B                 # B -> A
@@ -99,6 +91,165 @@ MuJoCo computes the world pose of every node and stores it in `mjData` ([API ref
 | camera | `cam_xpos` | `cam_xmat` | `mj_camlight` (part of `mj_forward`) |
 
 A **site** is a named, massless frame attached to a body, used to mark points such as the tool tip. Two conventions to memorize. A MuJoCo camera looks along the **−z** axis of its frame, with +x right and +y up in the image ([XML reference: camera](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-camera)). In a `framepos` sensor, `objtype/reftype="body"` means the body's **inertial** frame (origin at the centre of mass), while `"xbody"` means its regular frame ([XML reference: framepos](https://mujoco.readthedocs.io/en/stable/XMLreference.html#sensor-framepos)).
+
+## Build it
+
+You will now write 4 × 4 transforms and the walk down MuJoCo's frame tree in about 50 lines of NumPy, compute every frame of the Experiment's scene from the model file and `qpos` alone, and check each step against MuJoCo. The model is the Experiment's: SO-101 base moved and yawed 30°, a free cube on the table. Type the steps into your own file and run it after each step. The finished functions are in [`physai/spatial.py`](../physai/spatial.py), next to lesson 06's rotations; `uv run python experiments/07-rigid-transforms/build.py` runs all five steps with the checks (output in [`build_output.txt`](../experiments/07-rigid-transforms/build_output.txt)).
+
+### Step 1 · A transform, its inverse, a composition
+
+```python
+def transform(R, t):
+    """4x4 homogeneous transform from a 3x3 rotation R and a translation t."""
+    T = np.eye(4)
+    T[:3, :3], T[:3, 3] = np.asarray(R).reshape(3, 3), t
+    return T
+```
+
+```python
+def transform_inv(T):
+    """Closed-form inverse [R t; 0 1]^-1 = [R^T  -R^T t; 0 1]."""
+    R, t = T[:3, :3], T[:3, 3]
+    return transform(R.T, -R.T @ t)
+```
+
+```python
+def transform_point(T, p):
+    """Apply T to a point: R p + t (the homogeneous 1 is implicit)."""
+    return T[:3, :3] @ p + T[:3, 3]
+```
+
+MuJoCo stores poses as a position and a scalar-first quaternion; lesson 06's `quat_to_mat` turns one into a transform:
+
+```python
+def pose_to_transform(pos, quat):
+    """MuJoCo's (pos, quat) pair, quat scalar first, as a 4x4 transform."""
+    return transform(quat_to_mat(quat), pos)
+```
+
+MuJoCo's own pose algebra is `mju_negPose` (inverse) and `mju_mulPose` (composition):
+
+```text
+== Step 1. Transforms: inverse and composition (1000 random poses) ==
+transform_inv vs np.linalg.inv   1.6e-15
+transform_inv vs mju_negPose     4.4e-16
+T_a @ T_b vs mju_mulPose         1.1e-15
+```
+
+### Step 2 · Walk the frame tree
+
+Every body's pose is its parent's pose, times its fixed offset (`body_pos`, `body_quat`, the pose at `qpos0`), times one motion per joint. A hinge turns about its axis through the joint's anchor `jnt_pos`, so the turn is sandwiched between "move to the anchor" and "move back"; a slide translates; a free joint's `qpos` is the world pose itself.
+
+```python
+def frame_tree(m, qpos):
+    """World pose (4x4) of every body, walking MuJoCo's tree from static model data and qpos alone."""
+    T = [np.eye(4)]                                    # body 0 is the world
+    for b in range(1, m.nbody):
+        Tb = T[m.body_parentid[b]] @ pose_to_transform(m.body_pos[b], m.body_quat[b])   # pose at qpos0
+        for j in range(m.body_jntadr[b], m.body_jntadr[b] + m.body_jntnum[b]):
+            a, kind = m.jnt_qposadr[j], m.jnt_type[j]
+            if kind == 0:                              # free: qpos holds the world pose itself
+                Tb = pose_to_transform(qpos[a:a + 3], qpos[a + 3:a + 7])
+                continue
+            anchor = transform(np.eye(3), m.jnt_pos[j])
+            if kind == 1:                              # ball: rotate by the quaternion about the anchor
+                move = pose_to_transform(np.zeros(3), qpos[a:a + 4])
+            elif kind == 2:                            # slide: translate along the axis
+                move = transform(np.eye(3), m.jnt_axis[j] * (qpos[a] - m.qpos0[a]))
+            else:                                      # hinge: rotate about the axis through the anchor
+                move = transform(axis_angle_to_mat(m.jnt_axis[j], qpos[a] - m.qpos0[a]), np.zeros(3))
+            Tb = Tb @ anchor @ move @ transform_inv(anchor)
+        T.append(Tb)
+    return T
+```
+
+Bodies are stored parent before child, so one pass in index order is enough:
+
+```text
+== Step 2. Frame-tree walk vs MuJoCo's xpos / xmat (every body, 50 random arm poses) ==
+10 bodies (world, 8 SO-101 links, the free cube) · max |pos error| 2.2e-16 m · max |rotation error| 1.0e-15
+```
+
+Your walk reproduces `mj_kinematics` for all ten bodies, the free cube included, from static model numbers and `qpos`.
+
+### Step 3 · Frames hanging off bodies
+
+Sites, cameras and a body's inertial frame are fixed offsets from a body: one more product each.
+
+```python
+T_WG = T[m.site_bodyid[s]] @ pose_to_transform(m.site_pos[s], m.site_quat[s])     # gripper site
+T_WC = T[m.cam_bodyid[c]] @ pose_to_transform(m.cam_pos[c], m.cam_quat[c])        # wrist camera
+T_WI = T[b] @ pose_to_transform(m.body_ipos[b], m.body_iquat[b])                 # inertial frame
+```
+
+```text
+== Step 3. Frames hanging off bodies: site, camera, inertial frame ==
+site gripperframe    max error 4.4e-16
+camera wrist_cam     max error 6.4e-16
+base inertial frame  max error 3.5e-15
+```
+
+### Step 4 · The cube in every frame
+
+"The cube in frame F" is $T_{WF}^{-1}\,p_W$:
+
+```text
+== Step 4. The cube in each frame: our transforms vs the framepos sensors ==
+base B                0.2200  0.0000  0.0150 m · max |ours - sensor| 2.8e-17
+gripper G             0.0806 -0.0290 -0.0205 m · max |ours - sensor| 1.0e-16
+camera C             -0.0064 -0.0011 -0.1508 m · max |ours - sensor| 1.1e-16
+base INERTIAL frame  -0.0044  0.0397  0.2032 m · max |ours - sensor| 7.4e-16
+inertial frame vs regular frame of the base: 295.5 mm apart
+```
+
+Result 1 of the Experiment, now without reading a single pose from `mjData`, and the 295.5 mm trap explained: `reftype="body"` measures from the base's inertial frame, whose offset and rotation are `body_ipos`, `body_iquat`.
+
+### Step 5 · Use them
+
+With the camera-frame point, the pinhole formula from Result 2 gives pixels; with the gripper transform, each Break it mistake is one wrong line:
+
+```text
+== Step 5. Use the transforms: pixels, and five ways to get the cube into the gripper frame ==
+f = 407.4 px · cube centre at u = 302.7, v = 242.8 px (camera looks along -z, image v grows downward)
+T_WG^-1 p (correct)              error    0.0 mm
+R (p - t): R instead of R^T      error  101.0 mm
+(T_BG T_WB)^-1 p: wrong order    error  103.2 mm
+R^T p: forgot the translation    error  274.3 mm
+T_WG p: transform, not inverse   error  424.4 mm
+chain: max |T_WB @ T_BG - T_WG| = 1.1e-16
+```
+
+The Experiment's numbers, from your own transforms.
+
+### What you keep
+
+`physai.spatial` now has `transform`, `transform_inv`, `transform_point`, `pose_to_transform` and `frame_tree`. Lesson 08 turns the walk into forward kinematics of the arm, lesson 19 calibrates the camera transform $T_{GC}$. [`tests/test_07_rigid_transforms.py`](../tests/test_07_rigid_transforms.py) pins them to MuJoCo; run `uv run pytest tests/test_07_rigid_transforms.py` after you change anything.
+
+## Use it
+
+MuJoCo computes the whole tree in `mj_kinematics` (cameras in `mj_camlight`; `mj_forward` calls both) and leaves the results in `mjData`:
+
+```python
+mujoco.mj_forward(m, d)
+T_WB = transform(d.xmat[b], d.xpos[b])                  # body b (regular frame)
+T_WG = transform(d.site_xmat[s], d.site_xpos[s])        # site s
+T_WC = transform(d.cam_xmat[c], d.cam_xpos[c])          # camera c: looks along its -z
+pos, quat = np.zeros(3), np.zeros(4)
+mujoco.mju_mulPose(pos, quat, pos_a, quat_a, pos_b, quat_b)   # compose without 4x4 matrices
+mujoco.mju_negPose(pos, quat, pos_a, quat_a)                  # invert
+```
+
+| Tool | Pose stored as | Camera looks along |
+|---|---|---|
+| physai | 4 × 4 `T_AB` (B to A) | – |
+| MuJoCo | `xpos` + `xmat` (9 numbers, row-major) or `xquat` (scalar first) | −z, +y up |
+| OpenCV | `rvec` (axis-angle) + `tvec`, world to camera | +z, +y down (On the real robot) |
+
+Traps:
+
+- **Stale frames.** `xpos`, `xmat` are only as fresh as the last `mj_kinematics`/`mj_forward`; set `qpos` and forget the call, and every frame is the previous pose's.
+- **`mj_kinematics` skips cameras.** `cam_xpos`, `cam_xmat` come from `mj_camlight`, which `mj_forward` runs (the Experiment's script uses `mj_forward` for this reason).
+- **Body vs inertial frame.** `xpos`/`xmat` are the body frame, `xipos`/`ximat` the centre-of-mass frame (Step 4: 295.5 mm apart here).
 
 ## Experiment
 

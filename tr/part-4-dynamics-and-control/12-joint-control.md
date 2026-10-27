@@ -16,7 +16,7 @@
 
 ## Problem
 
-Unitree Go2'nun 12 bacak joint'i var. Unitree'nin açık eğitim kodunda bunların her biri aynı PD kuralıyla (proportional–derivative: bir yay artı bir sönümleyici, aşağıda açıklanıyor) sürülüyor: `stiffness = 20` (Kp, N·m/rad), `damping = 0.5` (Kd, N·m·s/rad), `control_type = 'P'` ([`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)):
+Unitree Go2'nun 12 bacak joint'i var. Unitree'nin açık eğitim kodunda her biri aynı PD kuralıyla (proportional–derivative: bir yay artı bir sönümleyici) sürülüyor: `stiffness = 20` (Kp, N·m/rad), `damping = 0.5` (Kd, N·m·s/rad), `control_type = 'P'` ([`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)):
 
 ```python
 # legged_robot.py · _compute_torques
@@ -24,17 +24,17 @@ torques = self.p_gains*(actions_scaled + self.default_dof_pos - self.dof_pos) - 
 return torch.clip(torques, -self.torque_limits, self.torque_limits)
 ```
 
-([`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)). Policy hedefi her 20 ms'de bir güncelliyor (`sim.dt = 0.005`, `decimation = 4`, [`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py)); PD kuralı onu her 5 ms'de torka çeviriyor. Unitree'nin gerçek Go2 için düşük seviyeli kalkma örneği farklı sayılar kullanıyor: Kp = 60 ve Kd = 5 ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp)). Bu sayılar neden çalışıyor, neyi yanlış yapıyor ve bir SO-101 servo'su bunun yerine ne yapıyor?
+([`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)). Policy hedefi her 20 ms'de bir güncelliyor (`sim.dt = 0.005`, `decimation = 4`, [`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py)); Unitree'nin gerçek Go2 için kalkma örneği Kp = 60, Kd = 5 kullanıyor ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp)). Bu sayılar neden çalışıyor, neyi yanlış yapıyor ve bir SO-101 servo'su bunun yerine ne yapıyor?
 
 ## Ana fikir
 
 ### Sade anlatımla
 
-Eklemi hedef açısına bir **yay ve bir amortisörle** bağlanmış gibi düşün; arabanın tekerleğinin gövdeye bağlanışı gibi. Yay, eklem hedeften ne kadar uzaksa o kadar sert çeker; sertliği **Kp**'dir. Amortisör, yönü ne olursa olsun hıza direnir; gücü **Kd**'dir. Sert yay ile zayıf amortisör hedefe hızlı varır, sonra zıplar (**overshoot**). Güçlü amortisör zıplamayı keser ama hareketi ağırlaştırır. Arada tatlı bir nokta vardır ve eklemin ne kadar ağır olduğuna bağlıdır: hafif bir bileği sakinleştiren amortisör ağır bir omuz için zayıf kalır.
+Eklemi hedefine bir **yayla** (sertliği **Kp**, uzaklaştıkça daha sert çeker) ve bir **amortisörle** (gücü **Kd**, hıza direnir) bağlanmış gibi düşün. Sert yay, zayıf amortisör: hızlı varır, sonra zıplar (**overshoot**); güçlü amortisör: zıplama yok, hareket ağır. Tatlı nokta eklemin ne kadar ağır olduğuna bağlıdır.
 
-Controller hiç durmayan bir döngüdür: açıyı ölç, hedefle karşılaştır, bir torkla düzelt, her milisaniyede tekrarla. Yerçekimi yay benzetmesini bir noktada bozar: yay yalnızca gerildiğinde iter, yani bir ağırlığı tutmak için gergin kalmak zorundadır ve eklem hedefinin biraz **altında** durur (**sarkma**). Üç çıkış yolu var: daha sert bir yay (sarkma azalır, sıfıra inmez), ne kadar süredir yanıldığının hesabını tutup daha sert iten bir **integral** terimi (sarkmayı yavaşça giderir, overshoot yapabilir) ya da **feedforward**: ağırlığı modelden hesapla ve daha hiç hata oluşmadan tam o torku ekle.
+Controller her milisaniye tekrarlar: ölç, karşılaştır, düzelt. Yay yalnızca gerildiğinde iter; bu yüzden bir ağırlığı tutarken eklem hedefinin biraz **altında** durur (**sarkma**). Üç çıkış yolu var: daha sert bir yay (sarkma azalır, sıfıra inmez), hata sürdükçe daha sert iten bir **integral** terimi (yavaş, overshoot yapabilir) ya da **feedforward**: ağırlığın torkunu modelden hesaplayıp daha hiç hata oluşmadan ekle.
 
-SO-101'deki gibi bir hobi servo'su aynı döngüyü motorun içinde koşar. Ona tork değil hedef açı gönderirsin; o da en fazla **torque cap**'i kadar karşı koyar.
+SO-101'deki gibi bir hobi servo'su bu döngüyü motorun içinde koşar: hedef açı gönderirsin, en fazla **torque cap**'i kadar karşı koyar.
 
 ```mermaid
 flowchart TD
@@ -66,31 +66,25 @@ while True:                               # every dt (1 ms here; inside the serv
 |---|---|
 | $\tau = K_p (q^* - q) - K_d \dot q$ | PD kuralı (yay + sönümleyici) |
 | $I\ddot q + K_d \dot q + K_p q = K_p q^*$ | kapalı döngü bir kütle–yay–sönümleyicidir |
-| $\omega_n = \sqrt{K_p / I}$ | ne kadar hızlı tepki verdiği; settling süresi $1/\omega_n$ ile ölçeklenir |
-| $\zeta = \dfrac{K_d}{2\sqrt{K_p I}}$ | şekil: 1'in altında overshoot yapar, 1 kritik damping'dir, 1'in üstünde sürünür |
-| $\zeta<1$ için $\text{overshoot} = e^{-\pi\zeta/\sqrt{1-\zeta^2}}$ | hedefin ötesine salındığı adım oranı |
-| $K_p\, e = g(q^* - e)$ | yayın yerçekimi torkunu dengelediği sarkma $e$ |
+| $\omega_n = \sqrt{K_p / I}$ | hız; settling süresi $1/\omega_n$ ile ölçeklenir |
+| $\zeta = \dfrac{K_d}{2\sqrt{K_p I}}$ | şekil: 1'in altında overshoot, 1 kritik, 1'in üstünde sürünme |
+| $\zeta<1$ için $\text{overshoot} = e^{-\pi\zeta/\sqrt{1-\zeta^2}}$ | hedefin ötesine salınan adım oranı |
+| $K_p\, e = g(q^* - e)$ | sarkma $e$: yay yerçekimini dengeler |
 
-Burada $q$ eklem açısı, $q^*$ hedef, $\dot q$ eklem hızı, $\tau$ motor torku, $I$ eklemin inertia'sı (11. dersten, $M$'nin köşegeni), $K_p$ N·m/rad cinsinden stiffness, $K_d$ N·m·s/rad cinsinden damping, $\omega_n$ rad/s cinsinden doğal frekans, $\zeta$ birimsiz damping oranı, $e = q^* - q$ hata ve $g(\cdot)$ verilen açıdaki yerçekimi torkudur. Kp hızı, Kd şekli belirler.
+$q$, $q^*$, $\dot q$: açı, hedef, hız; $\tau$: motor torku; $I$: eklemin inertia'sı (ders 11, $M$'nin köşegeni); $K_p$ N·m/rad, $K_d$ N·m·s/rad; $\omega_n$: doğal frekans; $\zeta$: damping oranı; $e = q^* - q$; $g(\cdot)$: yerçekimi torku. Kp hızı, Kd şekli belirler.
 
-| Sarkmaya çözüm | Kural | Bedeli |
-|---|---|---|
-| Kp'yi artır | aynı | daha sert, daha çok saturation (tork sınırına dayanır), contact'a karşı daha az dayanıklı |
-| PID | $+\,K_i \int e\,dt$ | yavaş ve büyük hareketlerde integral şişer (windup: büyümeye devam eder) |
-| Gravity feedforward | modelden $+\,g(q)$ (durağan haldeki `qfrc_bias`) | doğru bir model gerekir (ders 11) |
-
-**Servo.** MuJoCo Menagerie modelinde her STS3215 bir `position` actuator'ü: kuvvet $= k_p(\text{ctrl} - q) - k_v\dot q$, $k_p = 998{,}22$, $k_v = 2{,}731$, ±2,94 N·m'de kırpılıyor (`so101.xml`; dosya bu gain'lerin LeRobot'un kullandığı servo gain'lerine birebir karşılık gelmediğini not ediyor). Motorun içinde çalışan, torque cap'li bir PD döngüsü.
+**Servo.** Menagerie modelinde her STS3215 bir `position` actuator'ü: kuvvet $= k_p(\text{ctrl} - q) - k_v\dot q$, $k_p = 998{,}22$, $k_v = 2{,}731$, ±2,94 N·m'de kırpılıyor (`so101.xml`): torque cap'li bir PD döngüsü.
 
 <details>
 <summary>Matematik ayrıntısı: ikinci derece sistem, overshoot ve yerçekiminin neden PD'den fazlasını istediği</summary>
 
-**Kapalı döngü.** $\tau = K_p(q^* - q) - K_d\dot q$'yu tek bir eklemin hareket denklemine $I\ddot q = \tau$ (yerçekimsiz) koy: $I\ddot q + K_d\dot q + K_p q = K_p q^*$. $I$'ya böl: $\ddot q + 2\zeta\omega_n\dot q + \omega_n^2 q = \omega_n^2 q^*$; $\omega_n$ ve $\zeta$ tablodaki gibi. Karakteristik kökler $-\zeta\omega_n \pm \omega_n\sqrt{\zeta^2 - 1}$'dir: $\zeta < 1$ için karmaşık (salınımlı), $\zeta = 1$'de çift reel kök, $\zeta > 1$ için biri yavaş iki reel kök; overdamping'in yeniden yavaş oturmasının sebebi bu.
+**Kapalı döngü.** PD kuralını $I\ddot q = \tau$'ya koyup $I$'ya böl: $\ddot q + 2\zeta\omega_n\dot q + \omega_n^2 q = \omega_n^2 q^*$. Kökler $-\zeta\omega_n \pm \omega_n\sqrt{\zeta^2 - 1}$ $\zeta < 1$ için salınır, $\zeta > 1$ için yavaş bir reel kök içerir; bu yüzden overdamping yine yavaş oturur.
 
-**Overshoot.** $\zeta<1$ için step yanıtı $q(t) = q^*\big(1 - e^{-\zeta\omega_n t}(\cos\omega_d t + \tfrac{\zeta}{\sqrt{1-\zeta^2}}\sin\omega_d t)\big)$, $\omega_d = \omega_n\sqrt{1-\zeta^2}$. İlk tepe $t = \pi/\omega_d$'dedir; overshoot formülü buradan çıkar. Sabit $\zeta$'da yanıttaki her zaman sabiti $1/\omega_n$'in katıdır; bu yüzden Kp dört katına çıkınca settling süresi yarıya iner.
+**Overshoot.** $\zeta<1$ için step yanıtı $\omega_d = \omega_n\sqrt{1-\zeta^2}$ ile salınır ve ilk tepesi $t = \pi/\omega_d$'dedir; overshoot formülü buradan çıkar. Sabit $\zeta$'da her zaman sabiti $1/\omega_n$'in katıdır; bu yüzden Kp dört katına çıkınca settling süresi yarıya iner.
 
-**Yerçekimi sarkması.** Bir yük torku varken denge ($\dot q = \ddot q = 0$) $K_p e = g(q^* - e)$ ister: sonlu her $K_p$ için sıfır olmayan bir $e$. B bölümündeki link için $g = mgl\cos(\cdot)$ ve sabit nokta sayısal olarak çözülüyor.
+**Yerçekimi sarkması.** Dururken $K_p e = g(q^* - e)$: sonlu her $K_p$ için sıfır olmayan bir $e$ (Sıfırdan yaz, Adım 4 çözüyor).
 
-**Integral etkisi.** $+K_i\int e\,dt$ ile denge $\frac{d}{dt}\int e\,dt = e = 0$ ister; kalıcı hata kaybolur. Bedeli: döngü üçüncü dereceye çıkar ve büyük bir hareket sırasında integral, hedefin ötesinde "geri sarılması" gereken hata biriktirir (windup). Feedforward ise $g(q)$'yu ekler; model doğru olduğu sürece geriye yukarıdaki yerçekimsiz hata dinamiği kalır.
+**Integral etkisi.** $+K_i\int e\,dt$ ile denge $e = 0$ ister; bedeli üçüncü dereceden bir döngü ve windup. Feedforward ise, model doğruysa, yerçekimsiz hata dinamiğini bırakır.
 
 Daha derine: [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), böl. 11 (Robot Control).
 
@@ -100,13 +94,13 @@ Daha derine: [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=p
 
 ## Sıfırdan yaz
 
-Şimdi joint controller'ı yaklaşık 50 satır NumPy ile kendin yazacaksın: yerçekimi torku, simülatör adımı, PD kuralı ve gerçek bir motorun ihtiyaç duyduğu limitlerle bir PID. Her adım aynı eklemi koşturan MuJoCo ile karşılaştırılıyor. Eklem Deney'in A ve B bölümlerindeki eklem: bir hinge'den 30 cm uzakta 1 kg'lık noktasal bir kütle, tork her 1 ms'de uygulanıyor. Kodunun MuJoCo'dan aldığı tek şey XML'den okuyabileceğin sabit sayılar (kütle, mesafe, timestep).
+Şimdi joint controller'ı yaklaşık 50 satır NumPy ile yazacaksın; her adım Deney'in eklemini koşturan MuJoCo ile karşılaştırılıyor: bir hinge'den 30 cm uzakta 1 kg, 1 ms'lik adımlar. MuJoCo'dan yalnızca sabit sayıları alıyorsun.
 
-Adımları kopyalamak yerine kendi dosyana yaz (örneğin `scratch/my_joint.py`) ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/control.py`](../../physai/control.py) içinde; `uv run python experiments/12-joint-control/build.py` altı adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/12-joint-control/build_output.txt) dosyasında).
+Adımları kendi dosyana yaz (örneğin `scratch/my_joint.py`) ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/control.py`](../../physai/control.py) içinde; `uv run python experiments/12-joint-control/build.py` altı adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/12-joint-control/build_output.txt) dosyasında).
 
 ### Adım 1 · Yük: tek bir link'te yerçekimi
 
-$q = 0$ yatay ve $q > 0$ aşağı yönde olduğunda kütle $-l\sin q$ yüksekliğindedir; yerçekimi eklemi $mgl\cos q$ ile döndürür: link yatayken en büyük, dümdüz aşağı sarkarken sıfır. Eksen etrafındaki inertia $ml^2$ artı kütlenin kendi küçük $10^{-4}$ kg·m²'si.
+$q = 0$ yatay ve $q > 0$ aşağıyken kütle $-l\sin q$ yüksekliğindedir; yerçekimi eklemi $mgl\cos q$ ile döndürür. Inertia $ml^2$ artı kütlenin kendi $10^{-4}$ kg·m²'si.
 
 ```python
 def gravity_torque(q, m, l, g=9.81):
@@ -114,7 +108,7 @@ def gravity_torque(q, m, l, g=9.81):
     return m * g * l * np.cos(q)
 ```
 
-MuJoCo aynı büyüklüğe ters işaretle `qfrc_bias` der: yerçekiminin uyguladığı kuvvet değil, eklemin yerinde kalmak için *sağlaması* gereken kuvvettir.
+MuJoCo'nun `qfrc_bias`'ı ters işaretlidir: eklemin yerinde kalmak için *sağlaması* gereken kuvvet.
 
 ```text
 == Step 1. Gravity torque m g l cos(q) by hand vs MuJoCo ==
@@ -130,7 +124,7 @@ max difference: 4.7e-16 N m
 
 ### Adım 2 · Simülatör: tek bir semi-implicit Euler adımı
 
-Bir hinge için Newton $I\ddot q = \tau + \tau_{\text{yük}}$ der. Bunu MuJoCo'nun varsayılan `Euler` integrator'ının sırasıyla integre et: önce ivmeden yeni hız, sonra **yeni** hızdan yeni açı. Bu sıra (semi-implicit ya da symplectic Euler), sönümsüz bir sarkacın yavaş yavaş enerji kazanmasını engeller; ders kitabındaki sıra (açıyı eski hızdan almak) ise enerji ekler.
+Bir hinge için Newton $I\ddot q = \tau + \tau_{\text{yük}}$ der. MuJoCo'nun varsayılan `Euler`'inin sırasıyla integre et: önce yeni hız, sonra **yeni** hızdan yeni açı (semi-implicit Euler, ders 11).
 
 ```python
 def step_joint(q, qd, tau, inertia, dt, load=0.0):
@@ -158,11 +152,9 @@ angle after 1 s: ours 77.423 deg, MuJoCo 77.423 deg
 max |q_ours - q_mujoco| over 1000 steps: 4.4e-16 rad
 ```
 
-Serbest salınım 1000 adım boyunca `mj_step` ile tek bir yuvarlama adımı farkla örtüşüyor: integrator MuJoCo'nunkiyle aynı.
-
 ### Adım 3 · PD kuralı
 
-Controller tek satır, Ana fikir'deki yay ve sönümleyici:
+Yay ve sönümleyici, tek satır:
 
 ```python
 def pd_torque(q, qd, q_target, kp, kd):
@@ -177,7 +169,7 @@ q = simulate_joint(lambda q, qd: pd_torque(q, qd, 0.5, 20, kd), 0.0, I, DT, 4000
 overshoot = (q.max() - 0.5) / 0.5 * 100
 ```
 
-MuJoCo tarafında aynı tork bir motor actuator'ünün (gear 1) `d.ctrl[0]`'ına ya da `d.qfrc_applied[0]`'a gider; aşağıda ikisi de deneniyor.
+MuJoCo'da aynı tork bir motor actuator'ünün `d.ctrl[0]`'ına ya da `d.qfrc_applied[0]`'a gider; ikisi de deneniyor.
 
 ```text
 == Step 3. PD step 0 -> 0.5 rad, Kp = 20, no gravity: overshoot ==
@@ -191,11 +183,11 @@ max |q_ours - q_mujoco| over all runs: 3.3e-16 rad
 same loop through qfrc_applied instead of the motor: max diff 0.0e+00 rad
 ```
 
-Bunlar Deney'in A bölümündeki sayılarla basamak basamak aynı, çünkü Deney tam olarak bu döngüyü koşturuyor. Formül sütunu ideal sürekli sistemden geliyor; simüle edilen overshoot onun 0,01 ile 0,15 puan altında kalıyor.
+Deney'in A bölümündeki sayılar, basamak basamak; ideal sürekli formül 0,01 ile 0,15 puan yukarıda.
 
 ### Adım 4 · Yerçekimi altında sarkma
 
-Adım 1'deki yükü ekle (`load_fn=lambda q: gravity_torque(q, 1.0, 0.3)`) ve sarkık durumdan (90°) yataya (0°) basamak ver. Dururken ağırlığı yay taşımak zorunda, $K_p e = mgl\cos e$; bunu birkaç satırlık fixed-point iterasyonu çözer:
+Yükü ekle (`load_fn=lambda q: gravity_torque(q, 1.0, 0.3)`) ve sarkık durumdan (90°) yataya (0°) basamak ver. Dururken ağırlığı yay taşır, $K_p e = mgl\cos e$, bir sabit nokta:
 
 ```python
 def pd_sag(kp, mgl, iters=200):
@@ -214,11 +206,11 @@ def pd_sag(kp, mgl, iters=200):
   80       2.106         2.106                   2.106
 ```
 
-Senin simülatörün, MuJoCo ve formül her Kp'de üç ondalığa kadar aynı: Deney'in B bölümündeki sarkma simülatörün değil, PD kuralının bir özelliği.
+Simülatör, MuJoCo ve formül aynı: sarkma PD kuralına ait.
 
 ### Adım 5 · Gravity feedforward
 
-Feedforward, modelin yerçekimi için gerektiğini söylediği torku daha hiç hata oluşmadan ekler: $g$ yerine senin `gravity_torque`'unla $\tau = K_p e - K_d\dot q - g(q)$ (eksi işaret, MuJoCo'daki `+qfrc_bias`).
+Modelin yerçekimi torkunu daha hiç hata oluşmadan ekle: senin `gravity_torque`'unla $\tau = K_p e - K_d\dot q - g(q)$ (eksi, MuJoCo'nun `+qfrc_bias`'ı).
 
 ```python
 KD = 2 * 0.7 * np.sqrt(20 * I)                      # 1.879, zeta = 0.7
@@ -235,11 +227,11 @@ MuJoCo: qfrc_bias left by mj_step                3.994            0.000         
 max |q_ours - q_fresh|: 4.2e-17 rad
 ```
 
-Son hata Deney'deki gibi yok oluyor. Ama burada overshoot 4,009°, Deney'in tablosunda ise 3,994°. Fark bir zamanlama ayrıntısı: Deney `d.qfrc_bias`'ı `mj_step`'ten hemen sonra okuyor ve o anda bu alan hâlâ adımın *başında*, yani bir milisaniye önceki açı için hesaplanmış değeri tutuyor. Değeri yeniden hesaplarsan (`mj_forward`) ya da $g(q)$'yu kendin hesaplarsan 4,009° çıkar; eski değeri kullanırsan 3,994°. Bir feedforward teriminde 1 ms gecikme burada zararsız, ama gerçek robotta aynı gecikme bus'tan ve sensörden gelir ve büyür.
+Son hata yok oluyor, ama overshoot 4,009°, Deney'de ise 3,994°: Deney `d.qfrc_bias`'ı `mj_step`'ten hemen sonra okuyor, o anda alan hâlâ 1 ms önceki açının değerini tutuyor. Yeniden hesaplarsan (`mj_forward`) ya da kendi $g(q)$'nu kullanırsan 4,009° çıkar. Gerçek robotta bus ve sensör daha fazla gecikme ekler.
 
 ### Adım 6 · Limitler: anti-windup ve torque cap
 
-Gerçek donanımdaki bir controller'da şu ikisi olmak zorunda: integral için bir limit (yoksa büyük bir hareket sırasında şişer; Deney'deki 46,016°'lik overshoot) ve motorun torque cap'i. İkisi de küçük bir sınıfa giriyor:
+Gerçek donanım integral için bir limit (yoksa şişer: Deney'deki 46,016°) ve motorun torque cap'ini ister. Küçük bir sınıf:
 
 ```python
 @dataclass
@@ -261,7 +253,7 @@ class PID:
         return min(max(tau, -self.tau_max), self.tau_max)
 ```
 
-Clamp yalnızca terimin çıktısını değil *toplamı* sınırlar: büyüyen bir toplamın üstünde kırpılmış bir çıktı, yeniden hareket edebilmek için yine önce boşalmak zorunda kalırdı. 3 N·m, integralin sağlaması gereken en büyük torkun, yani yataydaki yerçekimi torku $mgl$ = 2,943 N·m'nin (Adım 1) hemen üstünde seçildi.
+Clamp *toplamı* sınırlar, böylece boşaltılacak bir şey kalmaz; 3 N·m, integralin gereken en büyük torkunun, $mgl$ = 2,943 N·m'nin hemen üstünde.
 
 ```text
 == Step 6. Limits: integrator clamp (anti-windup) and torque cap ==
@@ -274,15 +266,15 @@ PID Ki = 160, ours vs MuJoCo: max diff 7.5e-17 rad
 torque cap, ours (clip in PID) vs MuJoCo (unclipped torque, ctrlrange = +-3.5): max diff 2.2e-16 rad
 ```
 
-Clamp, PID overshoot'unu 46,016°'den (Deney'deki Ki = 160 satırı) 4,646°'ye, ±0,5° içine girme süresini 1,520 s'den 0,685 s'ye indiriyor; son hata yine sıfır. Cap olmadan ilk komut 31,42 N·m, yükün on katından fazla: $K_p$ çarpı 90°'lik hata. 3,5 N·m'lik bir cap hareketi yavaşlatıyor (0,607 s) ve burada yumuşatıyor (2,512°). 2,943 N·m'nin altında bir cap link'i hiç tutamazdı; C bölümünde SO-101'in karşılaştığı durum bu.
+Clamp, Ki = 160 overshoot'unu 46,016°'den 4,646°'ye, ±0,5° içine girme süresini 1,520 s'den 0,685 s'ye indiriyor. Cap'siz ilk komut 31,42 N·m ($K_p$ çarpı 90°); 3,5 N·m'lik cap hareketi yavaşlatıyor (0,607 s) ve yumuşatıyor (2,512°). 2,943 N·m'nin altında link hiç tutulamazdı (C bölümü).
 
 ### Elinde kalan
 
-`physai.control` artık `gravity_torque`, `step_joint`, `simulate_joint`, `pd_torque`, `pd_sag` ve `PID` içeriyor. Bir trajectory (ders 13), aynı controller'a hareket eden bir `q_target` vermekten ibaret; sonraki dersler bunları yeniden türetmek yerine import ediyor. [`tests/test_12_joint_control.py`](../../tests/test_12_joint_control.py) bunları MuJoCo'ya ve ζ ile sarkma formüllerine sabitliyor; bir şey değiştirdikten sonra `uv run pytest tests/test_12_joint_control.py` çalıştır.
+`physai.control` artık `gravity_torque`, `step_joint`, `simulate_joint`, `pd_torque`, `pd_sag` ve `PID` içeriyor. Bir trajectory (ders 13), aynı controller'a hareket eden bir `q_target` vermekten ibaret. [`tests/test_12_joint_control.py`](../../tests/test_12_joint_control.py) bunları MuJoCo'ya ve ζ ile sarkma formüllerine sabitliyor; bir şey değiştirdikten sonra `uv run pytest tests/test_12_joint_control.py` çalıştır.
 
 ## Kütüphaneyle kullan
 
-Pratikte position kontrollü bir joint için tork döngüsünü nadiren kendin yazarsın: MuJoCo'nun `position` actuator'ü aynı PD kuralıdır ve `mj_step` içinde hesaplanır. Torku değil hedefi gönderirsin:
+MuJoCo'nun `position` actuator'ü aynı PD kuralıdır, `mj_step` içinde hesaplanır; hedefi gönderirsin:
 
 ```xml
 <actuator>
@@ -295,7 +287,7 @@ d.ctrl[0] = q_target          # position actuator: force = kp (ctrl - q) - kv qd
 mujoco.mj_step(m, d)
 ```
 
-Kendi tork döngünü (PID, feedforward, öğrenilmiş bir policy) istiyorsan bir `motor` actuator'ü (`ctrl` torktur, `gear` ile çarpılır) kullan ya da doğrudan `qfrc_applied`'a yaz; yerçekimi terimi için ya `qfrc_bias`'ı `mj_forward` ile yeniden hesapla ya da gövdeye `gravcomp="1"` vererek yerçekimini MuJoCo'ya iptal ettir:
+Kendi tork döngün için bir `motor` actuator'ü ya da `qfrc_applied` kullan; `qfrc_bias`'ı `mj_forward` ile yeniden hesapla ya da gövdeye `gravcomp="1"` ver:
 
 ```python
 mujoco.mj_forward(m, d)                                   # qfrc_bias for the current q
@@ -313,30 +305,30 @@ position actuator                                  0.000            8.342       
 + joint actuatorgravcomp="true"                    4.009            0.000         0.000         -2.943
 ```
 
-`dampratio` senin elle hesapladığın Kd'nin aynısını buluyor, position actuator Adım 3'teki döngünü 1,1e-16 rad farkla tekrarlıyor ve yerçekimi altında Adım 4'teki gibi 8,342° sarkıyor. `gravcomp` sarkmayı Adım 5'teki overshoot'la (4,009°) gideriyor.
+`dampratio` senin Kd'ni veriyor; actuator Adım 3 döngünü 1,1e-16 rad farkla tekrarlıyor ve 8,342° sarkıyor; `gravcomp` sarkmayı Adım 5'teki overshoot'la (4,009°) gideriyor.
 
-Aynı iki gain başka yerlerde başka adlar taşıyor. Birimler de farklı; bir satırdaki sayıyı asla başka bir satıra kopyalama:
+Aynı iki gain başka yerlerde (birimler farklı: sayıyı asla satırlar arasında kopyalama):
 
 | Nerede | P gain | D gain | Not |
 |---|---|---|---|
-| physai | `PID.kp` | `PID.kd` | N·m/rad ve N·m·s/rad; `ki`, `i_max`, `tau_max` Adım 6'daki gibi |
+| physai | `PID.kp` | `PID.kd` | N·m/rad, N·m·s/rad |
 | MuJoCo `position` actuator | `kp` | `kv` ya da `dampratio` | SO-101 modeli: `kp="998.22" kv="2.731" forcerange="-2.94 2.94"` ([`so101.xml`](https://github.com/google-deepmind/mujoco_menagerie/blob/f3b6013/robotstudio_so101/so101.xml)) |
 | `unitree_rl_gym` config | `stiffness` | `damping` | joint adına göre dict; Go2 için 20 ve 0,5 ([`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)) |
-| `unitree_sdk2` düşük seviye komut | `motor_cmd()[i].kp()` | `motor_cmd()[i].kd()` | her komutta `q`, `dq` ve `tau` ile birlikte set ediliyor; kalkma örneğinde 60 ve 5 ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp)) |
-| Isaac Lab actuator config | `stiffness` ("p-gain") | `damping` ("d-gain") | implicit actuator'ler bunları fizik motoruna verir, explicit olanlar effort'u kendisi hesaplar ([`isaaclab.actuators`](https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.actuators.html)) |
-| LeRobot SO-101 follower (Feetech STS3215) | `P_Coefficient` = 16 | `D_Coefficient` = 32 | servo register değerleri, fiziksel birimi yok; `I_Coefficient` = 0 ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py)) |
+| `unitree_sdk2` düşük seviye komut | `motor_cmd()[i].kp()` | `motor_cmd()[i].kd()` | her komutta, `q`, `dq`, `tau` ile; kalkma örneğinde 60 ve 5 ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp)) |
+| Isaac Lab actuator config | `stiffness` ("p-gain") | `damping` ("d-gain") | implicit actuator'ler bunları fizik motoruna verir, explicit olanlar effort'u hesaplar ([`isaaclab.actuators`](https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.actuators.html)) |
+| LeRobot SO-101 follower (Feetech STS3215) | `P_Coefficient` = 16 | `D_Coefficient` = 32 | servo register değerleri, birimsiz; `I_Coefficient` = 0 ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py)) |
 
 Üç tuzak:
 
-- **Gain, gain değildir.** LeRobot'un 16'lık P katsayısı servonun içindeki bir register değeri; Menagerie modelindeki `kp = 998,22` N·m/rad bu ayar varsayılarak türetildi ve "1-to-1 mapping" değil (`so101.xml`'deki yorum). Araç değiştirince yeniden tune et.
-- **Bayat `qfrc_bias`.** `mj_step`'ten sonra bu alan adımın başındaki değeri tutar (Adım 5: 4,009° yerine 3,994°). Birden çok joint'li, hareket eden bir kolda yerçekiminden fazlasıdır: Coriolis ve merkezkaç torklarını da içerir; yalnız dururken tek başına $g(q)$'dur.
-- **Bedava gravity compensation.** `gravcomp="1"` ile link duruyor ama actuator 0,000 N·m gösteriyor, çünkü MuJoCo 2,943 N·m'yi passive kuvvet olarak kaydediyor. Gerçek bir motor bunu sağlamak zorunda. Joint'te `actuatorgravcomp="true"` onu `qfrc_actuator` altında kaydeder; böylece tork bütçen onu görür.
+- **Gain, gain değildir.** LeRobot'un 16'lık P katsayısı bir servo register değeri; Menagerie modelinin `kp = 998,22` N·m/rad'ı bu varsayımla türetildi ve "1-to-1 mapping" değil (`so101.xml`). Araç değiştirince yeniden tune et.
+- **Bayat `qfrc_bias`.** `mj_step`'ten sonra adımın başındaki değeri tutar (Adım 5: 4,009° yerine 3,994°). Hareket eden çok joint'li bir kolda Coriolis ve merkezkaç torklarını da içerir; yalnız dururken $g(q)$'dur.
+- **Bedava gravity compensation.** `gravcomp="1"` ile actuator 0,000 N·m gösteriyor: MuJoCo 2,943 N·m'yi passive olarak kaydediyor, oysa gerçek bir motor bunu sağlamak zorunda. `actuatorgravcomp="true"` onu `qfrc_actuator` altında kaydeder.
 
 ## Deney
 
-Tam script: [`experiments/12-joint-control/experiment.py`](../../experiments/12-joint-control/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministik, ~2 s. Dört bölüm, her biri bir sweep.
+Tam script: [`experiments/12-joint-control/experiment.py`](../../experiments/12-joint-control/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministik, ~2 s.
 
-**A. Damping oranı.** Tek joint, $I$ = 0,0901 kg·m² (30 cm'de 1 kg), yerçekimi yok, Kp = 20, 0 → 0,5 rad basamak, tork her 1 ms'de uygulanıyor. *Tahmin et:* overshoot hangi ζ'da kaybolur ve hangi ζ en hızlı oturur?
+**A. Damping oranı.** Tek joint, $I$ = 0,0901 kg·m², yerçekimi yok, Kp = 20, 0 → 0,5 rad basamak. *Tahmin et:* overshoot hangi ζ'da kaybolur ve hangi ζ en hızlı oturur?
 
 | ζ | Kd | overshoot % (sim) | formül % | oturma %2 [sn] |
 |---|---|---|---|---|
@@ -347,9 +339,9 @@ Tam script: [`experiments/12-joint-control/experiment.py`](../../experiments/12-
 | 1,0 | 2,685 | 0,00 | 0,00 | 0,393 |
 | 1,5 | 4,027 | 0,00 | 0,00 | 0,716 |
 
-Formül yüzdenin bir kesrine kadar tutuyor. ζ ≈ 0,7–1 en hızlı oturuyor; aşırı sönüm (1,5) yine yavaşlıyor. Sabit ζ = 0,7'de Kp dört katına çıkınca oturma süresi yarıya iniyor: Kp 5 / 20 / 80 → ωn 7,45 / 14,90 / 29,80 rad/s → 0,799 / 0,398 / 0,197 s.
+ζ ≈ 0,7–1 en hızlı oturuyor; aşırı sönüm (1,5) yine yavaşlıyor. ζ = 0,7'de Kp dört katına çıkınca oturma yarıya iniyor: Kp 5 / 20 / 80 → ωn 7,45 / 14,90 / 29,80 rad/s → 0,799 / 0,398 / 0,197 s.
 
-**B. Yerçekimi.** Aynı joint yerçekimiyle ($mgl$ = 2,943 N·m), sarkık durumdan (90°) yataya (0°) basamak, ζ = 0,7.
+**B. Yerçekimi.** Yerçekimiyle ($mgl$ = 2,943 N·m), sarkıktan (90°) yataya (0°), ζ = 0,7.
 
 | Kp | sarkma (sim) | $K_p e = mgl\cos e$'den sarkma |
 |---|---|---|
@@ -374,11 +366,11 @@ tau += d.qfrc_bias[0]                       # or: gravity feedforward from the m
 | PID, Ki = 160 | 0,000° | 46,016° | 1,520 s |
 | PD + `qfrc_bias` | −0,000° | 3,994° | 0,463 s |
 
-Integral terimi hatayı gideriyor ama karşılığında zaman ya da overshoot alıyor. Feedforward hatayı hemen gideriyor; kalan overshoot ζ = 0,7 döngüsünün kendisine ait (11. dersin $g(q)$'su işini yapıyor). Buradaki `qfrc_bias` bir adım geriden okunuyor; taze değerle overshoot 4,009° (Sıfırdan yaz, Adım 5).
+Integral hatayı zaman ya da overshoot karşılığında gideriyor; feedforward hemen, ζ = 0,7 döngüsünün kendi overshoot'uyla gideriyor (bir adım geç: taze `qfrc_bias` ile 4,009°, Sıfırdan yaz, Adım 5).
 
-![Solda: yerçekimsiz PD ekleminin 0,1'den 1,5'e kadar damping oranları için step yanıtları; düşük oranlar hedef etrafında salınıyor, 1,0 overshoot'suz varıyor, 1,5 sürünüyor. Sağda: aynı eklem yerçekimi altında; PD hedefin 8,342° gerisinde kalıyor, Ki 160'lı PID hedefin 46,016° ötesine salınıyor, gravity feedforward'lı PD hedefe oturuyor.](../../experiments/12-joint-control/step_responses.png)
+![Solda: 0,1'den 1,5'e damping oranları için yerçekimsiz PD step yanıtları, salınımdan sürünmeye. Sağda: yerçekimi altında PD 8,342° geride kalıyor, Ki 160'lı PID 46,016° öteye salınıyor, gravity feedforward'lı PD hedefe oturuyor.](../../experiments/12-joint-control/step_responses.png)
 
-**C. SO-101 servo'su.** Kol öne uzanmış (bütün joint'ler 0, gripper yaklaşık 39 cm ileride), yük gripper frame'inde, bütün servo'lara 0'ı tutmaları söyleniyor, 3 s.
+**C. SO-101 servo'su.** Kol öne uzanmış (bütün joint'ler 0, gripper yaklaşık 39 cm ileride), yük gripper'da, servo'lar 3 s boyunca 0'ı tutuyor.
 
 | yük | yerçekimi torku, omuz | omuz sarkması | servo torku | gripper düşüşü |
 |---|---|---|---|---|
@@ -389,9 +381,9 @@ Integral terimi hatayı gideriyor ama karşılığında zaman ya da overshoot al
 | 0,80 kg | −3,101 | 37,403° | −2,940 (cap) | 22,30 |
 | 1,00 kg | −3,733 | 37,403° | −2,940 (cap) | 22,30 |
 
-$k_p$ 1000 N·m/rad civarındayken sarkma bir derecenin kesri kadar; ta ki yerçekimi torku 2,94 N·m'lik cap'i geçene kadar. O noktada position döngüsünün elinde bir şey kalmıyor ve kol, gripper yere dayanana kadar düşüyor. Sert bir servo yerçekimini gizler; tork limiti gizlemez.
+$k_p$ 1000 N·m/rad civarındayken sarkma bir derecenin kesri; ta ki yerçekimi 2,94 N·m'lik cap'i geçene kadar, sonra kol yere düşüyor. Sert bir servo yerçekimini gizler; tork limiti gizlemez.
 
-**D. Go2 vaka çalışması.** Menagerie Go2 bacakları katlı yatıyor (gövde 10 cm'de); 3 s boyunca 12 joint'in hepsine $\tau = K_p(q^* - q) - K_d\dot q$ veriliyor, motor limitlerinde kırpılıyor; $q^*$ = `go2_config.py`'deki `default_joint_angles`. Son = 2,5–3 s arası ortalama gövde yüksekliği; overshoot = (tepe − son)/(son − başlangıç); "saturation'daki adımlar" = herhangi bir joint'in tork limitine dayandığı kontrol adımlarının payı.
+**D. Go2 vaka çalışması.** Menagerie Go2 bacakları katlı yatıyor (gövde 10 cm'de); 3 s boyunca 12 joint'in hepsine `go2_config.py`'deki `default_joint_angles`'a doğru kırpılmış PD torku veriliyor. Son = 2,5–3 s arası ortalama gövde yüksekliği; overshoot = (tepe − son)/(son − başlangıç); "saturation'daki adımlar" = bir joint'in tork limitinde olduğu adımların payı.
 
 | Kp / Kd | tepe | tepe zamanı | tepede yerdeki ayak | son | overshoot | saturation'daki adımlar |
 |---|---|---|---|---|---|---|
@@ -405,25 +397,25 @@ $k_p$ 1000 N·m/rad civarındayken sarkma bir derecenin kesri kadar; ta ki yerç
 | 60 / 5 (gerçek robot örneğinin gain'leri) | 29,9 | 1,11 | 4 | 29,8 | %0,2 | %0,9 |
 | 20 / 0,5 + gövdede 5 kg | 22,7 | 0,38 | 4 | 21,8 | %7,4 | %0,0 |
 
-Hedef açılar tam tutulsaydı gövde 32,35 cm'de dururdu (ön bacaklar; arka 31,39 cm; yalnızca geometri). 20 / 0,5 ile 25,2 cm'de duruyor, yaklaşık 7 cm aşağıda: bu, B bölümündeki yerçekimi sarkmasının aynı anda on iki joint'teki hali. PD tek başına bu açığı kapatmıyor; eğitimde policy hedefi kaydırarak kapatıyor (`go2_config.py`'de `action_scale = 0.25`).
+Hedefler tam tutulsaydı gövde 32,35 cm'de dururdu (ön bacaklar; arka 31,39 cm). 20 / 0,5 ile 25,2 cm'de duruyor, yaklaşık 7 cm aşağıda: B bölümündeki sarkma, on iki joint'te. Eğitimde policy bunu hedefi kaydırarak kapatıyor (`action_scale = 0.25`).
 
 ## Boz
 
-**Kp yukarı, Kd sabit.** 80 / 0,5'te gövde t = 0,33 s'de 50,8 cm'ye kadar overshoot yapıyor, **dört ayağın dördü de yerden kesik**, ve adımların %2,9'unda bir joint tork limitinde. ζ diliyle: Kd yerinde kalırken Kp dört katına çıktı, yani ζ yarıya indi; joint'ler hedefin çok ötesine savruluyor ve biriken enerji robotu fırlatıyor. Kd'yi Kp ile birlikte artırmak (60 / 5) %0,2 overshoot ve 29,8 cm'lik bir duruş veriyor.
+**Kp yukarı, Kd sabit.** 80 / 0,5'te gövde t = 0,33 s'de 50,8 cm'ye kadar overshoot yapıyor, **dört ayağın dördü de yerden kesik**, adımların %2,9'unda bir joint saturation'da. Kd sabitken Kp dört katına çıktı, ζ yarıya indi ve biriken enerji robotu fırlatıyor. Kd'yi Kp ile artırmak (60 / 5) %0,2 overshoot ve 29,8 cm'lik duruş veriyor.
 
-**Ki yukarı.** B bölümünde Ki = 160 kalıcı (uzun vadede kalan) hatayı gideriyor ama 46,016° overshoot yapıyor: 90°'lik hareket sırasında integral büyük bir hata biriktiriyor ve bu hata hedefin ötesine geçerek "boşaltılmak" zorunda. Gerçek controller'lar saturation ve büyük hatalar sırasında integrator'ı kırpar ya da dondurur (anti-windup), ya da feedforward kullanıp Ki'yi küçük tutar. Sıfırdan yaz, Adım 6'daki 3 N·m'lik clamp aynı Ki = 160'ı 4,646° overshoot'a indiriyor.
+**Ki yukarı.** B bölümünde Ki = 160 kalıcı hatayı gideriyor ama 46,016° overshoot yapıyor: integral 90°'lik hareket sırasında şişiyor. Gerçek controller'lar integrator'ı kırpar ya da dondurur (anti-windup) ya da feedforward kullanıp Ki'yi küçük tutar; Sıfırdan yaz, Adım 6'daki 3 N·m'lik clamp onu 4,646°'ye indiriyor.
 
 ## Gerçek robotta
 
-- **Go2.** 20 / 0,5, hedefi her 20 ms'de kaydıran bir policy altındaki eğitim simülasyonu gain'leri. Unitree'nin `unitree_rl_gym/deploy` klasöründe yalnızca G1, H1 ve H1_2 için gerçek robot config'i var, Go2 için yok ([`deploy_real/configs`](https://github.com/unitreerobotics/unitree_rl_gym/tree/main/deploy/deploy_real/configs)). SDK kalkma örneği Kp 60, Kd 5 kullanıyor ve hedefi basamakla vermiyor: başlangıç pozundan ara noktalar üzerinden doğrusal interpolasyon yapıyor, her faz 2 ms'lik 500 ya da daha fazla tick sürüyor ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp), [Python sürümü](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py)). Rampalı hedef, 13. dersin trajectory fikri. Bu dersteki Go2 sayılarının hiçbiri donanımda ölçülmedi.
-- **Model farkları.** Menagerie Go2, joint'lere 2 N·m·s/rad pasif damping ve 0,2 N·m friction loss ekliyor; eğitimdeki [`go2.urdf`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/resources/robots/go2/urdf/go2.urdf)'de joint damping kaydı yok ve diz effort limiti 35,55 N·m (Menagerie: 45,43 N·m). Bizim adımımız 2 ms (eğitim: 5 ms). Bu yüzden "Kd = 0" bile damping içeriyor ve buradaki her salınım eğitimdekinden yumuşak. Nitel sonuçlara güven (Kp 5 kalkamıyor, Kp 80 yerden kesiliyor, 20 / 0,5 yaklaşık 7 cm aşağıda duruyor); tam overshoot yüzdelerini bu modele özgü say.
-- **SO-101.** Follower kol 1/345 dişli oranlı altı STS3215 servo kullanıyor; leader kol hem kendini taşıyabilsin hem elle hareket ettirilebilsin diye 1/191, 1/345 ve 1/147'yi karıştırıyor ([LeRobot SO-101 dokümanı](https://huggingface.co/docs/lerobot/so101)). Sen hedef konum gönderiyorsun; konum hatasını motor akımına çeviren döngü servo'nun içinde çalışıyor. C bölümündeki sarkma ve düşüş sayıları Menagerie modelinden geliyor ve gerçek kolda henüz ölçülmedi. Ölçüm prosedürü: kolu öne uzat, gripper'a bilinen kütleler as, shoulder_lift'in `Present_Position` değerini oku ve servo ısınmadan dur.
+- **Go2.** 20 / 0,5, hedefi her 20 ms'de kaydıran bir policy altındaki eğitim gain'leri; `unitree_rl_gym/deploy`'da yalnızca G1, H1 ve H1_2 için gerçek robot config'i var ([`deploy_real/configs`](https://github.com/unitreerobotics/unitree_rl_gym/tree/main/deploy/deploy_real/configs)). SDK kalkma örneği (Kp 60, Kd 5) ara noktalar üzerinden doğrusal interpolasyon yapıyor, fazlar 2 ms'lik 500 ya da daha fazla tick ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp), [Python sürümü](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py)): 13. dersin trajectory fikri. Buradaki hiçbir Go2 sayısı donanımda ölçülmedi.
+- **Model farkları.** Menagerie'nin Go2'su joint damping 2 N·m·s/rad ve friction loss 0,2 N·m ekliyor; eğitimdeki [`go2.urdf`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/resources/robots/go2/urdf/go2.urdf)'de damping yok ve diz limiti 35,55 N·m (Menagerie: 45,43 N·m). Adımımız 2 ms (eğitim: 5 ms); "Kd = 0" bile damping içeriyor. Nitel sonuçlara güven (Kp 5 kalkamıyor, Kp 80 yerden kesiliyor, 20 / 0,5 yaklaşık 7 cm aşağıda duruyor), tam yüzdelere değil.
+- **SO-101.** Follower'ın altı STS3215 servo'su 1/345 dişli oranlı ([LeRobot SO-101 dokümanı](https://huggingface.co/docs/lerobot/so101)); hedef konum gönderirsin, konum döngüsü servo'nun içinde çalışır. C bölümünün sayıları Menagerie modelinden; gerçek kolda henüz ölçülmedi. Prosedür: kolu öne uzat, gripper'a bilinen kütleler as, shoulder_lift'in `Present_Position`'ını oku, servo ısınmadan dur.
 
 ## Kendini dene
 
 1. **Kolay.** Bir bilek joint'inin $I$ = 0,01 kg·m² ve Kp = 20 N·m/rad. Hangi Kd ζ = 0,7 verir?
 2. **Orta.** B bölümünde hangi Kp, 1 kg'lık, 30 cm'lik link'in PD sarkmasını 1°'nin altına indirir? $K_p e \approx mgl$ kullan.
-3. **Zor.** `experiment.py`'de Go2 kuralına bir I terimi ekle (`Ki * integral(q* - q)`). ~7 cm'lik açık 3 s içinde kapanıyor mu? Overshoot'a ve tepede yerdeki ayak sayısına ne oluyor?
+3. **Zor.** `experiment.py`'de Go2 kuralına bir I terimi ekle. ~7 cm'lik açık 3 s içinde kapanıyor mu? Overshoot'a ve tepede yerdeki ayaklara ne oluyor?
 
 ### Cevaplar
 
@@ -433,15 +425,15 @@ Hedef açılar tam tutulsaydı gövde 32,35 cm'de dururdu (ön bacaklar; arka 31
 
 ## Akılda kalanlar ve kaynaklar
 
-- PD bir yay–sönümleyicidir: $\zeta = K_d / (2\sqrt{K_p I})$ overshoot'u yüzdenin bir kesrine kadar öngörür (ζ = 0,1'de %72,91'e karşı %72,92); ζ ≈ 0,7–1 en hızlı oturur.
-- Yerçekimi altında PD $g/K_p$ kadar sarkar (Kp 20'de 8,342°); PID bunu yavaşça giderir ve windup yapar (Ki 160'ta 46,016° overshoot); `qfrc_bias`'tan gravity feedforward bir anda giderir.
+- PD bir yay–sönümleyicidir: $\zeta = K_d / (2\sqrt{K_p I})$ overshoot'u öngörür (ζ = 0,1'de %72,91'e karşı %72,92); ζ ≈ 0,7–1 en hızlı oturur.
+- Yerçekimi altında PD $g/K_p$ kadar sarkar (Kp 20'de 8,342°); PID bunu yavaşça giderir ve windup yapar (Ki 160'ta 46,016°); gravity feedforward bir anda giderir.
 - Bir position servo, torque cap'li sert bir PD'dir; Go2'nun 20 / 0,5'i policy olmadan 7 cm aşağıda durur, 80 / 0,5 onu yerden fırlatır.
 
 Sonraki: [ders 13 · Trajectory generation](13-trajectory-generation.md).
 
 Kaynaklar:
 - [`unitree_rl_gym`](https://github.com/unitreerobotics/unitree_rl_gym): [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py), [`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py), [`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py) (BSD-3-Clause, © Unitree Robotics).
-- [`unitree_sdk2` · `go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp), [`unitree_sdk2_python` · `go2_stand_example.py`](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py): Kp 60, Kd 5, interpolasyonlu hedefler.
+- [`unitree_sdk2` · `go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp), [`unitree_sdk2_python` · `go2_stand_example.py`](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py).
 - [LeRobot SO-101 dokümantasyonu](https://huggingface.co/docs/lerobot/so101) (27.10.2026'da okundu).
 - [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie): `unitree_go2` (BSD-3-Clause, © Unitree Robotics), `robotstudio_so101` (Apache-2.0); [MuJoCo Modeling · actuators](https://mujoco.readthedocs.io/en/stable/modeling.html).
 - Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), böl. 11 (Robot Control).

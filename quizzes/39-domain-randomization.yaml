@@ -1,44 +1,92 @@
-# Lesson 39 · Domain randomization. Every answer is supported by the lesson page or
-# experiments/39-domain-randomization/output.txt. answer = index of the correct option (0-based).
-- q:
-    en: The controller tuned on the nominal plant only has the best nominal error (0.165°) and the worst transfer (5/32). Why?
-    tr: Yalnızca nominal plant'te ayarlanan controller en iyi nominal hataya (0,165°) ve en kötü aktarıma (5/32) sahip. Neden?
+# Lesson 39 · Domain randomization. Every answer is supported by the lesson page,
+# experiments/39-domain-randomization/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: A driver trains only on one simulator with exactly known grip and reaction delay. What happens in a real car that differs a little?
+    tr: Bir sürücü yalnızca tutuşu ve tepki gecikmesi tam bilinen tek bir simülatörde eğitiliyor. Biraz farklı gerçek bir arabada ne olur?
   options:
-    - en: It chose Kp = 117 with little damping, a loop that relies on the delay being 5 ms; the real plants have 15.5–28.8 ms.
-      tr: Az damping'le Kp = 117 seçti; bu, gecikmenin 5 ms olmasına güvenen bir döngü. Gerçek plant'lerde gecikme 15,5–28,8 ms.
-    - en: CEM did not converge on the nominal plant.
-      tr: CEM nominal plant'te yakınsamadı.
-    - en: The nominal plant has no friction, so the controller never learned to push.
-      tr: Nominal plant'te friction yok, bu yüzden controller hiç itmeyi öğrenmedi.
+    - en: Nothing; small differences average out.
+      tr: Hiçbir şey; küçük farklar birbirini götürür.
+    - en: The driver misjudges corners, because the style exploits the exact numbers of that one simulator.
+      tr: Sürücü virajları yanlış değerlendirir, çünkü sürüş tarzı o tek simülatörün tam sayılarını sömürür.
+    - en: The driver becomes too cautious.
+      tr: Sürücü fazla temkinli olur.
+  answer: 1
+  why:
+    en: 'Tuned on the nominal plant only, the controller is best there (0.165°) and worst on the real plants (5/32): it chose Kp = 117 with little damping, relying on a 5 ms delay.'
+    tr: 'Yalnızca nominal plant''ta ayarlanan controller orada en iyi (0,165°), gerçek plant''larda en kötü (5/32): az damping''le Kp = 117 seçti, 5 ms gecikmeye güvenerek.'
+- stage: pre
+  q:
+    en: If randomizing helps, why not make the training range as wide as possible?
+    tr: Randomize etmek işe yarıyorsa, eğitim aralığını neden olabildiğince geniş yapmıyoruz?
+  options:
+    - en: A very wide range makes the policy cautious, worse on the plant you know and eventually on the real one too.
+      tr: Çok geniş bir aralık policy'yi temkinli yapar; bildiğin plant'ta, sonunda gerçek plant'ta da daha kötü olur.
+    - en: Wide ranges make simulation unstable.
+      tr: Geniş aralıklar simülasyonu kararsız yapar.
+    - en: Wide ranges need a GPU.
+      tr: Geniş aralıklar GPU gerektirir.
   answer: 0
+  why:
+    en: 'Break it: at w = 2 the controller is soft (Kp 19.59), 2.201° nominal and 13/32 on the real plants, worse than the narrowest range (24/32 at w = 0.1).'
+    tr: 'Boz: w = 2''de controller yumuşak (Kp 19,59), nominalde 2,201° ve gerçek plant''larda 13/32; en dar aralıktan (w = 0,1''de 24/32) kötü.'
+- stage: check
+  q:
+    en: Build it, Step 2 shows that at w = 0.5 only 5 of the 32 real plants lie fully inside the training distribution, yet the w = 0.5 controller succeeds on 28/32. What does that say?
+    tr: Sıfırdan yaz, Adım 2, w = 0,5'te 32 gerçek plant'tan yalnızca 5'inin eğitim dağılımının tamamen içinde olduğunu gösteriyor; yine de w = 0,5 controller'ı 28/32'de başarılı. Bu ne söyler?
+  options:
+    - en: The coverage check has a bug.
+      tr: Kapsama kontrolünde bir hata var.
+    - en: Full coverage is required for any success.
+      tr: Her başarı için tam kapsama gerekir.
+    - en: Coverage is needed for a guarantee, not for good transfer; at w = 1.5 all 32 are covered, but success drops to 23/32.
+      tr: Kapsama bir garanti için gerekir, iyi aktarım için değil; w = 1,5'te 32'nin hepsi kapsanıyor ama başarı 23/32'ye düşüyor.
+  answer: 2
+  why:
+    en: Most of the gain comes from not trusting the exact delay; the price of width is paid on every plant.
+    tr: Kazancın çoğu gecikmenin tam değerine güvenmemekten geliyor; genişliğin bedeli her plant'ta ödeniyor.
+- stage: check
+  q:
+    en: Why does expected_cost score every candidate on the same sampled plants instead of drawing new plants per candidate?
+    tr: expected_cost neden her aday için yeni plant çekmek yerine bütün adayları aynı örneklenmiş plant'larda puanlıyor?
+  options:
+    - en: To save random numbers.
+      tr: Random sayı tasarrufu için.
+    - en: So that the difference between two candidates comes from the candidates, not from one getting easier plants (common random numbers).
+      tr: İki aday arasındaki fark plant'lardan değil adaylardan gelsin diye; biri daha kolay plant'lar almasın (common random numbers).
+    - en: Because MuJoCo can simulate only one plant per model.
+      tr: Çünkü MuJoCo model başına yalnızca bir plant simüle edebilir.
+  answer: 1
+  why:
+    en: With the same order of random draws, Build it, Step 4 reproduces the Experiment's w = 0.5 row exactly (Kp 55.43, Kd 3.244, kg 0.563, 28/32).
+    tr: Random çekilişlerin sırası aynı olunca Sıfırdan yaz, Adım 4 Deney'in w = 0,5 satırını birebir üretiyor (Kp 55,43, Kd 3,244, kg 0,563, 28/32).
+- stage: post
+  q:
+    en: The controller tuned on the nominal plant only has the best nominal error (0.165°) and the worst transfer (5/32). Why?
+    tr: Yalnızca nominal plant'ta ayarlanan controller en iyi nominal hataya (0,165°) ve en kötü aktarıma (5/32) sahip. Neden?
+  options:
+    - en: CEM did not converge on the nominal plant.
+      tr: CEM nominal plant'ta yakınsamadı.
+    - en: The nominal plant has no friction, so the controller never learned to push.
+      tr: Nominal plant'ta friction yok, bu yüzden controller hiç itmeyi öğrenmedi.
+    - en: It chose Kp = 117 with little damping, a loop that relies on the delay being 5 ms; the real plants have 15.5–28.8 ms.
+      tr: Az damping'le Kp = 117 seçti; bu, gecikmenin 5 ms olmasına güvenen bir döngü. Gerçek plant'larda gecikme 15,5–28,8 ms.
+  answer: 2
   why:
     en: 'Width table, row $w = 0$: Kp 117.36, Kd 0.914, real mean 3.526°. Randomized rows choose Kd between 1.916 and 4.484 for phase margin (lesson 37).'
     tr: 'Genişlik tablosu, $w = 0$ satırı: Kp 117,36, Kd 0,914, gerçek ortalama 3,526°. Randomize satırlar phase margin için 1,916 ile 4,484 arası Kd seçiyor (ders 37).'
-- q:
-    en: At $w = 2$ the training delays reach 85 ms and the tuned controller succeeds on only 13/32 real plants. Why is it worse than a narrower range?
-    tr: $w = 2$'de training gecikmeleri 85 ms'ye çıkıyor ve ayarlanan controller gerçek plant'lerin yalnızca 13/32'sinde başarılı. Neden daha dar bir aralıktan kötü?
-  options:
-    - en: CEM samples too few plants at large widths to find any controller.
-      tr: CEM geniş aralıklarda herhangi bir controller bulmak için çok az plant örnekler.
-    - en: The average is dominated by hard plants that do not exist, so the optimizer settles on a soft controller (Kp 19.59) that tracks badly everywhere.
-      tr: Ortalamaya var olmayan zor plant'ler hâkim olur; optimizer her yerde kötü takip eden yumuşak bir controller'da (Kp 19,59) karar kılar.
-    - en: Wide randomization makes the controller unstable on the nominal plant.
-      tr: Geniş randomization controller'ı nominal plant'te kararsız yapar.
-  answer: 1
-  why:
-    en: Break it table, nominal error 2.201° (13 times the nominal-only controller). Width is set by identification and measured latency, not "as wide as possible".
-    tr: Boz tablosu, nominal hata 2,201° (yalnız nominal controller'ın 13 katı). Genişlik "olabildiğince geniş" değil, identification ve ölçülen gecikmeyle belirlenir.
-- q:
+- stage: post
+  q:
     en: In every row the worst real plant stays above 3°. Why can no width fix that?
     tr: Her satırda en kötü gerçek plant 3°'nin üzerinde kalıyor. Neden hiçbir genişlik bunu düzeltemiyor?
   options:
+    - en: Some real plants have friction ×2.48, outside even the $w = 1$ range (up to ×2.00), and a fixed-gain controller has limits.
+      tr: Bazı gerçek plant'larda friction ×2,48; bu, $w = 1$ aralığının (×2,00'ye kadar) bile dışında ve sabit gain'li bir controller'ın sınırları var.
     - en: The real plants are measured with a biased sensor.
-      tr: Gerçek plant'ler sapmalı bir sensörle ölçülüyor.
+      tr: Gerçek plant'lar sapmalı bir sensörle ölçülüyor.
     - en: CEM was run with too few iterations for the wide rows.
       tr: CEM geniş satırlar için çok az iterasyonla çalıştırıldı.
-    - en: Some real plants have friction ×2.48, outside even the $w = 1$ range (up to ×2.00), and a fixed-gain controller has limits.
-      tr: Bazı gerçek plant'lerde friction ×2,48; bu, $w = 1$ aralığının (×2,00'a kadar) bile dışında ve sabit gain'li bir controller'ın sınırları var.
-  answer: 2
+  answer: 0
   why:
-    en: Observe 4 in the experiment. Coverage matters (Math details), but no single compromise of three gains absorbs every plant.
-    tr: Gözlem 4. Kapsama önemli (Math details), ama üç gain'in tek bir uzlaşması her plant'i karşılayamaz.
+    en: Observe 4. Even at w = 1.5, where all real plants are inside the range (Build it, Step 2), the worst plant is at 3.791°.
+    tr: Gözlem 4. Bütün gerçek plant'ların aralığın içinde olduğu w = 1,5'te bile (Sıfırdan yaz, Adım 2) en kötü plant 3,791°.

@@ -1,6 +1,67 @@
-# Lesson 15 · Safety. Every answer is supported by the lesson page or
-# experiments/15-safety/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 15 · Safety. Every answer is supported by the lesson page,
+# experiments/15-safety/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: You cap a joint's motor torque. Which harm does the cap bound directly?
+    tr: Bir eklemin motor torkuna cap koyuyorsun. Cap hangi zararı doğrudan sınırlar?
+  options:
+    - en: Both the impact and the push, equally; force is torque over lever either way.
+      tr: Çarpmayı da itmeyi de eşit şekilde; kuvvet her durumda tork bölü kaldıraçtır.
+    - en: The steady push on an obstacle; the impact only indirectly, through a slower arrival.
+      tr: Engele kalıcı itmeyi; çarpmayı yalnızca dolaylı olarak, daha yavaş gelişle.
+    - en: Only the impact; once the arm stalls the cap no longer matters.
+      tr: Yalnızca çarpmayı; kol takılınca cap'in önemi kalmaz.
+  answer: 1
+  why:
+    en: At rest the push is $F = \tau_{\max}/r$; the impact depends on the arrival speed. Part A - a 0.5 N·m cap gives a 2.12 N push but still a 21.34 N peak.
+    tr: Durgun hâlde itme $F = \tau_{\max}/r$'dir; çarpma geliş hızına bağlıdır. A bölümü - 0,5 N·m cap 2,12 N itme ama yine de 21,34 N tepe veriyor.
+- stage: pre
+  q:
+    en: An operator jogs a joint with velocity commands, then the messages stop arriving. With no watchdog, what does the arm do?
+    tr: Bir operatör bir eklemi hız komutlarıyla jog ediyor, sonra mesajlar gelmez oluyor. Watchdog yoksa kol ne yapar?
+  options:
+    - en: It keeps moving at the last commanded velocity until something stops it.
+      tr: Bir şey onu durdurana kadar son komut edilen hızla hareket etmeye devam eder.
+    - en: It holds its last position, like a position servo with no new goal.
+      tr: Yeni hedef almayan bir position servo gibi son pozisyonunu tutar.
+    - en: It drops, because the servo turns its torque off.
+      tr: Düşer, çünkü servo torkunu kapatır.
+  answer: 0
+  why:
+    en: '"Stop" depends on the interface (Core idea). In part D, with no watchdog the arm travels 19.57° after the last message and hits the post with 24.48 N.'
+    tr: '"Dur" arayüze bağlıdır (Ana fikir). D bölümünde watchdog yokken kol son mesajdan sonra 19,57° gidiyor ve direğe 24,48 N ile çarpıyor.'
+- stage: check
+  q:
+    en: In Build it, Step 2, the SO-101 servo ($k_p$ = 998.22) hits its 2.94 N·m cap at an error of 2.95 mrad. What follows for a bad command?
+    tr: Sıfırdan yaz, Adım 2'de SO-101 servo'su ($k_p$ = 998,22) 2,94 N·m'lik cap'ine 2,95 mrad hatada ulaşıyor. Hatalı bir komut için bundan ne çıkar?
+  options:
+    - en: The servo pushes in proportion to the error, so a larger bad command pushes harder.
+      tr: Servo hatayla orantılı iter, yani daha büyük bir hatalı komut daha sert iter.
+    - en: Lowering $k_p$ is the best way to bound the push.
+      tr: İtmeyi sınırlamanın en iyi yolu $k_p$'yi düşürmektir.
+    - en: Almost any bad command saturates the servo, so the cap, not the gains, sets the push.
+      tr: Neredeyse her hatalı komut servo'yu saturation'a sokar; itmeyi gain'ler değil cap belirler.
+  answer: 2
+  why:
+    en: Step 2 matches MuJoCo's actuator to 2.3e-13 N·m and shows the 2.95 mrad threshold; Step 3 then measures pushes that follow the cap (2.12 N at 0.5 N·m, 4.34 N at 1.0 N·m).
+    tr: Adım 2 MuJoCo'nun actuator'ıyla 2,3e-13 N·m'ye kadar örtüşüyor ve 2,95 mrad eşiğini gösteriyor; Adım 3 de cap'i izleyen itmeler ölçüyor (0,5 N·m'de 2,12 N, 1,0 N·m'de 4,34 N).
+- stage: check
+  q:
+    en: With LeRobot's default SO-101 follower settings you set `max_relative_target = 0.02`. What does it limit?
+    tr: LeRobot'un varsayılan SO-101 follower ayarlarıyla `max_relative_target = 0.02` yapıyorsun. Neyi sınırlar?
+  options:
+    - en: Each body joint's goal to 0.02 rad from the last command.
+      tr: Her gövde ekleminin hedefini son komuttan 0,02 rad uzağa.
+    - en: Each body joint's goal to 0.02° from the present position.
+      tr: Her gövde ekleminin hedefini mevcut pozisyondan 0,02° uzağa.
+    - en: The joint speed to 0.02 rad/s.
+      tr: Eklem hızını 0,02 rad/s'ye.
+  answer: 1
+  why:
+    en: Use it, traps - the follower uses degrees by default (`use_degrees = True`), and `ensure_safe_goal_position` clamps against `Present_Position`, like `clamp_goal`.
+    tr: Kütüphaneyle kullan, tuzaklar - follower varsayılan olarak derece kullanır (`use_degrees = True`) ve `ensure_safe_goal_position`, `clamp_goal` gibi mevcut pozisyona (`Present_Position`) göre kırpar.
+- stage: post
+  q:
     en: A tight relative-target limit (δ = 0.005 rad/tick) cuts the impact on the post to 17.17 N. Why does the arm still push on it with 13.54 N afterwards?
     tr: Sıkı bir relative-target limit (δ = 0,005 rad/tick) direğe çarpmayı 17,17 N'ye indiriyor. Kol neden sonrasında yine de 13,54 N ile itmeye devam ediyor?
   options:
@@ -14,21 +75,8 @@
   why:
     en: Part C - the steady push stays near 14 N for every δ (998.22 × 0.005 ≈ 5 N·m ≥ 2.94 N·m). A rate limit bounds the speed at impact, not the push.
     tr: C bölümü - kalıcı itme her δ için 14 N civarında kalıyor (998,22 × 0,005 ≈ 5 N·m ≥ 2,94 N·m). Rate limit itmeyi değil, çarpma anındaki hızı sınırlar.
-- q:
-    en: Which single safeguard lowered both the impact peak and the steady push on the post in part A?
-    tr: A bölümünde direkteki hem çarpma tepesini hem de kalıcı itmeyi hangi tek safeguard düşürdü?
-  options:
-    - en: The relative-target limit of 0.02 rad/tick.
-      tr: 0,02 rad/tick'lik relative-target limit.
-    - en: The torque cap of 0.5 N·m.
-      tr: 0,5 N·m'lik torque cap.
-    - en: Neither; only the hardware E-stop changes contact forces.
-      tr: Hiçbiri; contact kuvvetlerini yalnızca donanım E-stop'u değiştirir.
-  answer: 1
-  why:
-    en: Torque cap 0.5 N·m - 21.34 N peak, 2.12 N push (none - 125.98 / 14.33 N). The rate limit gives 45.82 N peak but 14.48 N push. Only the position limit avoided contact, because we knew where the post was.
-    tr: 0,5 N·m torque cap - 21,34 N tepe, 2,12 N itme (hiçbiri - 125,98 / 14,33 N). Rate limit 45,82 N tepe ama 14,48 N itme veriyor. Contact'ı yalnızca position limit engelledi, çünkü direğin yerini biliyorduk.
-- q:
+- stage: post
+  q:
     en: A watchdog with a 0.5 s timeout guards a 1 rad/s jog, but the arm still hits the post. Why?
     tr: 0,5 s timeout'lu bir watchdog 1 rad/s'lik bir jog'u koruyor ama kol yine de direğe çarpıyor. Neden?
   options:

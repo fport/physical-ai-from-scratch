@@ -41,23 +41,13 @@ flowchart TD
 
 ### Aralık, kod olarak
 
-Her deneme, hileli bir yazı-tura gibi 1 (başarı) ya da 0 (başarısızlık) ile biter; istatistikçiler buna Bernoulli denemesi, n atıştaki tura sayısına da binom sayımı der. Ders kitabındaki aralık (Wald) ve bu kitabın kullandığı aralık (Wilson, 1927) birkaç satırdır:
+Her deneme, hileli bir yazı-tura gibi 1 (başarı) ya da 0 (başarısızlık) ile biter: bir Bernoulli denemesi; n atıştaki tura sayısı da binom sayımı. Ders kitabındaki aralık (Wald) ve bu kitabın kullandığı aralık (Wilson, 1927), birkaç satırda (tam kod Sıfırdan yaz'da):
 
 ```python
-import math
-
-def wald(k, n, z=1.96):              # k successes in n trials; z = 1.96 for 95%
-    p = k / n                        # observed success rate
-    half = z * math.sqrt(p * (1 - p) / n)          # zero when p is 0 or 1
-    return max(0.0, p - half), min(1.0, p + half)
-
-def wilson(k, n, z=1.96):
-    p = k / n
-    den = 1 + z * z / n
-    center = (p + z * z / (2 * n)) / den           # pulled toward 0.5
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den  # never zero
-    return max(0.0, center - half), min(1.0, center + half)
-
+p = k / n                                                    # observed success rate
+wald = (p - z * sqrt(p * (1 - p) / n), p + z * sqrt(p * (1 - p) / n))   # zero width at p = 0 or 1
+center = (p + z * z / (2 * n)) / (1 + z * z / n)             # Wilson: pulled toward 0.5
+half = z * sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)  # never zero
 wilson(9, 10)    # (0.596, 0.982): a "9/10" fits a mediocre or an excellent policy
 wald(10, 10)     # (1.0, 1.0): claims certainty after ten trials
 ```
@@ -100,18 +90,166 @@ Daha derine: [Statistics for Machine Learning](https://aiengineeringfromscratch.
 
 **İki policy'yi karşılaştırmak.** Örtüşen aralıklar eşitliği kanıtlamaz ve ayrık %95 aralıkları doğrudan bir karşılaştırmadan daha katı bir testtir. $k_A/n_A$ ile $k_B/n_B$ için iki örneklemli bir test kullan, örneğin başarı ve başarısızlıkların 2 × 2 tablosu üzerinde Fisher'ın exact testi ([SciPy `fisher_exact`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.fisher_exact.html)). Sorduğu soru şu: iki policy'nin oranı aynı olsaydı, en az bu kadar büyük bir fark ne kadar olası olurdu? 0,05'in altındaki bir p-değeri "farklı" demek için alışılmış eşiktir.
 
-## Deney
+## Sıfırdan yaz
 
-Oranı bilinmeyen bir "policy": ders 16'nın scripted pick'i, küpün gürültülü bir tahminine nişan alıyor; gerçek konum + eksen başına $\mathcal N(0, \sigma^2)$, sanki kusurlu bir algı modülünden geliyormuş gibi. Küp konumları x ∈ [16, 28] cm, y ∈ [−8, 8] cm içinde düzgün dağılımlı. Policy A'da σ = 9 mm, policy B'de σ = 6 mm. Her biri 300 simüle denemelik bir havuz alıyor; havuzun oranı uzun vadeli oran $p$'nin yerine geçiyor. $n$ denemelik bir evaluation sonra havuzdan rastgele ve iadeli $n$ deneme seçilerek simüle ediliyor (aynı deneme iki kez seçilebilir); bu, robotu yeniden koşmaktan çok daha ucuz. Tam script: [`experiments/25-evaluating-policies/experiment.py`](../../experiments/25-evaluating-policies/experiment.py), çıktı: [`output.txt`](../../experiments/25-evaluating-policies/output.txt). MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), deterministik, yaklaşık 1 dk CPU (yaklaşık; çok yüklü bir makinede duvar saati süresi birkaç kat uzundu).
+Şimdi bu dersin istatistiğini kendin yazacaksın: iki aralık, kesin kapsama, deneme bütçesi ve Fisher testi, `math.comb` ile düz Python. SciPy yalnız sayılarını kontrol ediyor. Adımları kendi dosyana yaz ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/evaluation.py`](../../physai/evaluation.py) içinde; `uv run python experiments/25-evaluating-policies/build.py` beş adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/25-evaluating-policies/build_output.txt) dosyasında).
+
+### Adım 1 · İki aralık
+
+```python
+def wald(k, n, z=1.96):
+    """Textbook normal-approximation interval p +- z sqrt(p(1-p)/n), clipped to [0, 1]."""
+    p = k / n
+    h = z * math.sqrt(p * (1 - p) / n)
+    return max(0.0, p - h), min(1.0, p + h)
+```
 
 ```python
 def wilson(k, n, z=1.96):
+    """Wilson score interval for k successes in n trials (Wilson 1927)."""
+    if n == 0:
+        return 0.0, 1.0
     p = k / n
     den = 1 + z * z / n
     c = (p + z * z / (2 * n)) / den
     h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den
     return max(0.0, c - h), min(1.0, c + h)
 ```
+
+== Step 1. Wald and Wilson intervals (z = 1.96) vs scipy.stats.binomtest ==
+    k/n             Wald           Wilson     scipy Wilson
+   9/10   [0.714, 1.000]   [0.596, 0.982]   [0.596, 0.982]
+  10/10   [1.000, 1.000]   [0.722, 1.000]   [0.722, 1.000]
+  18/20   [0.769, 1.000]   [0.699, 0.972]   [0.699, 0.972]
+221/300   [0.687, 0.787]   [0.684, 0.783]   [0.684, 0.783]
+scipy uses z = 1.959964; with that z, max difference over k = 0..20 of n = 20: 2.2e-16
+
+Wilson sütunu Deney'inki (C kısmı ve A kısmından 221/300). SciPy'ın `binomtest(k, n).proportion_ci(method="wilson")`'ı yazdırılan basamaklara kadar aynı; 1,96 yerine SciPy'ın tam $z = 1{,}959964$ değeriyle ikisi yuvarlama hatasına kadar örtüşüyor.
+
+### Adım 2 · Kesin kapsama
+
+"%95", koşabileceğin bütün evaluation'lar hakkında bir iddiadır. Binom olasılıklarıyla bunu yeniden örneklemeden kontrol edebilirsin: aralığı $p$'yi içeren her $k$'nın olasılığını topla.
+
+```python
+def binom_pmf(k, n, p):
+    """Probability of exactly k successes in n independent trials with rate p."""
+    return math.comb(n, k) * p ** k * (1 - p) ** (n - k)
+```
+
+```python
+def coverage(interval, n, p, z=1.96):
+    """Exact probability that interval(k, n) contains p when k ~ Binomial(n, p)."""
+    return sum(binom_pmf(k, n, p) for k in range(n + 1) if interval(k, n, z)[0] <= p <= interval(k, n, z)[1])
+```
+
+== Step 2. Exact coverage at p = 221/300 by a binomial sum ==
+binom_pmf vs scipy.stats.binom.pmf (n = 50): max difference 2.3e-16
+   n  Wilson coverage  Wald coverage
+   5            0.981          0.764
+  10            0.975          0.927
+  20            0.962          0.908
+  50            0.947          0.914
+ 100            0.946          0.945
+
+Bunlar $p$ = 221/300'de B tablosunun "kesin" sütunları: Wilson 0,946–0,981'de kalıyor, Wald $n = 5$'te 0,764'e düşüyor.
+
+### Adım 3 · 9/10 ne demek ve deneme bütçesi
+
+```python
+def trials_needed(p, half_width, z=1.96):
+    """Smallest n whose Wilson interval at observed rate p has half-width <= half_width."""
+    n = 1
+    while True:
+        lo, hi = wilson(round(p * n), n, z)
+        if (hi - lo) / 2 <= half_width:
+            return n
+        n += 1
+```
+
+== Step 3. A 9/10 claim, and trials for a Wilson half-width target ==
+policy A (p = 0.737): P(>= 9/10) = 0.215
+policy B (p = 0.877): P(>= 9/10) = 0.645
+ observed rate  +-0.10  +-0.05  +-0.02
+          0.50      93     381    2398
+          0.70      78     320    2014
+          0.90      34     141     864
+          0.95      24      82     465
+
+$P(\ge 9/10)$ binomun iki terimi (C tablosu), bütçe de D tablosu; ikisi de birebir.
+
+### Adım 4 · Fisher'ın kesin testi
+
+2 × 2 tablonun toplamları sabitken A'nın başarı sayısı hypergeometric dağılır. İki yönlü p-değeri, gözlenenden daha olası olmayan her tabloyu toplar:
+
+```python
+def fisher_p(k1, n1, k2, n2):
+    """Two-sided Fisher exact test for k1/n1 vs k2/n2: the total probability, with the margins fixed,
+    of all tables no more likely than the observed one."""
+    K, N = k1 + k2, n1 + n2
+    pmf = {a: math.comb(n1, a) * math.comb(n2, K - a) / math.comb(N, K) for a in range(max(0, K - n2), min(K, n1) + 1)}
+    return min(1.0, sum(q for q in pmf.values() if q <= pmf[k1] * (1 + 1e-7)))
+```
+
+== Step 4. Fisher's exact test by hand vs scipy.stats.fisher_exact ==
+all 441 tables k_A/20 vs k_B/20: max p-value difference 3.3e-16
+14/20 vs 18/20: p = 0.235 | 74/100 vs 88/100: p = 0.018
+
+`1 + 1e-7` göreli toleransı, kesin aritmetikte gözlenenle eşit olasılıklı tabloların yuvarlamaya rağmen sayılmasını sağlar (SciPy aynı amaçla 1e-14 kullanır).
+
+### Adım 5 · Kesin güç
+
+Fisher testi A'yı B'den ne sıklıkla ayırır? Testin "farklı" dediği her $(k_A, k_B)$ sonuç çiftinin olasılığını topla:
+
+```python
+def power(p1, p2, n, alpha=0.05):
+    """Exact probability that Fisher's test at level alpha separates two policies with rates p1, p2, n trials each."""
+    pm1 = [binom_pmf(k, n, p1) for k in range(n + 1)]
+    pm2 = [binom_pmf(k, n, p2) for k in range(n + 1)]
+    return sum(pm1[a] * pm2[b] for a in range(n + 1) for b in range(n + 1) if fisher_p(a, n, b, n) < alpha)
+```
+
+== Step 5. Exact power of Fisher's test, A (p = 0.737) vs B (p = 0.877), n trials each ==
+   n  P(Fisher p < 0.05)  P(B scores <= A)
+  10               0.028             0.301
+  20               0.119             0.173
+  50               0.337             0.046
+ 100               0.656             0.007
+
+E tablosu havuzlardan 1000 evaluation çifti yeniden örneklemiş ve 0,037, 0,113, 0,335 ve 0,673 bulmuştu; kesin değerler 0,028, 0,119, 0,337 ve 0,656. Farklar yeniden örnekleme gürültüsü: 1000 çiftle 0,66 civarındaki bir oranın standart hatası yaklaşık 0,015. Aynısı "B ≤ A" için de geçerli (yeniden örneklenmiş 0,286, 0,170, 0,041, 0,005).
+
+### Elinde kalan
+
+`physai.evaluation` artık `wald`, `wilson`, `binom_pmf`, `coverage`, `trials_needed`, `fisher_p` ve `power` içeriyor. Ders 26–29 k/n'yi `wilson` ile raporluyor; ders 26'nın Sıfırdan yaz bölümü onu import ediyor. [`tests/test_25_evaluating_policies.py`](../../tests/test_25_evaluating_policies.py) onları SciPy'a sabitliyor; `uv run pytest tests/test_25_evaluating_policies.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+SciPy'da her parça var:
+
+```python
+from scipy import stats
+ci = stats.binomtest(k, n).proportion_ci(confidence_level=0.95, method="wilson")   # ci.low, ci.high
+exact = stats.binomtest(k, n).proportion_ci(method="exact")                         # Clopper-Pearson
+odds, p = stats.fisher_exact([[k_a, n_a - k_a], [k_b, n_b - k_b]])                   # two-sided by default
+stats.binom.pmf(k, n, p_true)                                                        # binomial probabilities
+```
+
+| Araç | Wilson aralığı | Varsayılan |
+|---|---|---|
+| physai | `wilson(k, n, z=1.96)` | $z = 1{,}96$ |
+| SciPy | `binomtest(k, n).proportion_ci(method="wilson")` | `method="exact"` (Clopper–Pearson), `confidence_level=0.95` |
+| statsmodels | `proportion_confint(count, nobs, method="wilson")` | `method="normal"`, yani Wald |
+
+Kaynaklar: SciPy [`binomtest`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.binomtest.html) ve [`fisher_exact`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.fisher_exact.html); statsmodels [`proportion_confint`](https://www.statsmodels.org/stable/generated/statsmodels.stats.proportion.proportion_confint.html).
+
+Tuzaklar:
+
+- **Varsayılanlar farklı.** SciPy'ın varsayılan aralığı Wilson'dan geniş olan Clopper–Pearson; statsmodels'inki 10/10'da çöken Wald. Her zaman `method` ver.
+- **Tablonun yönü.** `fisher_exact` her satırda başarı oranını ya da k ile n'yi değil, başarı *ve başarısızlık* sayılarını ister.
+- **Bir evaluation, bir test.** Her yeni deneme grubundan sonra Fisher koşup ilk p < 0,05'te durmak yanlış pozitifleri şişirir; n'yi başlamadan sabitle.
+
+## Deney
+
+Oranı bilinmeyen bir "policy": ders 16'nın scripted pick'i, küpün gürültülü bir tahminine nişan alıyor; gerçek konum + eksen başına $\mathcal N(0, \sigma^2)$, sanki kusurlu bir algı modülünden geliyormuş gibi. Küp konumları x ∈ [16, 28] cm, y ∈ [−8, 8] cm içinde düzgün dağılımlı. Policy A'da σ = 9 mm, policy B'de σ = 6 mm. Her biri 300 simüle denemelik bir havuz alıyor; havuzun oranı uzun vadeli oran $p$'nin yerine geçiyor. $n$ denemelik bir evaluation havuzdan rastgele ve iadeli $n$ deneme seçer; robotu yeniden koşmaktan çok daha ucuz. Tam script: [`experiments/25-evaluating-policies/experiment.py`](../../experiments/25-evaluating-policies/experiment.py), çıktı: [`output.txt`](../../experiments/25-evaluating-policies/output.txt). MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), deterministik, yaklaşık 1 dk CPU.
 
 **A. Havuzlar.**
 

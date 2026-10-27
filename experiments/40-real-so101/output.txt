@@ -13,10 +13,10 @@ limits: margin >= 5.0 deg, step <= 0.1 rad/tick, track <= 5.0 deg, gravity <= 80
 [B] Sweep payload at the gripper frame (speed x1)
     payload kg | margin deg | step rad | track deg |  sat % | grav N m | floor/self steps | verdict
            0.0 |      10.00 |    0.052 |      0.62 |   52.9 |    0.446 |       0/0        | PASS
-           0.2 |      10.00 |    0.052 |      0.67 |   54.6 |    1.096 |       0/0        | PASS
-           0.4 |      10.00 |    0.052 |      0.70 |   58.0 |    1.747 |       0/0        | PASS
-           0.6 |      10.00 |    0.052 |      0.72 |   63.1 |    2.397 |       0/0        | FAIL: gravity
-           0.8 |      10.00 |    0.052 |      2.11 |   73.6 |    3.047 |       0/0        | FAIL: gravity
+           0.2 |      10.00 |    0.052 |      0.65 |   54.2 |    0.945 |       0/0        | PASS
+           0.4 |      10.00 |    0.052 |      0.68 |   56.6 |    1.445 |       0/0        | PASS
+           0.6 |      10.00 |    0.052 |      0.70 |   59.9 |    1.944 |       0/0        | PASS
+           0.8 |      10.00 |    0.052 |      0.71 |   64.1 |    2.443 |       0/0        | FAIL: gravity
 
 [Break it] Calibration offset on shoulder_lift: the arm's zero is off by this much (speed x1)
     offset deg | margin deg | step rad | track deg |  sat % | grav N m | floor/self steps | verdict

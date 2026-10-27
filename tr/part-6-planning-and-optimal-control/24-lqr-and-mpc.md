@@ -16,15 +16,15 @@
 
 ## Problem
 
-Bir cart-pole: 3 m'lik bir rayda 1 kg'lık bir araba, bir menteşede 0,2 kg, 0,6 m'lik bir çubuk, tek bir yatay kuvvet. İki iş var: çubuğu dik tutmak ve aşağı sarkarken yukarı getirmek. Ders 23, simülasyonda hedefi 23,82°'ye kadar ıskalayan yakınsamış open-loop planlar üretti; gerçek her controller döngüyü kapatmak zorunda. Bu dersin soruları: doğrusal bir feedback yasası dik konumdan ne kadar uzakta hâlâ çalışır ve o bölgenin dışında ne kullanırsın?
+Bir cart-pole: 3 m'lik bir rayda 1 kg'lık bir araba, bir menteşede 0,2 kg, 0,6 m'lik bir çubuk, tek bir yatay kuvvet. İki iş var: çubuğu dik tutmak ve aşağı sarkarken yukarı getirmek. Ders 23'ün yakınsamış open-loop planları simülasyonda hedefi 23,82°'ye kadar ıskaladı; gerçek bir controller döngüyü kapatmak zorunda. Doğrusal bir feedback yasası dik konumdan ne kadar uzakta hâlâ çalışır ve o bölgenin dışında ne kullanırsın?
 
 ## Ana fikir
 
 ### Sade anlatımla
 
-Avucunda bir süpürge sapını dengede tutmak, **LQR**'ın (linear-quadratic regulator) iyi bir resmidir. Dik konuma yakın, sapın davranışı neredeyse doğrusaldır: küçük bir eğim, sapı eğimle kabaca orantılı bir ivmeyle düşürür. Doğrusal bir fizik ve karesel hataları ile karesel eforu toplayan bir maliyet için mümkün olan en iyi controller kapalı biçimde bilinir ve bir kez, önceden hesaplanır: sabit bir gain satırı $K$. Çalışırken controller tek bir nokta çarpımıdır: "state'in dik konumdan ne kadar uzak olduğunun eksi $K$ katı kadar it". Zayıflığı, yalnızca o yakın çevreyi bilmesidir. Motorun bir azami kuvveti olduğunu ya da rayın bittiğini bilmez; aşağı sarkarken ise doğrusal resmi düpedüz yanlıştır.
+Avucunda bir süpürge sapını dengede tutmak, **LQR**'ın (linear-quadratic regulator) iyi bir resmidir. Dik konuma yakın sap neredeyse doğrusaldır: küçük bir eğim onu eğimle kabaca orantılı bir ivmeyle düşürür. Doğrusal fizik ve karesel hataları ile karesel eforu toplayan bir maliyet için en iyi controller kapalı biçimde bilinir ve bir kez, önceden hesaplanır: sabit bir gain satırı $K$. Çalışırken tek bir nokta çarpımıdır: "state'in dik konumdan uzaklığının eksi $K$ katı kadar it". Yalnız o yakın çevreyi bilir: motorun azami kuvvetini, rayın bittiğini bilmez; aşağı sarkarken doğrusal resmi düpedüz yanlıştır.
 
-**MPC** (model predictive control), her kavşakta rotayı yeniden hesaplayan bir GPS'tir. Her control adımında gerçekten ölçtüğü state'i alır, saniyenin bir kesri kadar ilerisini (**horizon**) tam, doğrusal olmayan simülatörle planlar, bu planın yalnızca ilk anını uygular ve sonra sistem gerçekte nereye vardıysa oradan yeniden planlar. Hatalar birikmez, çünkü hiçbir şey uzun süre körü körüne izlenmez. Bizim MPC'miz örneklemeli bir türü, MPPI: gradient hesaplamak yerine mevcut planın 64 gürültülü varyasyonunu MuJoCo'da dener ve ucuz olanlara çok daha fazla ağırlık vererek ortalamasını alır. Ayar düğmesi horizon'dur: çok kısaysa zamanında frenlemeye yetecek kadar ileriyi göremez, çok uzunsa 64 örnek uzayan planı fazla seyrek kaplar.
+**MPC** (model predictive control), her kavşakta rotayı yeniden hesaplayan bir GPS'tir. Her control adımında ölçülen state'ten saniyenin bir kesri kadar ilerisini (**horizon**) tam, doğrusal olmayan simülatörle planlar, yalnız ilk anı uygular ve sistem gerçekte nereye vardıysa oradan yeniden planlar; hatalar birikmez. Bizim MPC'miz örneklemeli bir türü, MPPI: mevcut planın 64 gürültülü varyasyonunu MuJoCo'da dener ve ucuz olanlara çok daha fazla ağırlık vererek ortalar. Ayar düğmesi horizon'dur: çok kısaysa zamanında frenleyecek kadar ileriyi göremez, çok uzunsa 64 örnek uzayan planı fazla seyrek kaplar.
 
 ### MPC döngüsü ve LQR'a devir
 
@@ -73,22 +73,22 @@ while True:                                      # receding horizon: always repl
 | LQR yasası | $u = -K\,\delta x, \quad K = (R + B^\top P B)^{-1} B^\top P A$ |
 | MPPI güncellemesi | $\bar U \leftarrow \sum_k w_k U_k, \quad w_k \propto \exp\!\bigl(-(S_k - \min_j S_j)/\lambda\bigr)$ |
 
-Burada $x = (x_{cart}, \theta, \dot x_{cart}, \dot\theta)$ state'tir (araba konumu, çubuğun dik konumdan açısı ve bunların hızları), $\delta x$ ve $\delta u$ dengeden sapmalardır, $A$ ve $B$ tek bir simülatör adımının bu sapmaları nasıl taşıdığını anlatır, $Q$ ve $R$ state hatasını kuvvete karşı tartar, $P$ Riccati denkleminin çözümüdür (cost-to-go matrisi), $K$ gain satırıdır, $\bar U$ horizon boyunca mevcut girdi planı, $U_k$ onun $k$. gürültülü örneği, $S_k$ o örneğin rollout maliyeti, $\lambda$ ise bir sıcaklıktır: küçük $\lambda$ yalnızca en iyi örneklere güvenir, büyük $\lambda$ onları daha eşit ortalar.
+Burada $x = (x_{cart}, \theta, \dot x_{cart}, \dot\theta)$ state'tir (çubuğun dik konumdan açısı), $\delta x, \delta u$ dengeden sapmalar, $A, B$ tek bir simülatör adımının bu sapmaları taşıması, $Q, R$ state hatası ve kuvvet ağırlıkları, $P$ Riccati çözümü (cost-to-go matrisi), $K$ gain satırı, $\bar U$ horizon boyunca girdi planı, $U_k$ onun rollout maliyeti $S_k$ olan $k$. gürültülü örneği, $\lambda$ ise bir sıcaklıktır: küçük $\lambda$ yalnız en iyi örneklere güvenir.
 
 <details>
 <summary>Matematik ayrıntısı: MuJoCo'yu doğrusallaştırmak, Riccati denklemi, kararlılık ve MPPI</summary>
 
-**Simülatörü doğrusallaştır.** Bir denge $(\bar x, \bar u)$ etrafında MuJoCo adımı yaklaşık doğrusaldır, $\delta x_{t+1} \approx A\,\delta x_t + B\,\delta u_t$. `mujoco.mjd_transitionFD(m, d, eps, flg_centered, A, B, C, D)`, `mj_step`'i finite-difference ile türeterek $A$'yı ($2n_v{+}n_a$ kare) ve $B$'yi ($2n_v{+}n_a \times n_u$) hesaplar; `flg_centered` true ise merkezi farkla. RK4 integrator'ı desteklemez ([MuJoCo API](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)); bu yüzden modelimiz $dt = 0{,}01$ s'de Euler kullanıyor.
+**Simülatörü doğrusallaştır.** `mjd_transitionFD`, `mj_step`'i finite difference ile türetir (Sıfırdan yaz, Adım 1). RK4 integrator'ı desteklemez ([MuJoCo API](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)); bu yüzden modelimiz $dt = 0{,}01$ s'de Euler kullanıyor.
 
 **Ayrık zamanlı LQR.** Doğrusal model altında $\sum_t \delta x_t^\top Q\,\delta x_t + \delta u_t^\top R\,\delta u_t$'yi minimize et. Optimal yasa doğrusal state feedback'tir ([Tedrake böl. 8](https://underactuated.csail.mit.edu/lqr.html)):
 
 $$P = A^\top P A - A^\top P B\,(R + B^\top P B)^{-1} B^\top P A + Q, \qquad K = (R + B^\top P B)^{-1} B^\top P A, \qquad u = -K\,\delta x.$$
 
-İlk denklem ayrık cebirsel Riccati denklemidir; $\delta x^\top P\,\delta x$, $\delta x$ state'inden itibaren optimal maliyettir. `scipy.linalg.solve_discrete_are(A, B, Q, R)` $P$'yi döndürür. Sabit bir doğrusal model ve $Q \succeq 0$, $R \succ 0$ olan karesel maliyet için problem convex'tir, yani optimum globaldir; dynamic programming de onu bu Riccati denklemiyle kapalı formda verir (bkz. AIEFS: [Convex Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/18-convex-optimization)). Garanti doğrusal model içindir; kuvvet limiti ve ray sonu yoktur.
+İlk denklem ayrık cebirsel Riccati denklemidir; $\delta x^\top P\,\delta x$, $\delta x$'ten itibaren optimal maliyettir. $Q \succeq 0$, $R \succ 0$ ile problem convex'tir, yani optimum globaldir (bkz. AIEFS: [Convex Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/18-convex-optimization)); doğrusal model için, kuvvet limiti ve ray sonu olmadan.
 
-**Ayrık zamanda kararlılık.** Her adım, bir özvektör boyunca sapmayı o özdeğerle çarpar. Herhangi bir özdeğerin mutlak değeri 1'den büyükse sapma adım adım büyür (kararsız); $A - BK$'nın bütün closed-loop özdeğerleri birim çemberin içindeyse küçük sapmalar sıfıra söner. **Region of attraction**, gerçek, doğrusal olmayan ve kuvvet sınırlı sistemin dengeye hâlâ ulaştığı başlangıç state'lerinin kümesidir; doğrusal analiz bu kümenin boş olmadığını söyler ama ne kadar büyük olduğunu söylemez, bu yüzden ölçülmelidir.
+**Ayrık zamanda kararlılık.** Her adım, bir özvektör boyunca sapmayı o özdeğerle çarpar; $A - BK$'nın bütün özdeğerleri birim çemberin içindeyse küçük sapmalar sıfıra söner. **Region of attraction**, yani gerçek, doğrusal olmayan ve kuvvet sınırlı sistemin dengeye hâlâ ulaştığı başlangıç state'leri, boş değildir; ama büyüklüğü ölçülmelidir.
 
-**MPC ve MPPI.** Her control adımında ölçülen state'ten sonlu ufuklu bir trajectory optimization çöz, ilk girdiyi uygula, kalanı at, tekrarla ([Tedrake böl. 10, MPC](https://underactuated.csail.mit.edu/trajopt.html)). Basitleştirilmiş bir MPPI kullanıyoruz ([Williams vd. 2017](https://homes.cs.washington.edu/~bboots/files/InformationTheoreticMPC.pdf)): $K$ adet bozulmuş girdi dizisi $U_k = \bar U + \epsilon_k$ örnekle, her birini MuJoCo'da rollout et (`mujoco.rollout`, çok thread'li), $S_k$ maliyetiyle puanla, $\bar U$'yu yukarıdaki üstel ağırlıklarla güncelle, sonra $\bar U$'yu bir adım kaydırıp bir sonraki warm start yap. $\min_j S_j$'yi çıkarmak normalize edilmiş ağırlıkları değiştirmez; yalnızca sayısal underflow'u önler. Doğrusallaştırma yok, gradient yok, maliyet serbest: burada $5(1-\cos\theta) + 0{,}5x^2 + 0{,}01(\dot x^2 + \dot\theta^2) + 10^{-4}u^2$, artı ray uçlarına yakın bir ceza.
+**MPC ve MPPI.** Ölçülen state'ten sonlu ufuklu bir trajectory optimization çöz, ilk girdiyi uygula, tekrarla ([Tedrake böl. 10, MPC](https://underactuated.csail.mit.edu/trajopt.html)). Basitleştirilmiş bir MPPI kullanıyoruz ([Williams vd. 2017](https://homes.cs.washington.edu/~bboots/files/InformationTheoreticMPC.pdf)): bozulmuş diziler $U_k = \bar U + \epsilon_k$, `mujoco.rollout` ile rollout, yukarıdaki gibi ağırlıklandırma, sonra bir sonraki warm start için bir adım kaydırılan $\bar U$. $\min_j S_j$'yi çıkarmak yalnız underflow'u önler. Doğrusallaştırma yok, gradient yok, maliyet serbest: burada $5(1-\cos\theta) + 0{,}5x^2 + 0{,}01(\dot x^2 + \dot\theta^2) + 10^{-4}u^2$, artı ray uçlarına yakın bir ceza.
 
 Daha derine: [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization), [Convex Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/18-convex-optimization); [Tedrake böl. 8 (LQR)](https://underactuated.csail.mit.edu/lqr.html) ve [böl. 10 (MPC)](https://underactuated.csail.mit.edu/trajopt.html); [Williams vd. 2017](https://homes.cs.washington.edu/~bboots/files/InformationTheoreticMPC.pdf) (MPPI).
 
@@ -96,21 +96,154 @@ Daha derine: [Optimization](https://aiengineeringfromscratch.com/lesson?path=pha
 
 <!-- figure: 24-lqr-cartpole -->
 
+## Sıfırdan yaz
+
+Şimdi LQR hattını, linearization dahil, ve MPPI güncellemesini kuracaksın. MuJoCo yalnız fiziği adımlıyor; SciPy yalnız Riccati çözümünü kontrol ediyor. Adımları kendi dosyana yaz ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/optimal.py`](../../physai/optimal.py) içinde; `uv run python experiments/24-lqr-and-mpc/build.py` beş adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/24-lqr-and-mpc/build_output.txt) dosyasında).
+
+### Adım 1 · Finite difference ile linearize et
+
+Her simülatör adımı bir `step(x, u)` fonksiyonudur. Her state ve girdi bileşenini iki yöne dürt ve farkını al:
+
+```python
+def linearize(step, x, u, eps=1e-6):
+    """A = d step / d x, B = d step / d u by central differences of any step(x, u) -> next state."""
+    A = np.column_stack([(step(x + e, u) - step(x - e, u)) / (2 * eps) for e in eps * np.eye(len(x))])
+    B = np.column_stack([(step(x, u + e) - step(x, u - e)) / (2 * eps) for e in eps * np.eye(len(u))])
+    return A, B
+```
+
+Burada `step` `qpos`, `qvel` ve `ctrl`'ü taze bir `MjData`'ya yazar, `mj_step`'i çağırır ve state'i geri okur. Dik konumda MuJoCo'nun `mjd_transitionFD`'sine karşı:
+
+== Step 1. Linearize at the upright: central differences of mj_step vs mjd_transitionFD ==
+theta row of A: [0.     1.0027 0.     0.01  ] | B: [ 0.0001 -0.0002  0.0095 -0.0232]
+max |A - A_mj| = 2.2e-16 | max |B - B_mj| = 2.7e-20
+open-loop max |eig(A)| = 1.0536
+
+Yuvarlama hatasına kadar aynı matrisler ve A kısmının kararsız özdeğeri 1,0536.
+
+### Adım 2 · Riccati özyinelemesi, sonlu ufuk
+
+Zamanda geriye doğru dynamic programming: $t+1$ adımından itibaren cost-to-go $\delta x^\top P\,\delta x$ ise, bir adım daha doğrusal bir yasa ve yeni bir kuadratik cost-to-go verir.
+
+```python
+def riccati_step(A, B, Q, R, P):
+    """One backward step of the Riccati recursion: (P one step earlier, the gain K for that step)."""
+    K = np.linalg.solve(R + B.T @ P @ B, B.T @ P @ A)
+    return Q + A.T @ P @ (A - B @ K), K
+```
+
+```python
+def lqr_finite(A, B, Q, R, Qf, N):
+    """Finite-horizon discrete LQR: gains K_0 .. K_{N-1} (u_t = -K_t dx_t) and the cost-to-go matrix P_0."""
+    P, gains = Qf, []
+    for _ in range(N):
+        P, K = riccati_step(A, B, Q, R, P)
+        gains.append(K)
+    return gains[::-1], P
+```
+
+$N$ adımlık bir ufkun ilk gain'i:
+
+== Step 2. Finite-horizon LQR (Qf = Q): the first gain K_0 for growing horizons ==
+N =   10 steps (  0.1 s)  K_0 = [  0.4182 -14.1056   0.7483  -2.6585]
+N =   50 steps (  0.5 s)  K_0 = [ -0.2921 -45.6948  -0.9843  -7.1108]
+N =  200 steps (  2.0 s)  K_0 = [ -8.9347 -65.5536 -10.2164 -11.7349]
+N = 1000 steps ( 10.0 s)  K_0 = [ -9.081  -65.8771 -10.3669 -11.81  ]
+
+0,1 s'lik ufuk farklı bir yasa veriyor (arabayı ters yöne bile itiyor); 10 s'de gain artık ufka bağlı değil.
+
+### Adım 3 · Sonsuz ufuk
+
+Aynı adımı $P$ değişmeyi bırakana kadar tekrarla:
+
+```python
+def dlqr(A, B, Q, R, tol=1e-12, max_iter=100_000):
+    """Infinite-horizon discrete LQR: iterate the Riccati recursion until P stops changing. Returns (K, P, steps)."""
+    P = Q.copy()
+    for i in range(1, max_iter + 1):
+        P_new, K = riccati_step(A, B, Q, R, P)
+        if np.abs(P_new - P).max() <= tol * np.abs(P_new).max():
+            return K, P_new, i
+        P = P_new
+    raise RuntimeError("Riccati iteration did not converge")
+```
+
+== Step 3. Infinite horizon: iterate Riccati to a fixed point vs solve_discrete_are ==
+converged after 978 iterations | max |P - P_scipy| / max |P| = 3.0e-11
+K = [ -9.081  -65.8771 -10.3669 -11.81  ]
+closed-loop |eig(A - B K)| = [0.9202 0.9202 0.9869 0.9869]
+
+Yazdırılan basamaklara kadar Deney'in $K$'si ve kapalı döngü büyüklükleri 0,9202 ile 0,9869. Yineleme en yavaş kapalı döngü özdeğerinin belirlediği bir hızla geometrik yakınsıyor; yaklaşık bin adım bu yüzden.
+
+### Adım 4 · Gain'i kullan
+
+Deney'in kuralı, açı $(-\pi, \pi]$'ye sarılmışken $u = \text{clip}(-K\,\delta x, \pm F)$:
+
+== Step 4. Use the gain: release at rest, u = clip(-K x, +-F), 5 s ==
+theta0 (deg) |     F=5 N |    F=10 N |    F=50 N
+          15 |        ok |        ok |        ok
+          20 |      fell |        ok |        ok
+          35 |      fell | track end |        ok
+          50 |      fell |      fell |        ok
+          55 |      fell |      fell | track end
+
+Her hücre B kısmının region of attraction tablosuyla örtüşüyor.
+
+### Adım 5 · MPPI güncellemesi
+
+```python
+def mppi_update(samples, costs, lam):
+    """MPPI: weights exp(-(S_k - min S) / lam), normalized; returns (new plan = weighted mean of samples, weights)."""
+    w = np.exp(-(costs - costs.min()) / lam)
+    w = w / w.sum()
+    return w @ samples, w
+```
+
+Etrafındaki döngü Ana fikirdeki `mppi_step`; 64 örneği `mujoco.rollout` simüle ediyor. Ufuk 0,5 s, 8 seed:
+
+== Step 5. MPPI swing-up from hanging down (|F| <= 20 N, 64 samples, sigma 8 N, lambda 0.5, 50 Hz) ==
+horizon 0.5 s, 8 seeds: held (|theta| < 10 deg for the last 1 s) 8/8 | median worst |theta| 3.1 deg | median cost 10.79
+
+Deney'in 0,5 s satırı, birebir.
+
+### Elinde kalan
+
+`physai.optimal` artık `linearize`, `riccati_step`, `lqr_finite`, `dlqr` ve `mppi_update`'i de içeriyor; `linearize` öğrenilmiş bir model dahil her `step(x, u)` ile çalışır. [`tests/test_24_lqr_and_mpc.py`](../../tests/test_24_lqr_and_mpc.py) onları `solve_discrete_are`, `mjd_transitionFD` ve MPPI ağırlıklarının özelliklerine karşı kontrol ediyor; `uv run pytest tests/test_24_lqr_and_mpc.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+Kütüphane yolu: model için iki çağrı, Riccati denklemi için bir çağrı, gain için bir satır:
+
+```python
+mujoco.mj_forward(m, d)                                    # d holds the equilibrium (qpos, qvel, ctrl)
+A = np.zeros((2 * m.nv + m.na, 2 * m.nv + m.na)); B = np.zeros((2 * m.nv + m.na, m.nu))
+mujoco.mjd_transitionFD(m, d, 1e-6, True, A, B, None, None)   # centered differences of mj_step
+P = scipy.linalg.solve_discrete_are(A, B, Q, R)            # returns P, not K
+K = np.linalg.solve(R + B.T @ P @ B, B.T @ P @ A)          # the discrete-time gain
+states, sensordata = rollout.rollout(m, datas, state0, ctrl)  # many MPPI samples, multithreaded
+```
+
+| Araç | Çağrı | Döndürdüğü |
+|---|---|---|
+| physai | `dlqr(A, B, Q, R)` | `K, P, iterations`, yasa $u = -K\,\delta x$ |
+| SciPy | `solve_discrete_are(a, b, q, r)` | yalnız $P$ |
+| python-control | `control.dlqr(A, B, Q, R)` | `K, S, E` (gain, Riccati çözümü, kapalı döngü özdeğerleri), yasa $u[n] = -K x[n]$ |
+
+Kaynaklar: [SciPy `solve_discrete_are`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.linalg.solve_discrete_are.html), [python-control `dlqr`](https://python-control.readthedocs.io/en/latest/generated/control.dlqr.html), [MuJoCo API](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html).
+
+Tuzaklar:
+
+- **Sürekli ve ayrık gain.** $K = R^{-1}B^\top P$ sürekli zaman formülüdür; `mjd_transitionFD`'nin ayrık $A$, $B$'siyle $(R + B^\top P B)^{-1}B^\top P A$ kullan.
+- **Açıyı sar.** Bir tur dönmüş bir çubuk $\delta x$ onu $(-\pi, \pi]$'ye sarmazsa 2π fazla okunur ve dev bir itme alır.
+- **State düzeni.** `mjd_transitionFD`'nin state'i `nq + nv` değil $2n_v + n_a$ boyutludur (hız koordinatlarında konumlar, hızlar, actuator state'leri); free ve ball joint'ler ikisini farklılaştırır.
+
 ## Deney
 
 Tam script: [`experiments/24-lqr-and-mpc/experiment.py`](../../experiments/24-lqr-and-mpc/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), sabit seed'ler.
 
-```python
-mujoco.mj_forward(m, d)                                  # upright, at rest, u = 0
-A = np.zeros((4, 4)); B = np.zeros((4, 1))
-mujoco.mjd_transitionFD(m, d, 1e-6, True, A, B, None, None)
-P = solve_discrete_are(A, B, Q, R)                       # Q = diag(1, 10, 0.1, 0.1), R = 0.01
-K = np.linalg.solve(R + B.T @ P @ B, B.T @ P @ A)
-```
+**Bölüm A.** Kütüphaneyle kullan'daki çağrılar, $Q = \text{diag}(1, 10, 0{,}1, 0{,}1)$, $R = 0{,}01$. Open-loop özdeğerlerin en büyük mutlak değeri 1,0536 (küçük bir eğim her adımda büyür). $K = [-9{,}081;\ -65{,}8771;\ -10{,}3669;\ -11{,}81]$; closed-loop mutlak değerler 0,9202 ve 0,9869 (çiftler hâlinde), birim çemberin içinde.
 
-**Bölüm A.** Open-loop özdeğerlerin en büyük mutlak değeri 1,0536 (> 1: kontrol olmadan küçük bir eğim her adımda büyür). $K = [-9{,}081;\ -65{,}8771;\ -10{,}3669;\ -11{,}81]$; closed-loop mutlak değerler 0,9202 ve 0,9869 (çiftler hâlinde), hepsi birim çemberin içinde.
-
-**Bölüm B, region of attraction** (controller'ın çubuğu hâlâ dikleştirebildiği başlangıç state'leri). Çubuğu $\theta_0$ açısında durgun bırak, araba $x=0$'da, 5 s boyunca $u = \text{clip}(-K\delta x, \pm F)$ uygula. Başarı: sonda $\lvert\theta\rvert < 2°$. Tahmin: büyük kuvvet limitleri yardım eder, ama bir yere kadar.
+**Bölüm B, region of attraction.** Çubuğu $\theta_0$'da durgun bırak, araba $x=0$'da, 5 s boyunca $u = \text{clip}(-K\delta x, \pm F)$ uygula; başarı sonda $\lvert\theta\rvert < 2°$. Tahmin: büyük kuvvet limitleri yardım eder, ama bir yere kadar.
 
 | $\theta_0$ (derece) | F = 5 N | F = 10 N | F = 20 N | F = 50 N |
 |---|---|---|---|---|
@@ -121,7 +254,7 @@ K = np.linalg.solve(R + B.T @ P @ B, B.T @ P @ A)
 | 55–60 | düştü | düştü | ray sonu | ray sonu |
 | 180 (aşağı) | çıkmadı | çıkmadı | çıkmadı | çıkmadı |
 
-İki farklı başarısızlık biçimi. Küçük kuvvet limitinde doğrusal yasa var olandan fazla kuvvet ister; komut doyuma girer (limitte kırpılır) ve çubuk düşer. Yeterli kuvvetle çubuk yakalanır ama araba rayın sonuna çarpar: LQR $x$ üzerindeki karesel cezayı bilir, $\lvert x\rvert \le 1{,}5$ m kısıtını bilmez. 50 N'de bile bu 5°'lik sweep'te bölge 50° ile 55° arasında bitiyor. Aşağı sarkarken ("düşemeyen", bu yüzden 5 s'nin tamamı koşan bir deneme) LQR çubuğu hiçbir kuvvette yukarı çıkaramıyor: dik konumdaki doğrusallaştırma orada hiçbir şey söylemez.
+İki başarısızlık biçimi. Küçük kuvvet limitinde doğrusal yasa var olandan fazla kuvvet ister, komut doyuma girer ve çubuk düşer. Yeterli kuvvetle çubuk yakalanır ama araba ray sonuna çarpar: LQR $x$ üzerindeki karesel cezayı bilir, $\lvert x\rvert \le 1{,}5$ m kısıtını bilmez. Aşağı sarkarken ("düşemeyen" ve 5 s'nin tamamını koşan bir deneme) LQR çubuğu hiç yukarı çıkaramıyor: dik konumdaki doğrusallaştırma orada hiçbir şey söylemez.
 
 **Bölüm C, MPPI swing-up.** Aşağı sarkarken, $\lvert F\rvert \le 20$ N, 64 örnek, $\sigma = 8$ N, $\lambda = 0{,}5$, 50 Hz, 6 s, satır başına 8 seed. Horizon'u sweep et. "Tuttu": son 1 s boyunca $\lvert\theta\rvert < 10°$; "en kötü": son 1 s içindeki en büyük $\lvert\theta\rvert$'nın seed'ler üzerinden medyanı.
 
@@ -134,11 +267,11 @@ K = np.linalg.solve(R + B.T @ P @ B, B.T @ P @ A)
 | 1,0 | 50 | 8/8 | 3/8 | 1,09 | 11,8 | 7,57 |
 | 1,5 | 75 | 8/8 | 1/8 | 1,51 | 16,0 | 10,08 |
 
-- **Çok kısa (0,2–0,3 s):** çubuk dikten geçiriliyor ama hiç yakalanmıyor; son 1 s içinde hâlâ dipten geçerek sallanıyor (178,2°). Controller miyop: zamanında frenlemeye yetecek kadar ileriyi göremiyor.
-- **0,5–0,7 s:** 8 seed'in hepsinde swing-up ve denge, medyan en kötü açı 3,1° ve 5,1°.
-- **Daha uzun (1,0–1,5 s):** yine her seferinde yukarı çıkıyor, 1,0 s horizon en düşük medyan maliyeti veriyor (7,57), ama denge gevşiyor (11,8°, 16,0°). Bu sayılarla tutarlı bir açıklama: 64 örnek sabitken 50 ya da 75 adımlık bir girdi dizisi daha seyrek örneklenir, ortalaması alınan ilk girdi daha gürültülü olur. Bunu doğrulamak için örnek sayısını sweep etmedik.
+- **Çok kısa (0,2–0,3 s):** çubuk dikten geçiyor ama hiç yakalanmıyor (son 1 s'de 178,2°): controller zamanında frenleyecek kadar ileriyi göremiyor.
+- **0,5–0,7 s:** 8 seed'in hepsinde swing-up ve denge (3,1°, 5,1°).
+- **Daha uzun (1,0–1,5 s):** yine her seferinde yukarı çıkıyor ve 1,0 s en düşük medyan maliyeti veriyor (7,57), ama denge gevşiyor (11,8°, 16,0°). Bu sayılarla tutarlı, örnek sayısı sweep'iyle doğrulanmamış: 64 örnek 50 ya da 75 adımlık bir diziyi daha seyrek kaplar, ortalanan ilk girdi daha gürültülü olur.
 
-**Mühendislik cevabı: ikisini birden kullan.** Aynı MPPI, ama $\lvert\theta\rvert < 20°$ olur olmaz LQR'a geç:
+**Mühendislik cevabı: ikisini birden kullan.** $\lvert\theta\rvert < 20°$ olunca MPPI'dan LQR'a geç:
 
 | horizon (s) | dikten geçti | tuttu | medyan ilk dik zamanı (s) | en kötü $\lvert\theta\rvert$, son 1 s (derece) | medyan maliyet |
 |---|---|---|---|---|---|
@@ -146,9 +279,9 @@ K = np.linalg.solve(R + B.T @ P @ B, B.T @ P @ A)
 | 1,0 | 8/8 | 8/8 | 1,12 | 0,0 | 7,16 |
 | 1,5 | 8/8 | 8/8 | 1,66 | 0,1 | 9,00 |
 
-MPC, LQR'ın yapamadığı doğrusal olmayan kısmı yapıyor; LQR dengeyi sampling'in erişemediği bir hassasiyetle tutuyor. 0,5 s'lik bir koşu tutmadı. Muhtemel sebep (burada ayrıştırılmadı): Bölüm B bölgeyi yalnızca durgun bırakılan çubuk için ölçtü, devir ise hızla olur; yani 20° kendiliğinden bölgenin içinde değildir.
+MPC doğrusal olmayan kısmı yapıyor, LQR dengeyi sampling'in erişemediği bir hassasiyetle tutuyor. 0,5 s'lik bir koşu tutmadı; muhtemelen (ayrıştırılmadı) Bölüm B bölgeyi durgun çubukla ölçtüğü, devir ise hızla olduğu için.
 
-![Solda bırakma açısına (0 ile 60 derece) ve kuvvet limitine (5, 10, 20, 50 N) göre LQR sonuçlarının ızgarası; dik biten bölge kuvvet limitiyle büyüyor, önce düşmelerle, sonra arabanın ray sonuna çarpmasıyla sınırlanıyor. Sağda son 1 s'deki medyan en kötü çubuk açısı MPC horizon'una karşı; yalnız MPPI 0,2 ve 0,3 s'de 178,2 ve 177,2 derecede, 0,5 s'de 3,1 dereceye düşüyor ve 1,5 s'de 16,0 dereceye tırmanıyor; LQR devirli MPPI ise 0,1 derece veya altında kalıyor.](../../experiments/24-lqr-and-mpc/lqr_region_mpc_horizon.png)
+![Solda bırakma açısına (0 ile 60 derece) ve kuvvet limitine (5 ile 50 N) göre LQR sonuçları; dik biten bölge kuvvet limitiyle büyüyor, önce düşmelerle, sonra ray sonuyla sınırlanıyor. Sağda son 1 s'deki medyan en kötü çubuk açısı MPC horizon'una karşı: 0,2 ve 0,3 s'de 178,2 ve 177,2 derece, 0,5 s'de 3,1 derece, 1,5 s'de 16,0 derece; LQR devriyle 0,1 derece veya altı.](../../experiments/24-lqr-and-mpc/lqr_region_mpc_horizon.png)
 
 ## Boz
 
@@ -163,9 +296,9 @@ Bozulma zaten tablolarda: LQR bölgesi kuvvetin doyduğu ya da rayın bittiği y
 
 ## Gerçek robotta
 
-- **MPC gerçek bacaklı robotlarda çalışıyor.** MIT Cheetah 3 controller'ı problemi convex yapmak için dinamiği basitleştirir, 0,5 s'ye kadar prediction horizon kullanır ve 20–30 Hz'de 1 ms'nin altında çözer ([Di Carlo vd., IROS 2018](https://dspace.mit.edu/handle/1721.1/138000.2)). Solver control periyoduna yetişene kadar modeli basitleştir: horizon sweep'imizdekiyle aynı ödünleşim.
-- **SO-101.** Menagerie modeli her joint'i position servo ile sürer (`kp="998.22" kv="2.731"`, kuvvet limiti ±2,94 N·m, [`so101.xml`](https://github.com/google-deepmind/mujoco_menagerie/blob/f3b6013/robotstudio_so101/so101.xml)). `mjd_transitionFD` modelde hangi actuator varsa onu doğrusallaştırır; elde ettiğin $B$ torque'u değil, position hedeflerini bir sonraki state'e bağlar. LQR'ı bu servo-döngü-içinde modelde tasarla, kuvvet kırpmasıyla simüle et, sonra kolda düşük gain ile dene. Gerçek kolda henüz ölçülmedi.
-- **Region of attraction ölçülmeli.** Tablomuz kesin bir modelle simülasyonda. Donanımda gecikmeler, sürtünme ve kestirim gürültüsü bölgeyi küçültür. Başlangıç koşulunu gerçek sistemde burada yaptığımız gibi sweep et; sadece açıyı değil hızı da kat.
+- **MPC gerçek bacaklı robotlarda çalışıyor.** MIT Cheetah 3 controller'ı problem convex olana kadar dinamiği basitleştirir, 0,5 s'ye kadar öngörür ve 20–30 Hz'de 1 ms'nin altında çözer ([Di Carlo vd., IROS 2018](https://dspace.mit.edu/handle/1721.1/138000.2)): solver control periyoduna yetişene kadar modeli basitleştir.
+- **SO-101.** Menagerie modeli her joint'i position servo ile sürer (`kp="998.22" kv="2.731"`, kuvvet limiti ±2,94 N·m, [`so101.xml`](https://github.com/google-deepmind/mujoco_menagerie/blob/f3b6013/robotstudio_so101/so101.xml)); yani `mjd_transitionFD`'nin $B$'si torque'u değil, position hedeflerini bir sonraki state'e bağlar. LQR'ı bu servo-döngü-içinde modelde tasarla, kuvvet kırpmasıyla simüle et, sonra kolda düşük gain ile dene. Gerçek kolda henüz ölçülmedi.
+- **Region of attraction ölçülmeli.** Tablomuz kesin bir modelle simülasyon; donanımda gecikmeler, sürtünme ve kestirim gürültüsü bölgeyi küçültür. Başlangıç koşulunu gerçek sistemde hız dahil sweep et.
 
 ## Kendini dene
 
@@ -175,15 +308,15 @@ Bozulma zaten tablolarda: LQR bölgesi kuvvetin doyduğu ya da rayın bittiği y
 
 ### Cevaplar
 
-1. Doğrusal model yalnızca $\theta = 0$ yakınında geçerlidir. $\theta = \pi$ yakınında araba kuvvetinden çubuk ivmesine giden bağ ($\propto \cos\theta$) ters işaretlidir; tepede çubuğu doğrultacak bir itiş dipte onu öbür yöne çevirir ve sabit bir doğrusal yasa salınıma enerji pompalayamaz. Ölçülen: dört kuvvetin hepsinde "çıkmadı".
+1. Doğrusal model yalnızca $\theta = 0$ yakınında geçerlidir. $\theta = \pi$ yakınında araba kuvvetinden çubuk ivmesine giden bağ ($\propto \cos\theta$) ters işaretlidir ve sabit bir doğrusal yasa salınıma enerji pompalayamaz. Ölçülen: dört kuvvetin hepsinde "çıkmadı".
 2. Araba pozisyonu ağırlığı $Q_{11}$. Araba merkeze daha yakın kalmalı, bedeli daha agresif bir çubuk kurtarması; yani 10 N'de bazı ray sonu durumları "düştü"ye dönebilir. Burada hesaplanmadı.
 3. Burada hesaplanmadı; çalıştır.
 
 ## Akılda kalanlar ve kaynaklar
 
-- `mjd_transitionFD` + `solve_discrete_are` herhangi bir MuJoCo modelinden birkaç satırda LQR verir; burada çubuğu 5 N'de 15°'ye, 50 N'de 50°'ye kadar yakaladı, ötesinde doyum ya da ray sonu yüzünden başarısız oldu.
-- MPPI çubuğu her horizon'da 8/8 seed'de aşağıdan yukarı çıkardı, ama 64 örnekle yalnızca 0,5–0,7 s horizon'larda tuttu.
-- Doğrusal olmayan swing-up için MPC artı denge için LQR, 1,0 ve 1,5 s'de 8/8 tuttu, en kötü açı en fazla 0,1°.
+- Linearize et, Riccati'yi yinele, bitti: herhangi bir MuJoCo modelinden birkaç satırda LQR. Çubuğu 5 N'de 15°'ye, 50 N'de 50°'ye kadar yakaladı, ötesinde doyum ya da ray sonu yüzünden başarısız oldu.
+- MPPI çubuğu her horizon'da 8/8 seed'de yukarı çıkardı, ama 64 örnekle yalnız 0,5–0,7 s'de tuttu.
+- Swing-up için MPC artı denge için LQR, 1,0 ve 1,5 s'de 8/8 tuttu, en kötü açı en fazla 0,1°.
 
 Sonraki: [ders 25](../part-7-learning-from-demonstration/25-evaluating-policies.md), başarı oranına güvenmek için bir policy'yi yeterli denemeyle nasıl değerlendireceğin.
 

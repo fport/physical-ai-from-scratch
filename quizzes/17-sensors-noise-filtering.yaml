@@ -1,20 +1,22 @@
 # Lesson 17 · Sensors, noise and filtering. Every answer is supported by the lesson page or
-# experiments/17-sensors-noise-filtering/output.txt. answer = index of the correct option (0-based).
-- q:
-    en: A 17-sample moving average leaves only $\sigma/\sqrt{17}$ of the noise. Why is its position error (10.22 mrad) worse than the raw reading (9.95 mrad)?
-    tr: 17 örneklik bir moving average noise'un yalnızca $\sigma/\sqrt{17}$'sini bırakıyor. Konum hatası (10,22 mrad) neden ham okumadan (9,95 mrad) kötü?
+# experiments/17-sensors-noise-filtering/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: You replace a single jittery reading by the mean of the last 10 readings. What do you get?
+    tr: Titreyen tek bir okumanın yerine son 10 okumanın ortalamasını koyuyorsun. Ne elde edersin?
   options:
-    - en: Averaging quantized readings adds extra quantization error.
-      tr: Quantize edilmiş okumaları ortalamak ek quantization hatası ekler.
-    - en: Its 16 ms delay makes it lag by about speed × delay, more than the noise it removes.
-      tr: 16 ms'lik delay'i onu yaklaşık hız × delay kadar geride bırakıyor; bu, kaldırdığı noise'dan fazla.
-    - en: The noise is correlated, so averaging does not reduce it.
-      tr: Noise korelasyonlu, bu yüzden ortalamak onu azaltmaz.
-  answer: 1
+    - en: A calmer number that describes where the joint was a moment ago.
+      tr: Eklemin biraz önce nerede olduğunu anlatan, daha sakin bir sayı.
+    - en: A calmer number that is just as current as the raw reading.
+      tr: Ham okuma kadar güncel, daha sakin bir sayı.
+    - en: The same noise, because every reading carries the same noise level.
+      tr: Aynı noise; çünkü her okuma aynı noise seviyesini taşır.
+  answer: 0
   why:
-    en: Lag error ≈ 0.61 rad/s × 16 ms ≈ 9.8 mrad (Break it). The sum of noise and lag is lowest at about 4 ms of delay, MA n=5 with 5.17 mrad.
-    tr: Lag hatası ≈ 0,61 rad/s × 16 ms ≈ 9,8 mrad (Boz). Noise ile lag'in toplamı yaklaşık 4 ms delay'de en düşük; MA n=5, 5,17 mrad.
-- q:
+    en: A moving average over $n$ readings reports the value from the middle of its window, $(n-1)/2$ samples ago; its noise falls as $\sigma/\sqrt n$. Build it, Step 2 measures both.
+    tr: $n$ okumalık bir moving average penceresinin ortasındaki, $(n-1)/2$ örnek önceki değeri raporlar; noise'u $\sigma/\sqrt n$ olarak düşer. Sıfırdan yaz, Adım 2 ikisini de ölçüyor.
+- stage: pre
+  q:
     en: The best window for velocity (n = 65) is much longer than for position (n = 5). Why?
     tr: Hız için en iyi pencere (n = 65), konum içinkinden (n = 5) çok daha uzun. Neden?
   options:
@@ -28,7 +30,53 @@
   why:
     en: Raw velocity noise is 3.50 rad/s against a true velocity RMS of 0.63 rad/s. The SO-101 model has no velocity sensor; velocity comes from differences of readings.
     tr: Ham hız noise'u 3,50 rad/s, gerçek hızın RMS'i ise 0,63 rad/s. SO-101 modelinde hız sensor'ü yok; hız okumaların farkından geliyor.
-- q:
+- stage: check
+  q:
+    en: In Build it, Step 3, the 10 Hz low-pass trails a ramp by 7.96 samples. Where does that number come from?
+    tr: Sıfırdan yaz, Adım 3'te 10 Hz'lik low-pass bir rampayı 7,96 örnek geriden izliyor. Bu sayı nereden geliyor?
+  options:
+    - en: It is half the filter's window, like a moving average of 17 samples.
+      tr: Filtre penceresinin yarısıdır, 17 örneklik bir moving average gibi.
+    - en: It is the start-up transient, which has not died out yet.
+      tr: Henüz sönmemiş başlangıç transient'idir.
+    - en: On a ramp the filter trails by $(1-\alpha)/\alpha$ samples, and with $\alpha = \Delta t/(\tau + \Delta t)$ that is exactly $\tau/\Delta t$ = 15.9 ms / 2 ms.
+      tr: Rampada filtre $(1-\alpha)/\alpha$ örnek geride kalır; $\alpha = \Delta t/(\tau + \Delta t)$ ile bu tam olarak $\tau/\Delta t$ = 15,9 ms / 2 ms'dir.
+  answer: 2
+  why:
+    en: Step 3 prints ramp lag 7.96 samples against $\tau/\Delta t$ = 7.96 at 10 Hz (and 1.59, 39.79 at 50 and 2 Hz). A low-pass has no window; its delay is its time constant.
+    tr: Adım 3, 10 Hz'de 7,96 örneklik rampa gecikmesini $\tau/\Delta t$ = 7,96 karşısında basıyor (50 ve 2 Hz'de 1,59 ve 39,79). Low-pass'in penceresi yoktur; delay'i zaman sabitidir.
+- stage: check
+  q:
+    en: You swap your causal moving average for `scipy.ndimage.uniform_filter1d(x, n)` with its defaults. Offline the delay drops to zero. Will your controller see that too?
+    tr: Causal moving average'ını varsayılan ayarlarıyla `scipy.ndimage.uniform_filter1d(x, n)` ile değiştiriyorsun. Offline delay sıfıra iniyor. Controller'ın da bunu görecek mi?
+  options:
+    - en: Yes; SciPy's implementation is simply faster.
+      tr: Evet; SciPy'ın implementasyonu sadece daha hızlı.
+    - en: No; the default window is centred on the sample and uses future readings, which a running controller does not have yet.
+      tr: Hayır; varsayılan pencere örneğe ortalanmıştır ve gelecekteki okumaları kullanır, çalışan bir controller'da bunlar henüz yoktur.
+    - en: Yes, as long as the window length $n$ is odd.
+      tr: Evet, pencere uzunluğu $n$ tek sayı olduğu sürece.
+  answer: 1
+  why:
+    en: Use it - `uniform_filter1d` is centred (`origin=0`); `origin=(n-1)//2` makes it causal, and then it has the same $(n-1)/2$-sample delay as Step 2.
+    tr: Kütüphaneyle kullan - `uniform_filter1d` ortalanmıştır (`origin=0`); `origin=(n-1)//2` onu causal yapar ve o zaman Adım 2'deki aynı $(n-1)/2$ örneklik delay'e sahip olur.
+- stage: post
+  q:
+    en: A 17-sample moving average leaves only $\sigma/\sqrt{17}$ of the noise. Why is its position error (10.22 mrad) worse than the raw reading (9.95 mrad)?
+    tr: 17 örneklik bir moving average noise'un yalnızca $\sigma/\sqrt{17}$'sini bırakıyor. Konum hatası (10,22 mrad) neden ham okumadan (9,95 mrad) kötü?
+  options:
+    - en: Averaging quantized readings adds extra quantization error.
+      tr: Quantize edilmiş okumaları ortalamak ek quantization hatası ekler.
+    - en: Its 16 ms delay makes it lag by about speed × delay, more than the noise it removes.
+      tr: 16 ms'lik delay'i onu yaklaşık hız × delay kadar geride bırakıyor; bu, kaldırdığı noise'dan fazla.
+    - en: The noise is correlated, so averaging does not reduce it.
+      tr: Noise korelasyonlu, bu yüzden ortalamak onu azaltmaz.
+  answer: 1
+  why:
+    en: Lag error ≈ 0.61 rad/s × 16 ms ≈ 9.8 mrad (Break it). The sum of noise and lag is lowest at about 4 ms of delay, MA n=5 with 5.17 mrad.
+    tr: Lag hatası ≈ 0,61 rad/s × 16 ms ≈ 9,8 mrad (Boz). Noise ile lag'in toplamı yaklaşık 4 ms delay'de en düşük; MA n=5, 5,17 mrad.
+- stage: post
+  q:
     en: You tuned an MA n=17 on a slow test move. The real task moves 4 times faster. What happens to the position error?
     tr: MA n=17'yi yavaş bir test hareketinde ayarladın. Gerçek görev 4 kat hızlı. Konum hatasına ne olur?
   options:

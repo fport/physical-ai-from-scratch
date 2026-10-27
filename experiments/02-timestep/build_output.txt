@@ -1,0 +1,39 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Our steppers vs mj_step on a 1 Hz spring (h = 10 ms, 500 steps) ==
+semi_implicit_euler  vs integrator=Euler: max |x_ours - qpos| = 5.6e-17 m
+rk4                  vs integrator=RK4  : max |x_ours - qpos| = 4.8e-16 m
+explicit_euler: no MuJoCo integrator moves with the old velocity; checked against its formula in Step 2
+
+== Step 2. Energy after 1000 steps, relative to the start (h = 10 ms, h*w = 0.063) ==
+explicit_euler       E/E0 = 51.422174
+semi_implicit_euler  E/E0 = 0.999350
+rk4                  E/E0 = 0.999999
+formula for explicit Euler (1 + h^2 w^2)^n = 51.422174
+
+== Step 3. Growth per step on the undamped spring vs h*w ==
+  h*w  explicit_euler  semi_implicit        rk4   max |x| over 10 steps: ours (semi-implicit) / MuJoCo Euler
+  0.5        1.118034       1.000000   0.999895   0.1022 m / 0.1022 m (started at 0.1)
+  1.0        1.414214       1.000000   0.993905   0.1 m / 0.1 m (started at 0.1)
+  1.9        2.147091       1.000000   0.800899   0.3202 m / 0.3202 m (started at 0.1)
+  2.1        2.325941       1.877328   0.682240   116.4 m / 116.4 m (started at 0.1)
+  2.8        2.973214       5.663429   0.930667   4.123e+06 m / 4.123e+06 m (started at 0.1)
+  2.9        3.067572       6.250000   1.193063   1.083e+07 m / 1.083e+07 m (started at 0.1)
+
+== Step 4. Drop onto the 1 cm tabletop: centre at the first overlapping step (cm) ==
+dt (ms)     ours   MuJoCo  side of the mid-plane (29.5 cm)
+    0.5    32.32    32.32  above
+      1    32.21    32.21  above
+      2    31.99    31.99  above
+      3    31.34    31.34  above
+      4    32.43    32.43  above
+      6    32.00    32.00  above
+      8    29.80    29.80  above
+     10    28.47    28.47  below: pushed out downward
+     12    30.69    30.69  above
+     15    27.36    27.36  below: pushed out downward
+     20    30.72    30.72  above
+     25        -        -  no step overlaps: missed contact
+     30        -        -  no step overlaps: missed contact
+     40        -        -  no step overlaps: missed contact
+     50        -        -  no step overlaps: missed contact

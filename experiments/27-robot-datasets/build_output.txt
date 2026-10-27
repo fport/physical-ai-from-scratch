@@ -1,0 +1,29 @@
+NumPy 2.5.4
+
+== Step 1. Episode boundaries and the global index ==
+episodes 120 | starts [0, 114, 228, 342] ... 13566 | lengths 114-114
+index == row number for all 13680 frames: True | episode 2, frame 5 -> index 233
+
+== Step 2. Statistics (all frames) and merged per-episode statistics ==
+       feature     mean      std      min      max      q01      q99
+ shoulder_lift   -0.240    0.515   -1.200    0.702   -1.200    0.620
+       gripper    0.731    0.505    0.141    1.200    0.162    1.200
+        cube_x    0.222    0.037    0.160    0.332    0.161    0.321
+120 per-episode stats merged vs computed on all frames: max |mean diff| 1.1e-15, max |std diff| 6.4e-15, min/max equal: True
+
+== Step 3. 10 episodes, 80/20: frame split vs episode split ==
+frame split:   912 / 228 frames, episodes on both sides 10/10, validation frames with a training neighbour 40 ms away 96.5%
+episode split: 912 / 228 frames, episodes on both sides 0/10
+
+== Step 4. Normalize with training statistics (episodes 0-79) ==
+mean_std: train range [-3.57, 2.86] | round trip error 1.1e-16 | m vs mm after normalizing: 7.9e-07
+ min_max: train range [-1.00, 1.00] | round trip error 4.4e-16 | m vs mm after normalizing: 2.0e-07
+
+== Step 5. 1-nearest-neighbour probe, MEAN_STD, the Experiment's splits; test = episodes 100-119 ==
+ train eps    split  val RMSE deg  test RMSE deg  test / val
+        10    frame         1.536          6.064        3.95
+        10  episode         5.303          6.614        1.25
+        30    frame         1.426          3.468        2.43
+        30  episode         2.730          3.607        1.32
+        90    frame         1.272          1.708        1.34
+        90  episode         2.516          1.687        0.67

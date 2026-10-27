@@ -1,5 +1,65 @@
 # Lesson 23 · Trajectory optimization. Every answer is supported by the lesson page or
 # experiments/23-trajectory-optimization/output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: The motor gives at most 5 N m, but holding the pendulum horizontal takes 9.81 N m. How can it still end upright?
+    tr: Motor en fazla 5 N m veriyor, ama sarkacı yatayda tutmak 9,81 N m istiyor. Yine de nasıl dik konumda bitebilir?
+  options:
+  - en: By pushing in one direction at the limit for the whole 4 s.
+    tr: 4 s boyunca limitte tek yöne iterek.
+  - en: By pumping energy in, swinging back and forth before the final swing up.
+    tr: Son yükselişten önce ileri geri sallayarak enerji pompalayarak.
+  - en: It cannot; the problem is infeasible.
+    tr: Bitemez; problem çözümsüz.
+  answer: 1
+  why:
+    en: The Problem says the motor cannot simply lift the pendulum and has to pump energy in; the best solutions in the Experiment reverse the torque 3 times.
+    tr: Problem bölümü motorun sarkacı doğrudan kaldıramadığını, enerji pompalaması gerektiğini söylüyor; Deney'deki en iyi çözümler torque'u 3 kez ters çeviriyor.
+- stage: pre
+  q:
+    en: Collocation guesses the state at every knot and requires neighbouring knots to obey a simple integration rule. What does "converged" then guarantee?
+    tr: Collocation her knot'taki durumu tahmin ediyor ve komşu knot'ların basit bir integrasyon kuralına uymasını istiyor. "Yakınsadı" o zaman neyi garanti eder?
+  options:
+  - en: That the real motion between the knots reaches the goal.
+    tr: Knot'lar arasındaki gerçek hareketin hedefe ulaştığını.
+  - en: That no other torque curve has a lower cost.
+    tr: Daha düşük maliyetli başka bir torque eğrisi olmadığını.
+  - en: That the knots satisfy the integration rule, not that the true motion between them does.
+    tr: Knot'ların integrasyon kuralını sağladığını; aradaki gerçek hareketin sağladığını değil.
+  answer: 2
+  why:
+    en: In plain words calls this gap the lesson's twist; at N = 10 the converged collocation plan misses upright by 23.82° when replayed in MuJoCo.
+    tr: Sade anlatımla bölümü bu farkı dersin kilit noktası diye anıyor; N = 10'da yakınsamış collocation planı MuJoCo'da replay edilince dikin 23,82° gerisinde kalıyor.
+- stage: check
+  q:
+    en: Build it, Step 3 measures the defects of the true motion at h = 0.40, 0.20 and 0.10 s (1.41e-01, 1.95e-02, 2.50e-03). What do they show?
+    tr: Sıfırdan yaz, Adım 3 gerçek hareketin defect'lerini h = 0,40, 0,20 ve 0,10 s'de ölçüyor (1,41e-01, 1,95e-02, 2,50e-03). Ne gösteriyorlar?
+  options:
+  - en: The trapezoid rule's error per interval shrinks about 8× per halving of h, like h³; it is not zero for the true motion.
+    tr: Trapez kuralının aralık başına hatası h her yarıya indiğinde yaklaşık 8 kat, h³ gibi küçülüyor; gerçek hareket için sıfır değil.
+  - en: The analytic Jacobian is wrong by that amount.
+    tr: Analitik Jacobian bu kadar hatalı.
+  - en: The RK4 rollout is inaccurate at large h.
+    tr: RK4 rollout'u büyük h'de hatalı.
+  answer: 0
+  why:
+    en: The Jacobian matches finite differences to 8.0e-08 and the rollout matches MuJoCo to 8.2e-07; the defects measure the integration rule itself, which is why a converged plan at N = 10 still misses.
+    tr: Jacobian finite difference ile 8,0e-08, rollout MuJoCo ile 8,2e-07 farkla örtüşüyor; defect'ler integrasyon kuralının kendisini ölçüyor, N = 10'da yakınsamış planın yine de ıskalamasının sebebi bu.
+- stage: check
+  q:
+    en: 'In SciPy''s SLSQP, what does a constraint `{"type": "ineq", "fun": g}` require?'
+    tr: 'SciPy''ın SLSQP''sinde `{"type": "ineq", "fun": g}` kısıtı ne ister?'
+  options:
+  - en: g(z) <= 0
+    tr: g(z) <= 0
+  - en: g(z) >= 0
+    tr: g(z) >= 0
+  - en: g(z) == 0
+    tr: g(z) == 0
+  answer: 1
+  why:
+    en: 'Use it, traps: `"ineq"` means `fun(z) >= 0`, so a limit written with the wrong sign silently flips the feasible side; box limits are simpler as bounds.'
+    tr: 'Kütüphaneyle kullan, tuzaklar: `"ineq"` `fun(z) >= 0` demek; yanlış işaretle yazılan bir limit uygun tarafı sessizce ters çevirir; kutu limitleri bounds olarak daha basit.'
 - q:
     en: At N = 10, collocation converges with a residual of 5.9e-12, yet its torque replayed in MuJoCo ends 23.82° short of upright. Why?
     tr: N = 10'da collocation 5,9e-12 residual ile yakınsıyor, ama torque'u MuJoCo'da replay edilince dikin 23,82° gerisinde kalıyor. Neden?
@@ -14,20 +74,7 @@
   why:
     en: 'Experiment table, point 1: the replay error falls as knots are added (23.82 → 6.73 → 2.27 → 0.61°); shooting replays with 0.00° because its constraint is the RK4 rollout itself.'
     tr: 'Deney tablosu, 1. madde: knot eklendikçe replay hatası düşüyor (23,82 → 6,73 → 2,27 → 0,61°); shooting 0,00° ile replay ediyor, çünkü kısıtı RK4 rollout''unun kendisi.'
-- q:
-    en: Which reading of the experiment table is right?
-    tr: Deney tablosunun hangi okuması doğru?
-  options:
-  - en: Collocation needs fewer iterations (22–91 vs 123–158), while converged shooting plans replay exactly.
-    tr: Collocation daha az iterasyon istiyor (22–91'e karşı 123–158); yakınsamış shooting planları ise tam replay ediyor.
-  - en: Shooting is both cheaper to solve and more accurate.
-    tr: Shooting hem daha ucuz çözülüyor hem daha doğru.
-  - en: At N = 80 the two methods reach very different costs.
-    tr: N = 80'de iki yöntem çok farklı maliyetlere ulaşıyor.
-  answer: 0
-  why:
-    en: 'Points 2–3: each shooting iteration also needs N + 1 extra rollouts for its finite-difference Jacobian; at N = 80 the costs meet (38.09 vs 38.11).'
-    tr: '2–3. maddeler: her shooting iterasyonu finite-difference Jacobian''ı için N + 1 ek rollout da istiyor; N = 80''de maliyetler buluşuyor (38,09''a karşı 38,11).'
+  stage: post
 - q:
     en: In Break it the straight-line guess θ 0 → π converges cleanly, but at cost 50.63 instead of 38.41. What happened?
     tr: Boz bölümünde düz çizgi tahmini θ 0 → π temiz yakınsıyor, ama maliyet 38,41 yerine 50,63. Ne oldu?
@@ -42,3 +89,4 @@
   why:
     en: 'Break it table: the defects contain $\sin\theta$, so the feasible set is not convex; of 8 noisy guesses 5 land at 50.63, 2 at 38.41, and 1 does not converge.'
     tr: 'Boz tablosu: defect''ler $\sin\theta$ içeriyor, yani uygulanabilir küme convex değil; 8 gürültülü tahminin 5''i 50,63''e, 2''si 38,41''e düşüyor, 1''i yakınsamıyor.'
+  stage: post

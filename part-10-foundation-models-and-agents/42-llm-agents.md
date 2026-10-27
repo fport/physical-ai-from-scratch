@@ -16,7 +16,7 @@
 
 ## The problem
 
-Language models can call functions, so "pick up the red cube" is now a few lines of code away from a robot. The question that matters is what happens when the model is wrong. An earlier case study in this book (below) gave a local 9B model a simulated arm: in 6 trials it lifted the cube twice and once reported success while the cube lay on the table. This lesson builds the missing engineering around such an agent: robot skills as typed tools, a validation layer in front of the actuators, and a harness (the test code that runs each episode and judges it) that measures the world instead of trusting the agent's report. Then it measures how much each piece buys.
+Language models can call functions, so "pick up the red cube" is a few lines of code away from a robot. What matters is what happens when the model is wrong. An earlier case study (below) gave a local 9B model a simulated arm: in 6 trials it lifted the cube twice and once reported success while the cube lay on the table. This lesson builds the missing engineering: robot skills as typed tools, a validation layer in front of the actuators, and a harness (the test code that runs and judges each episode) that measures the world instead of trusting the agent's report, and it measures what each piece buys.
 
 ### Case study: earlier Strands Agents runs (not this lesson's experiment)
 
@@ -28,7 +28,7 @@ Language models can call functions, so "pick up the red cube" is now a few lines
 | agent reported success while the cube was on the table | 1 |
 | neither (no lift, no false success report) | 3 |
 
-The best earlier run used 16 tool calls: after the gripper closed on nothing, the agent read the cube height, went back down, attached the cube with `attach_bodies` and lifted it. Simulation time advanced 5.91 s, wall-clock time was 351 s. Two caveats: in this simulation the SO-100 jaw cannot squeeze the cube hard enough to lift it, so the lift relied on a weld (`attach_bodies(mode="weld")`), a grasp assist with no counterpart on a real arm (package README); and `strands-robots` 0.5.3 needs MuJoCo 3.16.0 (its weld call fails with 3.17, `mjNEQDATA` 11 → 12). Six trials is an estimate with a wide interval.
+The best earlier run used 16 tool calls (5.91 s of simulation, 351 s wall-clock): after the gripper closed on nothing, the agent read the cube height, went back down, attached the cube with `attach_bodies` and lifted it. That lift relied on a weld (`attach_bodies(mode="weld")`), a grasp assist with no counterpart on a real arm (package README), and `strands-robots` 0.5.3 needs MuJoCo 3.16.0 (its weld call fails with 3.17). Six trials is an estimate with a wide interval.
 
 ## Core idea
 
@@ -36,7 +36,7 @@ The best earlier run used 16 tool calls: after the gripper closed on nothing, th
 
 Think of the language model as an untrusted client calling your API. It reads the user's instruction and a list of functions it may call, and it sends back requests: "call `move_to` with these arguments". Your code runs the request and returns the result as text, and the model decides what to request next. That loop is all an agent is.
 
-You would never let a public client write straight into your database, and you would never ask the client whether its order was delivered. The same two rules make a robot agent safe and measurable. First, every tool validates its inputs on the server side, next to the hardware: units, workspace, reachability, joint limits. A bad request is answered with an error message, not executed. Second, success is decided by looking at the world (the simulator, or sensors on a real arm), never by reading what the model says about itself.
+You would never let a public client write straight into your database, or ask the client whether its order was delivered. The same two rules make a robot agent safe and measurable: every tool validates its inputs on the server side, next to the hardware (units, workspace, reachability, joint limits), answering a bad request with an error message; and success is decided by looking at the world, never by reading what the model says about itself.
 
 So there are three owners. The model **proposes** (which tool, which arguments). The tool layer, which is ordinary deterministic code, **validates and executes**. The harness **measures**. The model never sends a joint command.
 
@@ -106,9 +106,9 @@ $p_{\text{tip}}$ is the measured gripper tip position, $p_{\text{target}}$ the p
 <details>
 <summary>Math details: what a success report is worth, and what the counts can say</summary>
 
-**A claim is a noisy sensor.** Treat the agent's report as a binary sensor for "done" and ask for its precision, $P(\text{done} \mid \text{claimed ok}) = (\text{claimed ok} - \text{false claims}) / \text{claimed ok}$. From the totals below, `qwen2.5:7b` without validation claimed 14 times with 8 false claims, so $6/14$: exactly the share of episodes that were done at all. A sensor that fires every time carries no information. With validation the same model claimed 8 times with 2 false claims, $6/8$: better, but still not a measurement.
+**A claim is a noisy sensor.** Its precision is $P(\text{done} \mid \text{claimed ok}) = (\text{claimed ok} - \text{false claims}) / \text{claimed ok}$. `qwen2.5:7b` without validation claimed 14 times with 8 false claims: $6/14$, exactly the share of episodes that were done at all, so the claim carried no information. With validation, $6/8$ (Build it, Step 5).
 
-**Validation changes the inputs, not the model.** The validation predicate for `move_to` is $z \ge z_{\min} \land e_{\text{IK}} \le e_{\max}$, with $z_{\min} = 2$ cm and $e_{\max} = 5$ mm, where $e_{\text{IK}}$ is the distance between the target and the tip position the best inverse-kinematics solution reaches within joint limits ([lesson 10](../part-3-kinematics/10-inverse-kinematics.md)). It is checked on the call; it says nothing about whether the call serves the user's intent, which is why goal substitution passes it (Break it).
+**Validation changes the inputs, not the model.** The predicate for `move_to` is $z \ge z_{\min} \land e_{\text{IK}} \le e_{\max}$, with $z_{\min} = 2$ cm, $e_{\max} = 5$ mm and $e_{\text{IK}}$ the distance the best IK solution within joint limits leaves to the target ([lesson 10](../part-3-kinematics/10-inverse-kinematics.md)). It checks the call, not whether the call serves the user's intent, which is why goal substitution passes it (Break it).
 
 **What the counts can and cannot say.** With temperature 0 and a fixed seed, both repeats of each (model, command, mode) were identical, so each row of 14 episodes holds 7 distinct outcomes. These are descriptions of 7 commands, not samples from which to estimate a rate; an interval computed as if they were independent would be too narrow ([lesson 25](../part-7-learning-from-demonstration/25-evaluating-policies.md)).
 
@@ -126,7 +126,185 @@ Go deeper: [The Agent Loop](https://aiengineeringfromscratch.com/lesson?path=pha
 
 ### Serving the tools over MCP
 
-The Model Context Protocol (MCP) is a standard way to publish tools to any LLM client. The same five functions can be served by an MCP server: clients discover them with `tools/list` and invoke them with `tools/call`, each tool described by a `name`, `description` and JSON-Schema `inputSchema` (see AIEFS: [MCP Fundamentals](https://aiengineeringfromscratch.com/lesson?path=phases/13-tools-and-protocols/06-mcp-fundamentals), [Building an MCP Server](https://aiengineeringfromscratch.com/lesson?path=phases/13-tools-and-protocols/07-building-an-mcp-server)). The specification says servers "MUST" validate all tool inputs and that there "SHOULD always be a human in the loop with the ability to deny tool invocations" ([MCP spec, Tools](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)). For a robot this puts the validation layer in the server, next to the hardware, where no client or prompt can skip it.
+The Model Context Protocol (MCP) publishes tools to any LLM client: `tools/list` returns each tool's `name`, `description` and JSON-Schema `inputSchema`, `tools/call` invokes it (AIEFS: [MCP Fundamentals](https://aiengineeringfromscratch.com/lesson?path=phases/13-tools-and-protocols/06-mcp-fundamentals), [Building an MCP Server](https://aiengineeringfromscratch.com/lesson?path=phases/13-tools-and-protocols/07-building-an-mcp-server)). The specification says servers "MUST" validate all tool inputs and there "SHOULD always be a human in the loop with the ability to deny tool invocations" ([spec](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)): for a robot, the validation layer belongs in the server, where no prompt can skip it.
+
+## Build it
+
+You will now write the layer that sits between the model and the robot: an argument check, a reachability test, the two motion contracts, a dispatcher that answers every problem as data, and the harness's verdict. No language model is needed: the Experiment's transcripts are the test data. The functions are in [`physai/foundation.py`](../physai/foundation.py); `uv run python experiments/42-llm-agents/build.py` runs the steps (output in [`build_output.txt`](../experiments/42-llm-agents/build_output.txt)).
+
+### Step 1 · Check the arguments
+
+The tool definitions use a small part of JSON Schema: an object, required keys, typed properties. Check exactly that, and refuse keys the schema does not name:
+
+```python
+def check_args(schema, args):
+    """Check tool-call arguments against the JSON-Schema subset tools use (object, required, typed properties,
+    no unknown keys). Returns None if valid, else an error message for the model."""
+    if not isinstance(args, dict):
+        return "arguments must be an object"
+    props = schema.get("properties", {})
+    missing = [k for k in schema.get("required", []) if k not in args]
+    if missing:
+        return f"missing argument(s): {', '.join(missing)}"
+    for k, v in args.items():
+        if k not in props:
+            return f"unknown argument '{k}'"
+        want = props[k].get("type")
+        if want and (not isinstance(v, JSON_TYPES[want]) or (want == "number" and isinstance(v, bool))):
+            return f"'{k}' must be a {want}, got {type(v).__name__}"   # True is an int in Python, not a number
+    return None
+```
+
+```text
+== Step 1. Argument checks against the Experiment's tool schemas ==
+move_to({'x_cm': 20, 'y_cm': 5, 'z_cm': 15}) -> ok
+move_to({'x_cm': 20, 'y_cm': 5}) -> missing argument(s): z_cm
+move_to({'x_cm': '20', 'y_cm': 5, 'z_cm': 15}) -> 'x_cm' must be a number, got str
+move_to({'x_cm': True, 'y_cm': 5, 'z_cm': 15}) -> 'x_cm' must be a number, got bool
+move_to({'x_cm': 20, 'y_cm': 5, 'z_cm': 15, 'speed': 2}) -> unknown argument 'speed'
+pick({'name': 'red cube'}) -> ok
+report_result({'success': 'yes', 'message': 'done'}) -> 'success' must be a boolean, got str
+get_state({}) -> ok
+```
+
+`isinstance(True, int)` is true in Python, so without the extra test a boolean would pass as a number. A schema check catches malformed calls; it says nothing about safety.
+
+### Step 2 · Can the arm get there?
+
+Reachability is lesson 10's damped least squares on lesson 09's chain, joints clamped to their limits after every step; the residual it leaves measures reach:
+
+```python
+def ik_position(chain, target, q0, lo, hi, iters=300, damping=0.03):
+    """Damped-least-squares position IK on lesson 09's chain, joints clamped to [lo, hi] after every step.
+    Returns the joint angles and the distance left between the tool point and the target (m)."""
+    q = np.clip(np.asarray(q0, float), lo, hi)
+    for _ in range(iters):
+        e = target - fk(chain, q)[2]
+        if np.linalg.norm(e) < 5e-4:
+            break
+        J = jacobian(chain, q)[:3]
+        q = np.clip(q + J.T @ np.linalg.solve(J @ J.T + damping**2 * np.eye(3), e), lo, hi)
+    return q, float(np.linalg.norm(target - fk(chain, q)[2]))
+```
+
+```text
+== Step 2. Position IK on lesson 09's chain vs lesson 10's MuJoCo ik_solve ==
+target cm           ours: miss mm  lesson 10: miss mm
+(20, 5, 15)                  0.06                0.06
+(20, 0, 2)                   0.17                0.17
+(22, 3, 1.1)                 0.24                0.24
+(70, 0, 10)                326.07              326.07
+(50, 0, 1.1)                37.23               37.23
+```
+
+Your IK leaves the same residual as lesson 10's MuJoCo `ik_solve` at every target, including the two out of reach: 326.07 mm short of (70, 0, 10) cm, 37.23 mm short of a grasp point at 50 cm.
+
+### Step 3 · The contracts
+
+```python
+def validate_move(p_cm, reach, z_min_cm=2.0, tol_mm=5.0):
+    """The move_to contract: above the table, and reachable within tol by IK inside the joint limits.
+    reach(p_m) -> (q, error_m). Returns (q or None, reason or None)."""
+    if p_cm[2] < z_min_cm:
+        return None, f"z = {p_cm[2]:g} cm is below the minimum {z_min_cm} cm above the table"
+    q, err = reach(np.asarray(p_cm, float) / 100)
+    if err * 1000 > tol_mm:
+        return None, f"target out of reach: closest IK solution within joint limits misses it by {err * 100:.1f} cm"
+    return q, None
+```
+
+```text
+== Step 3. The move_to and pick contracts on every target the models sent ==
+move_to(20, 5, 15): accept
+move_to(20, 0, 2): accept
+move_to(0, 0, 0): reject: z = 0 cm is below the minimum 2.0 cm above the table
+move_to(20, 0, -5): reject: z = -5 cm is below the minimum 2.0 cm above the table
+move_to(70, 0, 10): reject: target out of reach: closest IK solution within joint limits misses it by 32.6 cm
+move_to(0.2, 0.05, 0.15): reject: z = 0.15 cm is below the minimum 2.0 cm above the table
+pick, cube at (22, 3) cm: grasp points missed by up to 0.2 mm -> accept
+pick, cube at (50, 0) cm: grasp points missed by up to 37.2 mm -> reject
+```
+
+The height check runs first, without any IK. It also catches the units trap: a model that passed metres unconverted would ask for z = 0.15 cm. The pick check here is simpler than the Experiment's (position only, at lesson 16's three grasp heights instead of its full grasp pose) and gives the same verdicts on these two cubes.
+
+### Step 4 · The dispatcher, and the Experiment's transcripts
+
+Every call goes through one method that turns unknown tools, bad arguments and rejections into a JSON answer and logs the verdict:
+
+```python
+class ToolLayer:
+    """The only path from a model's tool calls to the robot: unknown tools and bad arguments are answered with an
+    error, rejected calls with the reason; both go back to the model as text, nothing raises."""
+
+    def __init__(self, tools, schemas):
+        self.tools, self.schemas, self.log = tools, schemas, []   # tools: name -> fn(**args) -> dict
+
+    def call(self, name, args):
+        if name not in self.tools:
+            result = {"error": f"unknown tool '{name}'"}
+        elif (problem := check_args(self.schemas[name], args)) is not None:
+            result = {"error": problem}
+        else:
+            result = self.tools[name](**args)
+        verdict = "error" if "error" in result else "rejected" if "rejected" in result else "ok"
+        self.log.append((name, args, verdict))
+        return json.dumps(result)
+```
+
+The build script replays every tool call of the 28 validation-ON episodes in `output.txt` through this layer, without simulating the motion:
+
+```text
+== Step 4. The Experiment's validation-ON transcripts through our layer ==
+episodes 28, tool calls 54, our verdict = the Experiment's marker on 54/54
+```
+
+All 54 verdicts agree with the Experiment's `[REJ]` and `[ERR]` markers: the layer's decisions depend on the call and the scene, never on the model, so they are testable without one.
+
+### Step 5 · The harness verdict
+
+```python
+def claim_precision(episodes):
+    """P(done | claimed success) from (claimed, done) pairs measured by the harness, with the counts."""
+    claimed = [done for c, done in episodes if c]
+    return (sum(claimed) / len(claimed) if claimed else float("nan")), len(claimed), len(claimed) - sum(claimed)
+```
+
+```text
+== Step 5. The harness: precision of the success claim, P(done | claimed) ==
+qwen3:1.7b OFF: episodes 14, done 6, claimed 4, false 2, P(done | claimed) = 0.50
+qwen3:1.7b ON : episodes 14, done 6, claimed 6, false 4, P(done | claimed) = 0.33
+qwen2.5:7b OFF: episodes 14, done 6, claimed 14, false 8, P(done | claimed) = 0.43
+qwen2.5:7b ON : episodes 14, done 6, claimed 8, false 2, P(done | claimed) = 0.75
+```
+
+These are the Math details' numbers from the episode records: `qwen2.5:7b` claims success in all 14 episodes without validation, so P(done | claimed) = 0.43 is just the share of episodes that were done; with validation 0.75. `qwen3:1.7b` gets *worse* with validation (0.50 → 0.33) because of the goal repair in Break it. A claim is a sensor; measure its precision before you use it.
+
+### What you keep
+
+`physai.foundation` now has `check_args`, `ik_position`, `validate_move`, `ToolLayer` and `claim_precision`. The capstone (lesson 44) reuses them in front of perception and grasping. [`tests/test_42_llm_agents.py`](../tests/test_42_llm_agents.py) checks the IK against MuJoCo and the layer's error handling: `uv run pytest tests/test_42_llm_agents.py`.
+
+## Use it
+
+An MCP server or an Ollama tool loop wraps the same layer: the schemas go to the model, the calls come back, and the server validates before anything moves.
+
+```python
+layer = ToolLayer({"move_to": move_to, "pick": pick, "find_object": find_object, "get_state": get_state}, SCHEMAS)
+for tc in msg["tool_calls"]:                                  # Ollama /api/chat reply
+    result = layer.call(tc["function"]["name"], tc["function"]["arguments"])
+    messages.append({"role": "tool", "tool_name": tc["function"]["name"], "content": result})
+```
+
+| Where the tools live | Schema field | Who must validate |
+|---|---|---|
+| physai | `ToolLayer(tools, schemas)` | `call`, before any tool runs |
+| Ollama | `tools` in `/api/chat`, results as `role: "tool"` messages ([docs](https://docs.ollama.com/capabilities/tool-calling)) | your loop |
+| MCP | `inputSchema` per tool in `tools/list`, invoked by `tools/call` ([spec](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)) | the server "MUST" validate all tool inputs |
+
+Traps:
+
+- **Booleans are integers in Python.** Type checks must exclude `bool` from "number" (Step 1).
+- **Valid schema, wrong units.** 0.2 m arrives as `x_cm = 0.2` and passes every type check; only a physical contract (Step 3) catches it.
+- **Error messages steer the model.** "below the minimum 2.0 cm" invites a retry at exactly 2 cm, the goal repair of Break it; report the rejection to the harness too, not only to the model.
 
 ## Experiment
 
@@ -170,13 +348,13 @@ Full script: [`experiments/42-llm-agents/experiment.py`](../experiments/42-llm-a
 
 **Observations.**
 
-- Tool selection is not the problem: both models passed the user's arguments through in 12 of 14 episodes, including the meter command (both converted 0.2 m to 20 cm in every run). The 2 misses are `pick-blue`, where both models substituted the red cube.
+- Tool selection is not the problem: both models passed the user's arguments through in 12 of 14 episodes, converting 0.2 m to 20 cm in every run. The 2 misses are `pick-blue`, where both substituted the red cube.
 - Without validation, the unsafe commands executed: `move-floor` pressed the arm into the table with 145.11 N peak, `move-far` with 84.02 N (the IK solution stretched the arm down to the table); the tool said "moved" and `qwen2.5:7b` reported success both times. With validation, peak table force was 0.00 N in every episode.
 - `qwen2.5:7b` reported success in all 14 OFF episodes, so its claim carried no information. With validation its false claims fell from 8 to 2, but only `pick-far` became an honest failure report (rejected, then `success=false`); on `move-floor` and `move-far` it stopped without reporting (no report 0 → 4). The 2 left are `pick-blue`.
-- `qwen3:1.7b` mostly did not call `report_result` (10 of 14 OFF), and before each red-cube pick it inserted an unrequested `move_to(0, 0, 0)`, which validation rejected (z below 2 cm). It claimed success on `pick-far` in both modes, with validation even after its `pick` was rejected (2/2); its false claims rose from 2 to 4 because of `move-floor` (see Break it).
+- `qwen3:1.7b` mostly did not call `report_result` (10 of 14 OFF), and before each red-cube pick it inserted an unrequested `move_to(0, 0, 0)`, which validation rejected. It claimed success on `pick-far` in both modes, even after its `pick` was rejected; its false claims rose from 2 to 4 because of `move-floor` (Break it).
 - No agent checked the world after acting: zero `get_state`/`find_object` calls followed the last motion in all 56 episodes.
 
-**Determinism.** Both repeats of every (model, command, mode) produced identical tool calls and reports, and a full rerun gave the same run signature (`c8e791544f94`, a hash of every episode's tool calls and reports) and identical tables; only the wall-time line differed. This holds for this Ollama version, these weights and this hardware; it is not a property of LLMs in general. It also means each row holds 7 distinct outcomes, not 14 independent trials: the counts describe these 7 commands, not a rate you can extrapolate.
+**Determinism.** Both repeats of every (model, command, mode) produced identical tool calls and reports, and a full rerun gave the same run signature (`c8e791544f94`, a hash of every episode's tool calls and reports); only the wall-time line differed. This holds for this Ollama version, these weights and this hardware, not for LLMs in general, and it means each row holds 7 distinct outcomes, not 14 independent trials.
 
 ## Break it
 
@@ -189,8 +367,8 @@ In both cases the false claim is caught only by the harness comparing the world 
 
 ## On the real robot
 
-- **Not yet measured on the real arm.** The same tool layer maps onto LeRobot's SO-101 follower: `move_to` → IK → joint goals; clip them to the calibrated joint ranges in the tool layer and set LeRobot's `max_relative_target`, which is off (`None`) by default ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py)) (lesson 15).
-- `find_object` would return the camera estimate of [lesson 21](../part-5-perception-and-estimation/21-object-perception.md), with its error, not ground truth; `pick` success must come from a sensor (gripper position at closing, current, or a camera check), never from the model.
+- **Not yet measured on the real arm.** The tool layer maps onto LeRobot's SO-101 follower: `move_to` → IK → joint goals, clipped to the calibrated ranges, with LeRobot's `max_relative_target` set (off, `None`, by default: [`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py); lesson 15).
+- `find_object` would return the camera estimate of [lesson 21](../part-5-perception-and-estimation/21-object-perception.md), with its error; `pick` success must come from a sensor (gripper position at closing, current, a camera check), never from the model.
 - The e-stop (emergency stop) is not a tool. The agent can be told the robot stopped; it must not be able to un-stop it.
 - Procedure: run the same 7 commands on the arm with validation ON only, 10 repeats each, record the harness verdict and the agent's report, and report false-claim counts with the number of trials.
 

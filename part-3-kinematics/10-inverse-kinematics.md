@@ -45,18 +45,12 @@ flowchart TD
 ### IK as code
 
 ```python
-import numpy as np
-
-def ik_position(fk_pos, jac_pos, target, q, lo, hi, lam=0.1, tol=5e-4, max_iter=200):
-    for it in range(max_iter):
-        e = target - fk_pos(q)                     # task error (m), 3 numbers
-        if np.linalg.norm(e) < tol:                # 0.5 mm: success
-            return q, True
-        J = jac_pos(q)                             # 3 x n position Jacobian (m/rad)
-        A = J @ J.T + lam**2 * np.eye(len(e))      # lam = 0 gives the plain pseudo-inverse step
-        dq = J.T @ np.linalg.solve(A, e)           # damped least-squares step (rad)
-        q = np.clip(q + dq, lo, hi)                # stay inside the joint limits
-    return q, False
+for it in range(max_iter):
+    e = target - fk_pos(q)                         # task error (m)
+    if np.linalg.norm(e) < tol:                    # 0.5 mm: success
+        break
+    J = jac_pos(q)                                 # 3 x n position Jacobian (lesson 09)
+    q = np.clip(q + J.T @ np.linalg.solve(J @ J.T + lam**2 * np.eye(3), e), lo, hi)   # damped step, limits
 ```
 
 | Method | Step $\Delta q$ | Source |
@@ -83,7 +77,7 @@ As $\sigma_i \to 0$ the pseudo-inverse gain $1/\sigma_i$ explodes; the DLS gain 
 
 **Singularity and manipulability.** A pose is singular when $J$ loses rank. Yoshikawa's manipulability measure, $w = \sqrt{\det(JJ^\top)} = \prod_i \sigma_i$, is proportional to the volume of the velocity ellipsoid produced by unit joint speeds and falls to zero at a singularity ([Yoshikawa 1985](https://doi.org/10.1177/027836498500400201)). The direction $u_i$ of the smallest $\sigma_i$ is the direction the tool can barely move in.
 
-**Limits and branches.** Clamping after each step is the simplest way to respect joint limits; it can leave the iteration stuck against a limit, which Step 1 measures. Different seeds can converge to different branches of the solution set (Step 2).
+**Limits and branches.** Clamping after each step is the simplest way to respect joint limits; it can leave the iteration stuck against a limit, which the Experiment's Step 1 measures. Different seeds can converge to different branches of the solution set (its Step 2).
 
 Go deeper: AIEFS [Singular Value Decomposition](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/11-singular-value-decomposition), [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems); Lynch & Park, *Modern Robotics*, Ch. 5–6; Buss 2009; Yoshikawa 1985.
 
@@ -91,25 +85,156 @@ Go deeper: AIEFS [Singular Value Decomposition](https://aiengineeringfromscratch
 
 <!-- figure: 10-ik-dls -->
 
+## Build it
+
+You will now write the damped least-squares solver yourself in about 25 lines of NumPy, on top of lesson 09's `fk` and `hinge_column`, and check it against MuJoCo, NumPy's pseudo-inverse and the Experiment. Nothing new comes from MuJoCo except the joint limits.
+
+Type the steps into a file of your own (for example `scratch/my_ik.py`) and run it after each step. The finished functions are in [`physai/kinematics.py`](../physai/kinematics.py); `uv run python experiments/10-inverse-kinematics/build.py` runs all four steps with the checks (output in [`build_output.txt`](../experiments/10-inverse-kinematics/build_output.txt)).
+
+### Step 1 · One damped step
+
+The DLS step solves a 3 × 3 system instead of inverting $J$; with $\lambda = 0$ it is the pseudo-inverse step.
+
+```python
+def dls_step(J, e, lam):
+    """Damped least-squares step J^T (J J^T + lam^2 I)^-1 e; lam = 0 gives the pseudo-inverse step."""
+    return J.T @ np.linalg.solve(J @ J.T + lam ** 2 * np.eye(len(e)), e)
+```
+
+Check it against the SVD form from the math details, $\sum_i \sigma_i/(\sigma_i^2+\lambda^2)\,v_i u_i^\top e$, at $q = 0$ for a 1 cm error:
+
+```python
+J = jacobian(chain, np.zeros(5))[:3]                 # position rows, lesson 09
+U, sig, Vt = np.linalg.svd(J, full_matrices=False)
+svd = Vt.T @ (sig / (sig ** 2 + lam ** 2) * (U.T @ e))
+```
+
+```text
+== Step 1. One DLS step vs the SVD formula (q = 0, a 1 cm error) ==
+singular values of J_p at q = 0: 0.4764 0.3527 0.0771 m/rad
+lam = 0     |dq| = 0.1008 rad, max diff to sum sigma/(sigma^2+lam^2) v u^T e: 4.2e-17
+lam = 0.01  |dq| = 0.0992 rad, max diff to sum sigma/(sigma^2+lam^2) v u^T e: 2.8e-17
+lam = 0.1   |dq| = 0.0394 rad, max diff to sum sigma/(sigma^2+lam^2) v u^T e: 2.1e-17
+lam = 0 vs np.linalg.pinv(J) @ e: max diff 4.2e-17
+```
+
+The smallest singular value is 0.0771 m/rad, so λ = 0.01 barely changes the step (0.1008 → 0.0992 rad) while λ = 0.1 shortens it to 0.0394 rad: damping only bites in directions where $\sigma_i$ is not much larger than λ.
+
+### Step 2 · The loop, with joint limits
+
+Repeat the step until the error is below 0.5 mm, clipping to the joint limits after every step. One `fk` call per iteration gives both the error and the columns:
+
+```python
+def ik_solve(chain, target, q0, lo, hi, lam=0.1, tol=5e-4, max_iter=200):
+    """Position IK by damped least squares, clipped to the joint limits after every step.
+
+    Returns (q, success, iterations); success means |target - tool position| < tol (m).
+    """
+    q = np.array(q0, dtype=float)
+    for it in range(max_iter + 1):
+        axes, anchors, p = fk(chain, q)
+        e = target - p                             # task error (m)
+        if np.linalg.norm(e) < tol:
+            return q, True, it
+        if it == max_iter:
+            break
+        J = np.column_stack([hinge_column(a, o, p)[:3] for a, o in zip(axes, anchors)])  # position rows
+        q = np.clip(q + dls_step(J, e, lam), lo, hi)
+    return q, False, max_iter
+```
+
+```text
+== Step 2. Solve for (0.20, 0.05, 0.05) m from q = 0, check with mj_kinematics ==
+lam = 0    success True,   5 iterations, q = [-0.306 -1.745  1.573  0.949  0.012] rad, MuJoCo tool error 0.189 mm
+lam = 0.1  success True,  13 iterations, q = [-0.306 -0.922  1.091  0.969  0.009] rad, MuJoCo tool error 0.392 mm
+```
+
+MuJoCo's own forward kinematics confirms both answers. They are different answers: five joints for three position numbers leave a two-dimensional family of solutions, and the undamped solver ended with the lift clipped at its −100° limit (−1.745 rad) and still converged.
+
+### Step 3 · The Experiment's sweep
+
+Run your solver on the Experiment's 500 targets (FK of the same random joint vectors) at its best damping:
+
+```python
+targets = np.array([fk(chain, q)[2] for q in np.random.default_rng(0).uniform(LO, HI, size=(500, 5))])
+res = [ik_solve(chain, t, np.zeros(5), LO, HI, lam=0.1) for t in targets]
+```
+
+```text
+== Step 3. The Experiment's sweep: 500 reachable targets, q0 = 0, tol 0.5 mm, 200 iterations ==
+lam = 0.1: success 88.6%, median 15 iterations, p95 92; 56 of 57 failures end at a joint limit
+```
+
+Every number matches the Experiment's λ = 0.1 row (88.6%, median 15, p95 92, 56 of 57), because your FK and Jacobian equal MuJoCo's to round-off and the loop is the same.
+
+### Step 4 · Watch the singularity
+
+Stretch the arm from the bent pose to the Experiment's straight pose and ask for 5 cm/s along the weakest direction $u_3$. Manipulability is the product of the singular values:
+
+```python
+Jp = jacobian(chain, q_bent + s * (q_straight - q_bent))[:3]
+U, sig, Vt = np.linalg.svd(Jp)
+w = np.prod(sig)                                      # = sqrt(det(J J^T))
+v = 0.05 * U[:, 2]                                    # 5 cm/s along the weakest direction
+qdot_pinv, qdot_dls = dls_step(Jp, v, 0.0), dls_step(Jp, v, 0.1)
+```
+
+```text
+== Step 4. Stretching the arm: singular values, manipulability, joint speed for 5 cm/s ==
+    s  sigma1  sigma2    sigma3          w  |qdot| pinv  |qdot| DLS 0.1
+ 0.00  0.4764  0.2419  7.71e-02  8.879e-03         0.65           0.242
+ 0.50  0.5155  0.3885  4.42e-02  8.857e-03         1.13           0.185
+ 0.90  0.5295  0.4397  9.20e-03  2.143e-03         5.43           0.046
+ 0.99  0.5301  0.4412  9.35e-04  2.187e-04        53.47           0.005
+ 1.00  0.5301  0.4411  1.05e-04  2.444e-05       478.33           0.001
+```
+
+These are the Experiment's Step 3 and Break it numbers: σ₃ falls to 1.05e-04, the pseudo-inverse asks for 478.33 rad/s, DLS stays near 0.001 rad/s.
+
+### What you keep
+
+`physai.kinematics` now has `dls_step` and `ik_solve`. Whenever a later lesson needs joint targets for a hand position (lesson 13's Cartesian straight line solves IK at every waypoint), this is the loop. [`tests/test_10_inverse_kinematics.py`](../tests/test_10_inverse_kinematics.py) checks it against MuJoCo's FK and the SVD formula; run `uv run pytest tests/test_10_inverse_kinematics.py` after you change anything.
+
+## Use it
+
+MuJoCo computes forward kinematics and Jacobians but has no IK solver: the library way is the same loop with `mj_jacSite`, which is what the Experiment's `ik_solve` does, or a general bounded least-squares solver:
+
+```python
+from scipy.optimize import least_squares
+
+def residual(q):
+    d.qpos[:5] = q
+    mujoco.mj_kinematics(m, d)
+    return d.site_xpos[site_id] - target              # metres
+
+sol = least_squares(residual, q0, bounds=(lo, hi))     # joint limits as bounds, sol.x = joint angles
+```
+
+Lesson 08's Break it used this with 12 seeds. It respects the limits properly (no clipping), at the cost of more FK calls per solve.
+
+| Tool | Call | Method, limits |
+|---|---|---|
+| physai | `ik_solve(chain, target, q0, lo, hi, lam=0.1)` | DLS, clipped to the limits after each step |
+| Experiment | `ik_solve(model, data, target, method="dls", damping=0.1)` | same loop on `mj_jacSite`; also `"pinv"`, `"transpose"`, an optional target axis |
+| SciPy | `least_squares(residual, q0, bounds=(lo, hi))` | trust-region least squares, bounds enforced by the solver |
+| *Modern Robotics* code | `IKinSpace(Slist, M, T, thetalist0, eomg, ev)` | Newton-Raphson with `pinv`, full 6-D pose, no joint limits, at most 20 iterations ([`core.py`](https://github.com/NxRLab/ModernRobotics/blob/master/packages/Python/modern_robotics/core.py)) |
+
+Three traps:
+
+- **λ has units.** With position rows in m/rad, λ is in metres. Stack orientation rows (rad/rad) and position rows into one $J$ and a single λ treats a metre like a radian; weight the rows first, as the Experiment's `axis_weight` does.
+- **Clipping hides failure.** A clipped solver returns some joint vector every time. Check the success flag (or the final error), never just the returned `q`.
+- **The seed picks the branch.** Different starting joint vectors converge to different solutions (Build it, Step 2, and the Experiment's Step 2). Seed from the current robot pose when tracking, so consecutive solutions stay on one branch.
+
 ## Experiment
 
 Script: [`experiments/10-inverse-kinematics/experiment.py`](../experiments/10-inverse-kinematics/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), deterministic, about 6 s of CPU time.
 
-The solver is importable by later lessons (the experiment code sits under `if __name__ == "__main__":`):
+The script's solver works on MuJoCo's Jacobian and is importable (the experiment code sits under `if __name__ == "__main__":`):
 
 ```python
 sys.path.insert(0, "experiments/10-inverse-kinematics")
 from experiment import ik_solve
 res = ik_solve(model, data, target_pos, method="dls", damping=0.1)   # res.q, res.success, res.iters
-```
-
-Its core loop:
-
-```python
-e = target_pos - data.site_xpos[sid]
-mujoco.mj_jacSite(model, data, jp, jr, sid); J = jp[:, dadr]
-dq = J.T @ np.linalg.solve(J @ J.T + damping**2 * np.eye(len(e)), e)   # DLS
-q = np.clip(data.qpos[qadr] + dq, lo, hi)                              # joint limits
 ```
 
 **Predict first.** Which λ gives the highest success rate: 0 (pure Newton), 0.01, 0.1 or 0.3 (units: metres, since $J_p$ is in m/rad)?
@@ -174,9 +299,9 @@ The pseudo-inverse asks for 478.33 rad/s at the stretched pose, from a 5 cm/s re
 
 ## Check yourself
 
-1. **Easy.** Why does DLS with λ = 0.001 behave almost exactly like the pseudo-inverse in Step 1?
+1. **Easy.** Why does DLS with λ = 0.001 behave almost exactly like the pseudo-inverse in the Experiment's Step 1?
 2. **Medium.** Use `ik_solve` with `target_axis` and `joints=ARM[:4]` (wrist_roll fixed, as in Step 2) to ask for "fingers horizontal, pointing along +x" at (0.20, 0.0, 0.15) m. Does it converge to 1e-5? Explain with the arm plane from lesson 08.
-3. **Hard.** Implement an adaptive damping $\lambda(w) = \lambda_0 (1 - w/w_0)^2$ for $w < w_0$, else 0 (Buss lists several published schemes that choose λ from the configuration), and rerun the Step 1 sweep. Does it beat fixed λ = 0.1 on success and iterations?
+3. **Hard.** Implement an adaptive damping $\lambda(w) = \lambda_0 (1 - w/w_0)^2$ for $w < w_0$, else 0 (Buss lists several published schemes that choose λ from the configuration), and rerun the Experiment's Step 1 sweep (or Build it, Step 3). Does it beat fixed λ = 0.1 on success and iterations?
 
 ### Answers
 

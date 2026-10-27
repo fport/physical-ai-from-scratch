@@ -1,0 +1,38 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | SciPy 1.18.1
+validation trajectory, nominal vs real: 9.54 mrad RMS
+
+== Step 1. Fingerprints: |column| of the residual Jacobian at nominal (mrad per unit of x) ==
+amplitude       mass  armature   damping  friction        kp     delay
+0.02            11.6      32.0       6.3       2.5      26.9      48.1
+0.10            37.3    1246.6     920.3      14.0     928.6     947.6
+noise floor of the same log, 2 mrad x sqrt(2000 residuals) = 89.4 mrad
+
+== Step 2. Levenberg-Marquardt by hand, noise-free log at 0.1 rad ==
+                          mass% armatur% damping% frictio%      kp%   dly ms  val mrad evals
+ours                       -0.0     +0.0     -0.0     +0.0     -0.0     -0.0      0.00   108
+final cost |r|^2 = 1.7e-16 mrad^2
+
+== Step 3. The same fit with 2 mrad of noise (the Experiment's part B draw) ==
+                          mass% armatur% damping% frictio%      kp%   dly ms  val mrad evals
+ours                       +8.5     -1.1     +0.9    -20.7     +3.3     +0.2      0.28    69
+final cost |r|^2 = 7978.42 mrad^2 over 2000 residuals (2 mrad noise alone: 8000)
+
+== Step 4. The sloppy direction: singular values of J at the noisy solution ==
+singular values: 685.6 277.3 79.2 62.4 29.0 3.9  (ratio 176)
+weakest direction: mass -0.04 armature -0.00 damping -0.06 friction +1.00 kp -0.02 delay -0.02
+predicted 1-sigma spread: mass 7.1% armature 0.4% damping 4.2% friction 51.2% kp 3.1% delay 0.20 ms
+
+== Step 5. A missing mechanism: no delay parameter, noise-free log ==
+                          mass% armatur% damping% frictio%      kp%   dly ms  val mrad evals
+ours, no delay            -45.0    +33.9    -28.7   +133.0    -68.1    -15.0      1.99   218
+                       cost |r|^2 = 11230.1 mrad^2
+fitted: mass 0.660, armature 0.054, damping 0.641, friction 0.233, kp 0.223
+
+== Use it. scipy.optimize.least_squares on the same residuals ==
+                          mass% armatur% damping% frictio%      kp%   dly ms  val mrad evals
+SciPy, noise-free          -0.0     +0.0     -0.0     +0.0     -0.0     -0.0      0.00    77
+                       cost |r|^2 = 0.00 mrad^2, nfev (without Jacobian calls) 11
+SciPy, 2 mrad noise        +6.9     -1.3     +0.9    -12.9     +4.6     +0.2      0.25   125
+                       cost |r|^2 = 7982.43 mrad^2, nfev (without Jacobian calls) 23
+SciPy, no delay           -50.7    +35.4    +40.9    +46.0    -67.8    -15.0      6.23   104
+                       cost |r|^2 = 8162.84 mrad^2, nfev (without Jacobian calls) 29

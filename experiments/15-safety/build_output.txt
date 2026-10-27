@@ -1,0 +1,45 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. The goal clamp: position limit 0.3 rad, relative-target limit 0.02 rad ==
+  target  q_now    goal
+    1.20   0.00   0.020
+    1.20   0.29   0.300
+    0.25   0.24   0.250
+   -1.00  -0.10  -0.120
+100000 random: max |goal - q_now| = 0.0200 rad, outside range: 0, vs present + clip(diff): 1.7e-18
+goal speed bound delta / tick = 1.00 rad/s
+
+== Step 2. The capped servo vs MuJoCo's position actuator (SO-101, 2000 random states) ==
+kp = 998.22, kv = 2.731, cap = 2.94 N m, pan ctrlrange = [-1.920, 1.920] rad
+cap 2.94 N m: max |ours - MuJoCo| = 2.3e-13 N m; cap reached at an error of 2.95 mrad
+cap 0.50 N m: max |ours - MuJoCo| = 2.2e-14 N m; cap reached at an error of 0.50 mrad
+
+== Step 3. Part A with our layers in the loop (bad command: pan target 0 -> 1.2 rad at t = 0.1 s) ==
+safeguard     peak N  push N  speed   tau  max |ours - Exp.|
+none          125.98   14.33   4.49  2.94  0.0e+00
+limit 0.3       0.00    0.00   4.02  2.94  0.0e+00
+delta 0.02     45.82   14.48   1.82  2.94  0.0e+00
+cap 0.5        21.34    2.12   0.75  0.50  0.0e+00
+all three       0.00    0.00   0.75  0.50  0.0e+00
+steady push vs tau_max / r (r = lever of the post contacts about the pan axis):
+  cap 2.94: r = 22.5 cm, tau_max / r = 13.07 N, push 14.33 N
+  cap 1.00: r = 22.5 cm, tau_max / r =  4.44 N, push  4.34 N
+  cap 0.50: r = 22.6 cm, tau_max / r =  2.22 N, push  2.12 N
+stall test: kp * 0.005 = 4.99 N m >= 2.94 N m
+
+== Step 4. Watchdog: jog at 1 rad/s, the last message at t = 0.18 s (part D) ==
+ timeout s  stopped after s  travel deg  peak N  max |ours - Exp.|
+      none            0.350       19.57   24.48  0.0e+00
+       0.5            0.350       19.57   24.48  0.0e+00
+       0.2            0.230       11.61    0.00  0.0e+00
+      0.05            0.090        3.58    0.00  0.0e+00
+
+== Step 5. E-stop latch, then part E: stop a 1 rad/s jog at t = 0.2 s ==
+pressed for one tick: active [False, True, True, True]; reset while pressed: True; after release: False
+stop         travel deg  stopped after s  gripper drop cm  max |ours - Exp.|
+hold               0.15            0.030             0.02  0.0e+00
+torque off         1.53            0.124            11.74  0.0e+00
+
+== Use it. The position limit and the cap as model attributes (MuJoCo clamps inside mj_step) ==
+actuator_ctrlrange = [-0.3, 0.3]: peak   0.00 N, push  0.00 N; vs our layer 0.0e+00
+actuator_forcerange = [-0.5, 0.5]: peak  21.34 N, push  2.12 N; vs our layer 0.0e+00

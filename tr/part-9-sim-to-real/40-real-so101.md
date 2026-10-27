@@ -53,6 +53,154 @@ flowchart TD
 
 **Birimler.** Varsayılan `use_degrees = True` ile LeRobot beş kol joint'ini kalibrasyonda kaydedilen aralığın ortasına göre derece cinsinden, gripper'ı 0'dan 100'e raporluyor ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py), [`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py)). Menagerie modeli kendi sıfırından radyan kullanıyor. Bir sim kontrolü ancak ikisi arasındaki ofseti ve işareti ölçtükten sonra anlamlıdır (ders 38).
 
+## Sıfırdan yaz
+
+Ders 40'ın riskleri muhasebe, muhasebenin de kol hareket etmeden kontrol edebileceğin bir matematiği var: encoder tick'lerinin policy'nin gördüğü derecelere nasıl dönüştüğü, o derecelerin modelin radyanlarına nasıl eşlendiği ve bir trajectory boyunca yerçekiminin ve bir yükün ne kadar tork istediği. Fonksiyonlar [`physai/sim2real.py`](../../physai/sim2real.py) içinde; `uv run python experiments/40-real-so101/build.py` adımları koşturur (çıktı [`build_output.txt`](../../experiments/40-real-so101/build_output.txt) dosyasında). Aşağıdaki her sayı Menagerie modelinden ya da uydurulmuş test değerlerinden, gerçek bir koldan değil.
+
+### Adım 1 · Tick'ler ve dereceler
+
+LeRobot'un derece modu 0'ı kalibre edilmiş aralığın ortasına koyar ve 360°'yi `resolution - 1` tick'e yayar; geri dönerken `int()` ile keser ([`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py), `_normalize` / `_unnormalize`). Docstring'i 12-bit bir encoder için tur başına 4096 adım veriyor; burada varsayılan bu.
+
+```python
+def ticks_to_deg(raw, range_min, range_max, resolution=4096):
+    """LeRobot's degrees mode: 0 at the middle of the calibrated range, 360 deg per resolution - 1 ticks."""
+    return (raw - (range_min + range_max) / 2) * 360 / (resolution - 1)
+```
+
+```python
+def deg_to_ticks(deg, range_min, range_max, resolution=4096):
+    """Back to an encoder position; int() truncates toward zero, as LeRobot's _unnormalize does."""
+    return int(deg * (resolution - 1) / 360 + (range_min + range_max) / 2)
+```
+
+```text
+== Step 1. Encoder ticks <-> degrees (12-bit encoder, calibrated range 1000-3000) ==
+middle of the range 0.000 deg, ends -87.91 / 87.91 deg, one tick = 0.0879 deg
+ticks -> deg -> ticks: 2001 of 2001 positions come back exactly
+deg -> ticks -> deg for 16,001 goals: error from -0.0878 to 0.0000 deg (int() of a positive tick count rounds down: up to one tick, always low)
+```
+
+Okumalar gidiş-dönüşte birebir korunuyor; komut edilen hedefler korunmuyor. Her hedef tam bir tick'e *aşağı* yuvarlanıyor, 0,088°'ye kadar: ortalamada yarım tick'lik sistematik bir ofset, sıfır ortalamalı bir noise değil.
+
+### Adım 2 · Derecelerden model radyanlarına
+
+Policy'nin dereceleri ile modelin radyanları her joint'te bir işaret ve bir ofset kadar farklı (aşağıdaki Boz 10°'lik ofsetin ne yaptığını gösteriyor). Model açıları bilinen iki poz ikisini de sabitler:
+
+```python
+def fit_calibration(deg, q_model):
+    """Sign / scale and offset with q_model = a * radians(deg) + b, least squares over poses where both are known."""
+    a, b = np.polyfit(np.radians(deg), q_model, 1)
+    return a, b
+```
+
+```text
+== Step 2. Degrees -> model radians: sign and offset from two known poses ==
+readings [ 24.176 -44.571] deg -> fitted a = -1.0001 (true -1.0), b = 6.990 deg (true 7.000)
+9 test poses: max error 0.067 deg (one tick is 0.088 deg)
+```
+
+Uydurulmuş bir montajla (ters yön, 7° ofset) ve tam tick'lere quantize edilmiş okumalarla, iki poz işareti ve ofseti 0,01° içinde buluyor; yeni pozlar bir tick içinde eşleniyor.
+
+### Adım 3 · Elle yerçekimi torku
+
+Dururken hinge $i$, ötesindeki gövdeler üzerinden $\tau_i = \sum_b (\hat a_i \times (c_b - o_i)) \cdot m_b g$ taşır; gövde pozları ders 07'nin `frame_tree`'sinden:
+
+```python
+def gravity_torques(m, qpos, frames, g=(0.0, 0.0, -9.81)):
+    """Joint torques gravity puts on a hinge chain at rest: for hinge i, the sum over the bodies it carries of
+    (a_i x (c_b - o_i)) . (m_b g). frames: world 4x4 pose of every body (lesson 07's frame_tree)."""
+    tau = np.zeros(m.njnt)
+    for j in range(m.njnt):
+        if m.jnt_type[j] != 3:                     # hinges only
+            continue
+        T = frames[m.jnt_bodyid[j]]
+        a, o = T[:3, :3] @ m.jnt_axis[j], T[:3, :3] @ m.jnt_pos[j] + T[:3, 3]   # axis and anchor in the world
+        for b in range(1, m.nbody):
+            p = b
+            while p not in (0, m.jnt_bodyid[j]):   # is body b on the far side of joint j?
+                p = m.body_parentid[p]
+            if p == m.jnt_bodyid[j]:
+                c = frames[b][:3, :3] @ m.body_ipos[b] + frames[b][:3, 3]          # centre of mass
+                tau[j] += np.cross(a, c - o) @ (m.body_mass[b] * np.asarray(g))
+    return tau
+```
+
+```text
+== Step 3. Gravity torque by hand along the 303 goals vs qfrc_bias ==
+goals 303, max |ours + qfrc_bias| = 6.7e-16 N m
+largest static gravity torque 0.446 N m at elbow_flex (Experiment: 0.446 N m)
+```
+
+Deney'in gravity sütunundaki 0,446 N·m, kendi toplamından, dururken MuJoCo'nun `qfrc_bias`'ına yuvarlama hatası düzeyinde eşit.
+
+### Adım 4 · Yük bütçesi
+
+Gripper frame'deki $p$ kütleli bir nokta $p\,J_p^\top g$ ekler (ders 09'un Jacobian'ı), $p$'de doğrusal; en büyük güvenli yük, ilk joint'in ilk pozda limite ulaştığı yerdir:
+
+```python
+def max_payload(tau0, per_kg, limit):
+    """Smallest payload (kg) at which some |tau0 + p * per_kg| reaches `limit`; rows are poses, columns joints."""
+    p = np.inf
+    for t, k in zip(np.ravel(tau0), np.ravel(per_kg)):
+        if k != 0:
+            for target in (limit, -limit):
+                root = (target - t) / k
+                if root >= 0:
+                    p = min(p, root)
+    return p
+```
+
+```text
+== Step 4. The payload budget at the gripper frame ==
+payload kg  ours N m  MuJoCo model with payload N m
+       0.2     0.945                          0.945
+       0.4     1.445                          1.445
+       0.6     1.944                          1.944
+       0.8     2.443                          2.443
+largest payload with static torque <= 80% of 2.94 N m: 0.764 kg
+largest payload with static torque <= 100% of 2.94 N m: 0.999 kg
+```
+
+Jacobian sütunu ile MuJoCo her yükte uyuşuyor ve bütçe bir sweep yerine bir sayı: %80 kuralıyla 0,764 kg, tam 2,94 N·m'de 0,999 kg. Bu adımı yazmak `experiment.py`'nin ilk sürümünde bir hata buldu: yük gövdesi inertial konumu boş bırakıyordu, bu yüzden MuJoCo 0,2–0,8 kg'lık kütleyi gripper frame'in 9,8 cm ötesine koyuyordu ve B tablosu torkları olduğundan büyük gösteriyordu (0,2 kg'da 0,945 yerine 1,096 N·m). Script artık `ipos`'u ayarlıyor ve B tablosu düzeltilmiş koşuyu gösteriyor.
+
+### Adım 5 · Statik kontroller
+
+```text
+== Step 5. Static preflight: range margin and goal step per 30 fps tick ==
+x0.5  goals 591, range margin 10.00 deg, largest step 0.026 rad/tick -> PASS
+x1    goals 303, range margin 10.00 deg, largest step 0.052 rad/tick -> PASS
+x2    goals 159, range margin 10.00 deg, largest step 0.103 rad/tick -> FAIL
+x4    goals  87, range margin 10.00 deg, largest step 0.207 rad/tick -> FAIL
+```
+
+Deney'in A bölümüyle aynı kararlar, tek bir servo adımı simüle etmeden: step kontrolü hedef listesi üzerinde saf aritmetik.
+
+### Elinde kalan
+
+`physai.sim2real` artık `ticks_to_deg`, `deg_to_ticks`, `fit_calibration`, `gravity_torques` ve `max_payload` içeriyor. Capstone (ders 44) prosedürü için aynı dereceden radyana eşlemeye ihtiyaç duyuyor. [`tests/test_40_real_so101.py`](../../tests/test_40_real_so101.py) onları MuJoCo ile kontrol eder: `uv run pytest tests/test_40_real_so101.py`.
+
+## Kütüphaneyle kullan
+
+Kolda dönüşüm LeRobot'un içinde oluyor: `robot.get_observation()` normalize edilmiş değerleri döndürür, `robot.send_action()` onları alır; mod follower config'inin seçtiği moddur. MuJoCo'da dururken yerçekimi torku, `qvel = 0` ile `mj_forward`'dan sonra `-qfrc_bias`'tır; Deney onu böyle kullanıyor.
+
+```python
+d.qpos[:6], d.qvel[:] = goal, 0
+mujoco.mj_forward(m, d)
+tau_gravity = -d.qfrc_bias[:5]          # equals gravity_torques(m, d.qpos, frame_tree(m, d.qpos))[:5]
+```
+
+| LeRobot `MotorNormMode` | Değer | Ham tick'ten ([`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py)) |
+|---|---|---|
+| `DEGREES` (`use_degrees = True` ile kol joint'leri) | kalibre edilmiş aralığın ortasından derece | `(val - mid) * 360 / max_res`, `max_res = resolution - 1` |
+| `RANGE_M100_100` | kalibre edilmiş aralık üzerinde −100 … 100 | `(val - min) / (max - min) * 200 - 100`, `drive_mode` ise eksi işaretli |
+| `RANGE_0_100` (gripper) | 0 … 100 | `(val - min) / (max - min) * 100`, `drive_mode` ise `100 - …` |
+
+Tuzaklar:
+
+- **Dereceler encoder'la, aralıklar kalibrasyonla ölçeklenir.** Bir derece her kolda aynı açıdır; `RANGE_M100_100`'deki "50" kalibrasyon sırasında joint'i nerede durdurduğuna bağlıdır.
+- **`drive_mode` işareti çevirir** aralık modlarında; yukarıdaki derece formülünde böyle bir terim yok, bu yüzden model tarafındaki işaret fit'ten (Adım 2) gelmeli.
+- **Kesme sapmalıdır.** `int()` her pozitif tick sayısını aşağı yuvarlar; komut edilen ve ölçülen açıları 0,1° düzeyinde karşılaştırırken bunu akılda tut.
+
 ## Deney
 
 ### Bölüm 1 · Donanım prosedürü (gerçek kolda henüz ölçülmedi)
@@ -138,11 +286,11 @@ Tam script: [`experiments/40-real-so101/experiment.py`](../../experiments/40-rea
 
 | yük [kg] | 0,0 | 0,2 | 0,4 | 0,6 | 0,8 |
 |---|---|---|---|---|---|
-| gravity [N·m] | 0,446 | 1,096 | 1,747 | 2,397 | 3,047 |
-| track [°] | 0,62 | 0,67 | 0,70 | 0,72 | 2,11 |
-| sonuç | PASS | PASS | PASS | FAIL: gravity | FAIL: gravity |
+| gravity [N·m] | 0,446 | 0,945 | 1,445 | 1,944 | 2,443 |
+| track [°] | 0,62 | 0,65 | 0,68 | 0,70 | 0,71 |
+| sonuç | PASS | PASS | PASS | PASS | FAIL: gravity |
 
-**Gözlem.** Step kontrolü ×2'de devreye giriyor, takip çok daha sonra (×4) bozuluyor: robotta da uygulayabileceğin ucuz ve muhafazakâr bir vekil. Modeldeki servo her hızda adımların %37,2–74,8'inde tork limitinde; $k_p$ = 998 N·m/rad ile doğrusal bandı yalnızca 2,94/998 ≈ 2,9 mrad, bu yüzden saturation tek başına burada pek bir şey söylemiyor. 0,6 kg'da statik tork (2,397 N·m) limitin %80'ini geçiyor, kol ise hâlâ 0,72° ile takip ediyor: gravity kontrolü eksik margin'i kol bunu kanıtlamak zorunda kalmadan işaretliyor (ders 12'de uzatılmış kol 0,8 kg'da düştü).
+**Gözlem.** Step kontrolü ×2'de devreye giriyor, takip çok daha sonra (×4) bozuluyor: robotta da uygulayabileceğin ucuz ve muhafazakâr bir vekil. Modeldeki servo her hızda adımların %37,2–74,8'inde tork limitinde; $k_p$ = 998 N·m/rad ile doğrusal bandı yalnızca 2,94/998 ≈ 2,9 mrad, bu yüzden saturation tek başına burada pek bir şey söylemiyor. 0,8 kg'da statik tork (2,443 N·m) limitin %80'ini geçiyor, kol ise hâlâ 0,71° ile takip ediyor: gravity kontrolü eksik margin'i kol bunu kanıtlamak zorunda kalmadan işaretliyor (Sıfırdan yaz, Adım 4 %80 çizgisini 0,764 kg'a koyuyor).
 
 ## Boz
 
@@ -186,7 +334,7 @@ Her oturum için **ne log'lanmalı**: LeRobot sürümü, iki kalibrasyon dosyas�
 ## Akılda kalanlar ve kaynaklar
 
 - Deploy değişmezleri olan bir pipeline'dır: teleoperation'dan rollout'a kadar aynı port, `id`, kalibrasyon, kameralar ve fps.
-- Ucuz bir preflight güvensiz komutları yakalar: ×2'den itibaren 0,10 rad/tick'in üstündeki step'ler, 0,6 kg'dan itibaren limitin %80'ini geçen statik tork.
+- Ucuz bir preflight güvensiz komutları yakalar: ×2'den itibaren 0,10 rad/tick'in üstündeki step'ler, 0,8 kg'dan itibaren limitin %80'ini geçen statik tork (bütçe 0,764 kg).
 - Joint aralığı kontrolleri bir kalibrasyon ofsetini yakalamaz; simülasyonda 10°'lik bir omuz ofseti gripper'ı zemine sokuyor.
 
 Sonraki: [ders 41 · Vision-language-action model'leri](../part-10-foundation-models-and-agents/41-vla.md).

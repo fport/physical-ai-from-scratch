@@ -1,0 +1,30 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | SciPy 1.18.1
+
+== Step 1. The friction-cone ratio from the Experiment's own squeeze forces (output.txt) ==
+part A: 6 rows, max |ours - printed ratio| = 0.01
+part B: 4 rows, max |ours - printed ratio| = 0.00
+part C: 8 rows, max |ours - printed ratio| = 0.00
+max_mass: mu 0.05, 12.74 N -> 0.065 kg; mu 0.3, 16.25 N -> 0.497 kg
+
+== Step 2. Inside a held grasp (end of the hold, cube in the air) ==
+case             contacts  sum Fz N   m g N  max cone use
+mu 1.0, 30 g           18     0.294   0.294         0.037
+mu 0.3, 0.4 kg          7     3.924   3.924         1.000
+
+== Step 3. Squeeze from the jaw torque cap (mu = 0.05, 30 g, nominal position) ==
+jaw friction loss 0.052 N m; band = 2 (tau +- loss) / r
+ cap N m  r_jaw cm  2 tau / r N          band N  squeeze N  N fixed / N moving
+    1.00      7.37        27.13  [25.72, 28.54]      26.12               1.002
+    0.50      7.42        13.47  [12.07, 14.87]      12.66               1.001
+    0.30      7.44         8.07    [6.67, 9.47]       6.68               1.004
+
+== Step 4. Our state machine vs the Experiment's scripted_pick (nominal pick) ==
+minjerk: s(0.5) = 0.500, peak speed 1.8750 (15/8 = 1.875), |v|, |a| at the ends < 6e-04 (finite differences)
+ours: held, lift 7.37 cm, jaw forces 39.84 / 39.83 N, close 0.474 s, 2287 steps
+Exp.: success True, lift 7.37 cm, jaw forces 39.84 / 39.83 N, close 0.474 s, 2287 steps; max |qpos ours - Exp.| = 0.0e+00
+
+== Step 5. Three sweep rows rerun with our machine (10 positions, seed 0) ==
+row           held / not closed / dropped  squeeze N  ratio      Wilson 95%  vs SciPy
+A mu 0.03               2 / 8 / 0              12.29   1.25    [0.06, 0.51]   5.6e-06
+C 0.4 kg               10 / 0 / 0              16.25   1.24    [0.72, 1.00]   7.4e-06
+C 0.45 kg               0 / 0 / 10             16.47   1.12    [0.00, 0.28]   7.4e-06

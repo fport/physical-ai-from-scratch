@@ -62,3 +62,39 @@ class PID:
             self.integ = min(max(self.integ, -lim), lim)
         tau = pd_torque(q, qd, q_target, self.kp, self.kd) + self.ki * self.integ + tau_ff
         return min(max(tau, -self.tau_max), self.tau_max)
+
+
+# ---- Task-space control (lesson 14 · Build it) ----
+
+def orientation_error(R, R_des):
+    """Rotation (rad, world axes) that turns R toward R_des: half the sum of column cross products."""
+    return 0.5 * sum(np.cross(R[:, i], R_des[:, i]) for i in range(3))
+
+
+def task_inertia(J, M):
+    """The arm's inertia as felt at the tool: Lambda = (J M^-1 J^T)^-1."""
+    return np.linalg.inv(J @ np.linalg.solve(M, J.T))
+
+
+def impedance_wrench(e, v, K, D, Kr, Dr):
+    """A spring-damper at the tool: force K e - D v (N) and moment Kr e_rot - Dr w (N m)."""
+    return np.r_[K * e[:3] - D * v[:3], Kr * e[3:] - Dr * v[3:]]
+
+
+def osc_wrench(Lam, e, v, kp, kd):
+    """Operational space: the wrench that gives every direction the unit-mass response kp e - kd v."""
+    return Lam @ (kp * e - kd * v)
+
+
+def null_space_projector(J, M, Lam):
+    """N = I - J^T Jbar^T with Jbar = M^-1 J^T Lambda: N tau0 never accelerates the tool."""
+    Jbar = np.linalg.solve(M, J.T) @ Lam
+    return np.eye(M.shape[0]) - J.T @ Jbar.T
+
+
+def task_torque(J, F, bias, lim, N=None, tau0=None):
+    """Joint torques J^T F + bias (+ N tau0), clipped joint by joint at the limits; also returns 'clipped'."""
+    tau = J.T @ F + bias
+    if N is not None:
+        tau = tau + N @ tau0
+    return np.clip(tau, -lim, lim), bool(np.any(np.abs(tau) > lim))

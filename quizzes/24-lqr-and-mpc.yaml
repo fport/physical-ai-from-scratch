@@ -1,5 +1,65 @@
 # Lesson 24 · LQR and MPC. Every answer is supported by the lesson page or
 # experiments/24-lqr-and-mpc/output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: Near upright, a balanced stick falls with an acceleration roughly proportional to its tilt. What does LQR exploit about that?
+    tr: Dik konuma yakınken dengedeki bir çubuk eğimiyle kabaca orantılı bir ivmeyle düşer. LQR bundan nasıl yararlanır?
+  options:
+  - en: It learns the gains online from the falls it observes.
+    tr: Gördüğü düşüşlerden gain'leri online öğrenir.
+  - en: It replans a nonlinear trajectory at every step.
+    tr: Her adımda doğrusal olmayan bir trajectory'yi yeniden planlar.
+  - en: For linear physics and a quadratic cost, the best controller is a fixed gain row computed once, offline.
+    tr: Doğrusal fizik ve kuadratik maliyet için en iyi controller, bir kez offline hesaplanan sabit bir gain satırıdır.
+  answer: 2
+  why:
+    en: In plain words. At run time LQR is one dot product, $u = -K\,\delta x$; its weakness is that it only knows that neighbourhood.
+    tr: Sade anlatımla. Çalışırken LQR tek bir iç çarpımdır, $u = -K\,\delta x$; zayıflığı yalnız o komşuluğu bilmesi.
+- stage: pre
+  q:
+    en: MPC plans the next fraction of a second but executes only the first instant, then plans again. Why throw the rest of the plan away?
+    tr: MPC saniyenin bir sonraki kesrini planlıyor ama yalnız ilk anını uyguluyor, sonra yeniden planlıyor. Planın geri kalanı neden atılıyor?
+  options:
+  - en: To save memory on the controller.
+    tr: Controller'da bellekten tasarruf için.
+  - en: So that every plan starts from the state actually measured, and errors do not pile up.
+    tr: Her plan gerçekten ölçülen state'ten başlasın ve hatalar birikmesin diye.
+  - en: Because the rest of the plan is always wrong.
+    tr: Çünkü planın geri kalanı her zaman yanlıştır.
+  answer: 1
+  why:
+    en: In plain words, the GPS that recomputes the route at every intersection; the shifted rest of the plan is still used as the next warm start.
+    tr: Sade anlatımla, her kavşakta rotayı yeniden hesaplayan GPS; planın kaydırılmış geri kalanı yine de bir sonraki warm start olarak kullanılır.
+- stage: check
+  q:
+    en: Build it, Step 2 gives a first gain of [0.4182, -14.1056, 0.7483, -2.6585] for a 0.1 s horizon, but exactly the Experiment's K for 10 s. Why?
+    tr: Sıfırdan yaz, Adım 2 0,1 s'lik bir ufuk için ilk gain'i [0,4182, -14,1056, 0,7483, -2,6585] veriyor, 10 s için ise tam Deney'in K'sini. Neden?
+  options:
+  - en: A finite-horizon gain depends on how far ahead the cost counts; with a long horizon it converges to the infinite-horizon gain.
+    tr: Sonlu ufuklu bir gain maliyetin ne kadar ileriye sayıldığına bağlıdır; uzun ufukta sonsuz ufuklu gain'e yakınsar.
+  - en: The 0.1 s result is a numerical error of the recursion.
+    tr: 0,1 s'lik sonuç özyinelemenin sayısal bir hatasıdır.
+  - en: The linearization changes with the horizon.
+    tr: Linearization ufukla birlikte değişir.
+  answer: 0
+  why:
+    en: The backward Riccati recursion starts from $Q_f$ at the end of the horizon; after about a thousand steps (Step 3) $P$ stops changing and the gain matches `solve_discrete_are` to 3.0e-11.
+    tr: Geriye doğru Riccati özyinelemesi ufkun sonunda $Q_f$'den başlar; yaklaşık bin adımdan sonra (Adım 3) $P$ değişmeyi bırakır ve gain `solve_discrete_are` ile 3,0e-11 farkla örtüşür.
+- stage: check
+  q:
+    en: What does `scipy.linalg.solve_discrete_are(A, B, Q, R)` return?
+    tr: '`scipy.linalg.solve_discrete_are(A, B, Q, R)` ne döndürür?'
+  options:
+  - en: The gain K, ready for u = -K x.
+    tr: u = -K x için hazır K gain'ini.
+  - en: The closed-loop eigenvalues.
+    tr: Kapalı döngü özdeğerlerini.
+  - en: Only the Riccati solution P; the discrete gain is $(R + B^\top P B)^{-1} B^\top P A$.
+    tr: Yalnız Riccati çözümü P'yi; ayrık gain $(R + B^\top P B)^{-1} B^\top P A$.
+  answer: 2
+  why:
+    en: Use it table and traps; $R^{-1} B^\top P$ is the continuous-time formula and is wrong with the discrete A and B of `mjd_transitionFD`. python-control's `dlqr` returns K, S and E.
+    tr: Kütüphaneyle kullan tablosu ve tuzaklar; $R^{-1} B^\top P$ sürekli zaman formülüdür ve `mjd_transitionFD`'nin ayrık A ve B'siyle yanlıştır. python-control'ün `dlqr`'ı K, S ve E döndürür.
 - q:
     en: 'Part B: with F = 5 N the LQR fails from 20° as "fell"; with F = 10 N the failures at 35–40° are "track end". What explains the two modes?'
     tr: 'Bölüm B: F = 5 N''de LQR 20°''den itibaren "düştü" ile başarısız; F = 10 N''de 35–40°''deki başarısızlıklar "ray sonu". İki modu ne açıklar?'
@@ -14,20 +74,7 @@
   why:
     en: 'Part B table and text: the constraint $\lvert x\rvert \le 1.5$ m is not in the LQR. Even at 50 N the region ends between 50° and 55°.'
     tr: 'Bölüm B tablosu ve metni: $\lvert x\rvert \le 1{,}5$ m kısıtı LQR''da yok. 50 N''de bile bölge 50° ile 55° arasında bitiyor.'
-- q:
-    en: Why does LQR started from hanging down (180°) fail at every force limit?
-    tr: Aşağı sarkarken (180°) başlatılan LQR neden her kuvvet limitinde başarısız?
-  options:
-  - en: The force limits are too small; with enough force it would swing up.
-    tr: Kuvvet limitleri fazla küçük; yeterli kuvvetle yukarı çıkardı.
-  - en: The Riccati equation has no solution at 180°.
-    tr: Riccati denkleminin 180°'de çözümü yok.
-  - en: The linear model holds only near $\theta = 0$; near $\theta = \pi$ the coupling from cart force to pole acceleration ($\propto \cos\theta$) flips sign, and a fixed linear law cannot pump energy into a swing.
-    tr: Doğrusal model yalnızca $\theta = 0$ yakınında geçerli; $\theta = \pi$ yakınında araba kuvvetinden çubuk ivmesine giden bağ ($\propto \cos\theta$) işaret değiştirir ve sabit bir doğrusal yasa salınıma enerji pompalayamaz.
-  answer: 2
-  why:
-    en: 'Part B table: "not up" at all four forces (5, 10, 20 and 50 N); the gains are computed once, at the upright.'
-    tr: 'Bölüm B tablosu: dört kuvvetin hepsinde (5, 10, 20 ve 50 N) "çıkmadı"; gain''ler bir kez, dik konumda hesaplanıyor.'
+  stage: post
 - q:
     en: MPPI alone with a 0.2 s horizon passes upright 8/8 but holds 0/8. What does that show, and what worked best?
     tr: Tek başına MPPI 0,2 s horizon ile 8/8 dikten geçiyor ama 0/8 tutuyor. Bu neyi gösterir ve en iyi ne çalıştı?
@@ -42,3 +89,4 @@
   why:
     en: 'Part C: worst angle in the last second 178.2° at 0.2 s, held 8/8 at 0.5–0.7 s; with the hand-off the worst angle was 0.0° at 1.0 s and 0.1° at 1.5 s.'
     tr: 'Bölüm C: son saniyedeki en kötü açı 0,2 s''de 178,2°, 0,5–0,7 s''de 8/8 tuttu; devirle en kötü açı 1,0 s''de 0,0°, 1,5 s''de 0,1°.'
+  stage: post

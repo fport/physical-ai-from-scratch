@@ -31,7 +31,7 @@ Bir asansör düşün. Ucuz bir asansör kalkarken ve dururken sarsar; iyi bir a
 - **cubic**: hız yumuşaktır ama ivme başta ve sonda yine sıçrar;
 - **quintic**: konum, hız ve ivme başta ve sonda durağandır. Bu, **minimum-jerk** harekettir.
 
-Süre şekilden daha önemlidir: aynı hareketi yarı sürede yaparsan her ivme (ve tork) dört kat, her jerk sekiz kat büyür. İki seçim daha var: eklem açılarında interpolasyon (ucuz ama el bir eğri izler) ya da el için düz bir çizgi (her noktada IK gerekir) ve **feedforward** eklenip eklenmeyeceği: planlanan ivmenin gerektirdiği torku hatanın birikmesini beklemeden önceden göndermek.
+Süre şekilden daha önemlidir: aynı hareketi yarı sürede yaparsan her ivme (ve tork) dört kat, her jerk sekiz kat büyür. İki seçim daha: eklem açılarında interpolasyon (ucuz, el bir eğri izler) ya da elin düz bir çizgi izlemesi (her noktada IK) ve **feedforward** eklenip eklenmeyeceği: planlanan ivmenin gerektirdiği torku önceden göndermek.
 
 ```mermaid
 flowchart TD
@@ -50,14 +50,8 @@ flowchart TD
 Her hareket "başlangıç + yolun tamamlanan kesri × toplam değişim"dir; zamanla yalnızca `s` kesri değişir.
 
 ```python
-def quintic(t, T):
-    u = min(max(t / T, 0.0), 1.0)              # normalised time, 0 at start, 1 at the end
-    s = 10*u**3 - 15*u**4 + 6*u**5             # fraction of the move done, 0 -> 1
-    sd = (30*u**2 - 60*u**3 + 30*u**4) / T     # ds/dt  [1/s]
-    sdd = (60*u - 180*u**2 + 120*u**3) / T**2  # d2s/dt2 [1/s^2]
-    return s, sd, sdd
-
-s, sd, sdd = quintic(t, T)
+u = min(max(t / T, 0.0), 1.0)                          # normalised time, 0 at start, 1 at the end
+s, sd, sdd = quintic_s(u), quintic_s1(u) / T, quintic_s2(u) / T**2   # fraction done and its time derivatives
 q_ref, qd_ref, qdd_ref = q0 + s*dq, sd*dq, sdd*dq      # per-joint reference [rad, rad/s, rad/s^2]
 tau = g(q) + kp*(q_ref - q) + kd*(qd_ref - qd)         # PD tracking + gravity (lesson 12)
 tau += M(q) @ qdd_ref                                  # optional feedforward (lesson 11's M)
@@ -75,7 +69,7 @@ Burada $q(t) = q_0 + s(t/T)\,\Delta q$, $u = t/T \in [0,1]$ normalize zaman, $s(
 
 ![Linear, trapezoid, cubic ve quintic time scaling'lerin normalize zamana karşı konum, hız ve ivmesi. Yalnızca quintic hem sıfır hız hem sıfır ivmeyle başlayıp bitiyor; cubic'in ivmesi uçlarda 6'ya sıçrıyor, trapezoid'inki köşelerinde sıçrıyor.](../../experiments/13-trajectory-generation/time_scalings.png)
 
-**Joint space ve Cartesian.** Joint space'te interpolasyon, iki uç da joint limitleri içindeyse limitler içinde kalır ama el bir eğri izler. Cartesian düz çizgi her waypoint'te IK ister (ders 10), singularity'lerden ya da joint limitlerinden geçebilir ve daha fazla joint hareketine mal olur.
+**Joint space ve Cartesian.** Joint space interpolasyonu, iki uç da joint limitleri içindeyse limitler içinde kalır ama el bir eğri izler. Cartesian bir çizgi her waypoint'te IK ister (ders 10) ve singularity'lere ya da joint limitlerine takılabilir.
 
 **Feedforward.** $\tau = g(q) + K_p(q_r - q) + K_d(\dot q_r - \dot q)$ biçimindeki bir takip controller'ı torku yalnızca bir hatadan üretir. Model terimi $M(q)\ddot q_r$'yi (ders 11) eklemek ivmelendiren torku önceden sağlar; yumuşak bir referans $\ddot q_r$'yi kullanılabilir ve sınırlı kılar.
 
@@ -95,6 +89,178 @@ Daha derine: [Calculus for Machine Learning](https://aiengineeringfromscratch.co
 </details>
 
 <!-- figure: 13-time-scaling -->
+
+## Sıfırdan yaz
+
+Şimdi time scaling'leri yaklaşık 40 satır NumPy ile kendin yazacaksın, polinomları kopyalamak yerine türetecek ve formül tablosunun her sayısını kontrol edeceksin; sonra sonucu ders 11'in mass matrix'iyle Deney'in Panda'sında takip edeceksin.
+
+Adımları kendi dosyana yaz (örneğin `scratch/my_trajectory.py`) ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/trajectory.py`](../../physai/trajectory.py) içinde; `uv run python experiments/13-trajectory-generation/build.py` beş adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/13-trajectory-generation/build_output.txt) dosyasında).
+
+### Adım 1 · Sınır koşullarından polinomlar
+
+"$u$'da $r$. türev $v$'ye eşit" türündeki her koşul katsayılarda bir doğrusal denklemdir, çünkü $\frac{d^r}{du^r}u^k = \frac{k!}{(k-r)!}u^{k-r}$. Katsayı sayısı kadar koşul, tek bir `solve`:
+
+```python
+def poly_from_boundary(conds, degree):
+    """Coefficients c (s = sum_k c_k u^k) that meet every condition (u, derivative order, value)."""
+    A = [[factorial(k) / factorial(k - r) * u ** (k - r) if k >= r else 0.0 for k in range(degree + 1)]
+         for u, r, _ in conds]
+    return np.linalg.solve(np.array(A), np.array([v for _, _, v in conds], dtype=float))
+```
+
+```python
+def poly_eval(c, u, order=0):
+    """The order-th derivative of the polynomial with coefficients c, at u."""
+    return P.polyval(u, P.polyder(c, order))
+```
+
+```python
+REST = [(0, 0, 0.0), (1, 0, 1.0), (0, 1, 0.0), (1, 1, 0.0)]      # s(0) = 0, s(1) = 1, at rest at both ends
+CUBIC = poly_from_boundary(REST, 3)
+QUINTIC = poly_from_boundary(REST + [(0, 2, 0.0), (1, 2, 0.0)], 5)  # ... and zero acceleration at both ends
+```
+
+```text
+== Step 1. Coefficients from boundary conditions (c0 + c1 u + c2 u^2 + ...) ==
+cubic   (s, s' at both ends):          0.00   0.00   3.00  -2.00
+quintic (s, s', s'' at both ends):     0.00   0.00   0.00  10.00 -15.00   6.00
+max diff to 3u^2 - 2u^3: 0.0e+00, to 10u^3 - 15u^4 + 6u^5: 1.1e-14
+one more pair (zero jerk at both ends) gives degree 7: 0 0 0 0 35 -84 70 -20
+```
+
+Ders kitabındaki polinomlar kendiliğinden çıkıyor; bir çift koşul daha ailenin bir sonraki üyesini veriyor ($35u^4 - 84u^5 + 70u^6 - 20u^7$, uçlarda jerk de sıfır).
+
+### Adım 2 · Türevler ve tepeler
+
+Her şekil normalize zamanda $s$, $s'$ ve $s''$ döndürür:
+
+```python
+def cubic(u):
+    """Cubic time scaling 3u^2 - 2u^3: s, ds/du, d2s/du2."""
+    return poly_eval(CUBIC, u), poly_eval(CUBIC, u, 1), poly_eval(CUBIC, u, 2)
+```
+
+```python
+def quintic(u):
+    """Quintic (minimum-jerk) time scaling 10u^3 - 15u^4 + 6u^5: s, ds/du, d2s/du2."""
+    return poly_eval(QUINTIC, u), poly_eval(QUINTIC, u, 1), poly_eval(QUINTIC, u, 2)
+```
+
+```text
+== Step 2. Peaks of the normalised shapes (100001 points on [0, 1]) ==
+   shape  max ds/du  max d2s/du2    at u  max |d3s/du3| inside
+   cubic     1.5000       6.0000  0.0000               12.0000
+ quintic     1.8750       5.7735  0.2113               60.0000
+formulas: cubic 1.5, 6 at u = 0; quintic 1.875, 10 sqrt(3)/3 = 5.7735 at u = (3 - sqrt(3))/6 = 0.2113, jerk 60
+```
+
+Her değer matematik ayrıntısındaki kapalı formlarla örtüşüyor: cubic'in ivmesi uçlarda tepe yapıyor (6), quintic'inki $u = 0{,}2113$'te ($10\sqrt3/3$ = 5,7735) ve quintic'in jerk'ü uçlarda 60. Cubic'in jerk'ü içeride sabit 12, ama ivmesi $u = 0$'da 0'dan 6'ya sıçrıyor: tablodaki "∞" bu sıçrama.
+
+### Adım 3 · Trapezoid
+
+Trapezoid parça parça tanımlıdır: bir parabol, bir doğru, bir parabol. İvmesi $a$, $s(1) = 1$'den çıkar:
+
+```python
+def trapezoid(u, ta=1 / 3):
+    """Trapezoidal velocity: accelerate for ta, cruise, decelerate for ta. Returns s, ds/du, d2s/du2."""
+    a = 1 / (ta * (1 - ta))                        # the acceleration that makes s(1) = 1
+    if u < ta:
+        return 0.5 * a * u ** 2, a * u, a
+    if u <= 1 - ta:
+        return 0.5 * a * ta ** 2 + a * ta * (u - ta), a * ta, 0.0
+    return 1 - 0.5 * a * (1 - u) ** 2, a * (1 - u), -a
+```
+
+```text
+== Step 3. The trapezoid (ta = 1/3) ==
+s(1) = 1.000000, peak ds/du = 1.5000, peak |d2s/du2| = 4.5000
+max |s - integral of ds/du| = 1.0e-10 (s is continuous; d2s/du2 jumps 0 -> 4.5)
+```
+
+### Adım 4 · Şekilden eklem referansına
+
+Zincir kuralı $s(u)$'yu bir eklem referansına çevirir: her türev için $T$'ye böl. Hareketin dışında referans durağandır:
+
+```python
+def joint_reference(shape, t, T, q0, dq):
+    """Reference angle, speed and acceleration at time t of the move q0 -> q0 + dq lasting T seconds."""
+    s, s1, s2 = shape(min(max(t / T, 0.0), 1.0))
+    if not 0.0 < t < T:                            # at rest before and after the move
+        s1 = s2 = 0.0
+    return q0 + s * dq, s1 / T * dq, s2 / T ** 2 * dq
+```
+
+```text
+== Step 4. Reference peaks of the Panda move (largest joint 0.6 rad) ==
+ T (s)     shape  exact acc  2 ms acc  exact jerk  2 ms jerk
+  0.25     cubic      57.60     56.68         inf        inf
+  0.25   quintic      55.43     55.41     2304.00    2249.00
+  0.50     cubic      14.40     14.28         inf        inf
+  0.50   quintic      13.86     13.86      288.00     284.55
+  1.00     cubic       3.60      3.59         inf        inf
+  1.00   quintic       3.46      3.46       36.00      35.78
+  2.00     cubic       0.90      0.90         inf        inf
+  2.00   quintic       0.87      0.87        4.50       4.49
+  1.00 trapezoid       2.70      2.70
+```
+
+"Exact" sütunları formül tablosunun 0,6 rad ile çarpımı: ivme için $1/T^2$, jerk için $1/T^3$. Deney'in tablosu "2 ms" sütunlarını içeriyor, çünkü referansı kontrol hızında örnekliyor ve $t = 0$'da durağan sayıyor: cubic'in ilk örneği 2 ms'de, orada $s'' = 6 - 12 \cdot 0{,}002$, bu yüzden 3,60 yerine 3,59; quintic'in jerk'ü ise 2 ms'lik bir sonlu fark, 36,00 yerine 35,78. T = 0,25 s'de farklar büyüyor (56,68'e karşı 57,60, 2249,00'a karşı 2304,00), çünkü 2 ms o zaman hareketin daha büyük bir payı.
+
+### Adım 5 · Kendi feedforward'unla takip et
+
+`joint_reference`'ı Deney'in controller'ına ver ve ders 11'deki `mass_matrix` ile $M(q)\ddot q_r$'yi ekle:
+
+```python
+q_ref, qd_ref, qdd_ref = joint_reference(quintic, d.time, 1.0, Q0, DQ)
+tau = d.qfrc_bias[:7] + KP * (q_ref - d.qpos[:7]) + KD * (qd_ref - d.qvel[:7])
+tau = tau + mass_matrix(tree, d.qpos)[:7, :7] @ qdd_ref - d.qfrc_passive[:7]   # feedforward
+```
+
+```text
+== Step 5. Track the quintic on the Panda (T = 1 s, the Experiment's PD + qfrc_bias) ==
+PD + gravity              tracking error 1.32 deg, robot peak jerk 35 rad/s^3
+PD + M qdd_ref - passive  tracking error 0.01 deg, robot peak jerk 48 rad/s^3
+```
+
+Deney'in quintic satırları, 1,32° ve 0,01°, senin referansından ve senin mass matrix'inden.
+
+### Elinde kalan
+
+`physai.trajectory` artık `poly_from_boundary`, `poly_eval`, `cubic`, `quintic`, `trapezoid` ve `joint_reference` içeriyor. Ders 14 contact hedefini aynı quintic ile rampalıyor. [`tests/test_13_trajectory_generation.py`](../../tests/test_13_trajectory_generation.py) bunları kapalı formlara karşı kontrol ediyor; bir şey değiştirdikten sonra `uv run pytest tests/test_13_trajectory_generation.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+MuJoCo'nun bir trajectory generator'ı yok: hesapladığın referans neyse onu simüle eder. Noktadan noktaya bir hareket için SciPy'ın spline'ları aynı eğrileri verir:
+
+```python
+from scipy.interpolate import CubicSpline, make_interp_spline
+
+cs = CubicSpline([0, T], [q0, q1], bc_type="clamped")              # zero speed at both ends: the cubic
+qs = make_interp_spline([0, T], [q0, q1], k=5,
+                        bc_type=([(1, 0.0), (2, 0.0)], [(1, 0.0), (2, 0.0)]))   # + zero acceleration: the quintic
+q, qd, qdd = qs(t), qs(t, 1), qs(t, 2)
+```
+
+```text
+== Use it. SciPy splines through the two end points (T = 1 s, 0 -> 0.6 rad) ==
+CubicSpline(bc_type='clamped') vs cubic: max diff 3.3e-16 rad
+make_interp_spline(k=5, zero speed and acceleration) vs quintic: max diff 1.5e-15 rad, peak jerk 36.00 rad/s^3
+```
+
+İkiden fazla noktayla aynı çağrılar bütün ara noktalardan geçen yumuşak bir eğri verir; tek hareketlik formüller bunu yapamaz.
+
+| Araç | Çağrı | Şekil |
+|---|---|---|
+| physai | `joint_reference(quintic, t, T, q0, dq)` | $t$ anında $q$, $\dot q$, $\ddot q$ |
+| SciPy | `CubicSpline(t, q, bc_type="clamped")`, `make_interp_spline(t, q, k=5, bc_type=...)` | ara noktalardan geçen parçalı polinomlar; `spline(t, n)` $n$. türevi verir |
+| *Modern Robotics* kodu | `CubicTimeScaling(Tf, t)`, `QuinticTimeScaling(Tf, t)`, `JointTrajectory(thetastart, thetaend, Tf, N, method)` | yalnız $s(t)$ ve $N$ örneklenmiş eklem vektörü ([`core.py`](https://github.com/NxRLab/ModernRobotics/blob/master/packages/Python/modern_robotics/core.py)) |
+| libfranka | `limitRate(...)` | komut edilen hızı, ivmeyi ve jerk'ü robotun sınırlarına kırpar ([`rate_limiting.h`](https://github.com/frankarobotics/libfranka/blob/main/include/franka/rate_limiting.h)) |
+
+Üç tuzak:
+
+- **Normalize ve gerçek zaman.** $s'(u)$, $u$ birimi başınadır; eklem hızı $s'(u)\,\Delta q / T$'dir. Bir $1/T$'yi unutmak en yaygın hata ve T = 0,25 s'de 4 kat fark eder.
+- **Örneklenmiş tepeler tepe değildir.** Kontrol hızında bir limite karşı kontrol edilen referans, iki örnek arasında olan bir sıçramayı kaçırabilir (Adım 4: 3,60'a karşı 3,59).
+- **Kırpmak yumuşatmak değildir.** Bir rate limiter her komutu geçerli tutar ama sıçrayan bir referansı farklı, planlanmamış bir harekete çevirir; baştan yumuşak bir referans planla.
 
 ## Deney
 
@@ -152,7 +318,7 @@ Aynı uçlar, aynı zamanlama: joint space yolu çizgiden 5,38 cm sapıyor. Kala
 
 ## Boz
 
-Hareketi kısalt. T = 0,25 s'de referans, 0,6 rad'lık joint hareketi için 55,41 rad/s² (quintic) istiyor; yumuşak quintic bile artık 2107 rad/s³ robot jerk'ü ve 5,52° takip hatası üretiyor; daha kısa hareketlerde referans ivmesi $1/T^2$, jerk $1/T^3$, PD takip hatası kabaca $1/T$ ile büyüyor. Uca git, T → 0, step'i elde edersin: torque saturation (adımların %5,5'i), 739,2 rad/s² ivme ve 34,35° gecikme. Mekanizma controller değil, ölçekleme yasası: hiçbir gain ayarı actuator'ların veremeyeceği ivmeyi üretemez ve torque kırpıldığında PD'nin özenle ayarlanmış damping'i ortadan kalkar.
+Hareketi kısalt. T = 0,25 s'de referans, 0,6 rad'lık joint hareketi için 55,41 rad/s² (quintic) istiyor; yumuşak quintic bile artık 2107 rad/s³ robot jerk'ü ve 5,52° takip hatası üretiyor. Uca git, T → 0, step'i elde edersin: torque saturation (adımların %5,5'i), 739,2 rad/s² ivme ve 34,35° gecikme. Mekanizma controller değil, ölçekleme yasası: hiçbir gain ayarı actuator'ların veremeyeceği ivmeyi üretemez ve torque kırpıldığında PD'nin özenle ayarlanmış damping'i ortadan kalkar.
 
 ## Gerçek robotta
 

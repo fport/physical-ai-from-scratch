@@ -1,43 +1,91 @@
 # Lesson 08 · Forward kinematics, degrees of freedom and workspace. Every answer is supported by the
-# lesson page or experiments/08-forward-kinematics/output.txt. answer = index of the correct option (0-based).
+# lesson page, experiments/08-forward-kinematics/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: You know every hinge angle of a desk lamp. How many places can the bulb be in?
+    tr: Bir masa lambasının bütün hinge açılarını biliyorsun. Ampul kaç farklı yerde olabilir?
+  options:
+  - en: 'Exactly one: forward kinematics is a function of the joint angles.'
+    tr: 'Tam bir yerde: forward kinematics joint açılarının bir fonksiyonudur.'
+  - en: Several, one per elbow-up / elbow-down branch.
+    tr: Birkaç yerde, her elbow-up / elbow-down dalı için bir tane.
+  - en: Any point of the workspace, depending on the lamp's speed.
+    tr: Lambanın hızına göre workspace'in herhangi bir noktasında.
+  answer: 0
+  why:
+    en: Joint angles in, tool pose out, one answer (In plain words). Several answers belong to the reverse question, inverse kinematics (lesson 10).
+    tr: Joint açıları girer, alet pozu çıkar, tek cevap (Sade anlatımla). Birden çok cevap ters sorunun, inverse kinematics'in işidir (ders 10).
 - q:
     en: The SO-101 reaches the point (0.22, 0, 0.08) m exactly, yet most random gripper orientations there fail. Why?
     tr: SO-101 (0,22, 0, 0,08) m noktasına tam olarak ulaşıyor, ama oradaki rastgele gripper orientation'larının çoğu başarısız. Neden?
   options:
-    - en: Its joint limits are too narrow for that point.
-      tr: Joint limitleri o nokta için fazla dar.
-    - en: The gripper servo is too weak to hold the orientation.
-      tr: Gripper servo'su orientation'ı tutmaya yetmeyecek kadar zayıf.
-    - en: Only 5 joints move the gripper; fixing the position uses 3, which leaves a 2-D family of orientations out of 3-D.
-      tr: Gripper'ı yalnızca 5 joint hareket ettiriyor; konumu sabitlemek 3'ünü kullanır, geriye 3 boyutlu orientation'lardan 2 boyutlu bir aile kalır.
+  - en: Its joint limits are too narrow for that point.
+    tr: Joint limitleri o nokta için fazla dar.
+  - en: The gripper servo is too weak to hold the orientation.
+    tr: Gripper servo'su orientation'ı tutmaya yetmeyecek kadar zayıf.
+  - en: Only 5 joints move the gripper; fixing the position uses 3, which leaves a 2-D family of orientations out of 3-D.
+    tr: Gripper'ı yalnızca 5 joint hareket ettiriyor; konumu sabitlemek 3'ünü kullanır, geriye 3 boyutlu orientation'lardan 2 boyutlu bir aile kalır.
   answer: 2
   why:
     en: The three pitch axes are parallel, so the approach axis stays in the arm plane. Only 2 of 200 random orientations were reached within 1°, against 181 of 200 for the 7-joint Panda.
     tr: Üç pitch ekseni paralel, yani yaklaşma ekseni kol düzleminde kalıyor. 200 rastgele orientation'ın yalnızca 2'sine 1° içinde ulaşıldı; 7 joint'li Panda'da 200'de 181.
-- q:
+  stage: pre
+- stage: check
+  q:
+    en: In Build it, what does your code take from MuJoCo?
+    tr: Sıfırdan yaz bölümünde kodun MuJoCo'dan ne alıyor?
+  options:
+  - en: The world positions of the bodies at the current pose.
+    tr: Gövdelerin o anki pozdaki dünya konumlarını.
+  - en: The tool position, which your code then checks.
+    tr: Alet konumunu; kodun sonra onu kontrol ediyor.
+  - en: Only the model's static numbers (body offsets, hinge axes, the tool point); the kinematics is yours.
+    tr: Yalnız modelin sabit sayılarını (gövde ofsetleri, hinge eksenleri, alet noktası); kinematik senin.
+  answer: 2
+  why:
+    en: '`chain_from_mujoco` reads `body_pos`, `body_quat`, `jnt_axis`, `jnt_pos` and the site position; `fk` computes the rest and matches `site_xpos` to 2.8e-16 m on 1000 poses (Step 2).'
+    tr: '`chain_from_mujoco` yalnız `body_pos`, `body_quat`, `jnt_axis`, `jnt_pos` ve site konumunu okur; gerisini `fk` hesaplar ve 1000 pozda `site_xpos` ile 2,8e-16 m farkla örtüşür (Adım 2).'
+- stage: check
+  q:
+    en: Build it, Step 3 checks your FK output over 50 poses. What does it show about the arm plane?
+    tr: Sıfırdan yaz, Adım 3 FK çıktını 50 pozda kontrol ediyor. Kol düzlemi hakkında ne gösteriyor?
+  options:
+  - en: The pan and roll axes are parallel, so the arm has only four useful joints.
+    tr: Pan ve roll eksenleri paralel, yani kolun yalnız dört işe yarar joint'i var.
+  - en: The lift, elbow and wrist flex axes stay parallel in every pose (to 1.2e-16), so they move the tool within one plane.
+    tr: Lift, elbow ve wrist flex eksenleri her pozda paralel kalıyor (1,2e-16'ya kadar), yani aleti tek bir düzlemde hareket ettiriyorlar.
+  - en: The pitch axes are parallel only at q = 0 and drift apart in other poses.
+    tr: Pitch eksenleri yalnız q = 0'da paralel, başka pozlarda birbirinden ayrılıyor.
+  answer: 1
+  why:
+    en: Max |a_lift × a_k| over 50 poses is 1.2e-16. The tool point sits 12.0 mm off the roll axis, which is why rolling 0 → 180° moves it 24.0 mm.
+    tr: 50 pozda en büyük |a_lift × a_k| 1,2e-16. Alet noktası roll ekseninden 12,0 mm uzakta; roll'u 0 → 180° çevirmek onu bu yüzden 24,0 mm taşıyor.
+- stage: post
+  q:
     en: With uniform joint sampling, max reach settles at 0.473 m after 10,000 samples, but the 1 cm voxel volume still grows at one million. Why?
     tr: Düzgün joint örneklemesiyle en büyük erişim 10 000 örnekten sonra 0,473 m'de oturuyor, ama 1 cm voxel hacmi bir milyonda hâlâ büyüyor. Neden?
   options:
-    - en: Uniform in joint space is not uniform in space; rarely visited regions keep adding new voxels.
-      tr: Joint uzayında düzgün olmak uzayda düzgün olmak değildir; az ziyaret edilen bölgeler yeni voxel eklemeyi sürdürür.
-    - en: Random joint vectors start to exceed the joint limits at large sample counts.
-      tr: Çok sayıda örnekte rastgele joint vektörleri joint limitlerini aşmaya başlar.
-    - en: The convex hull underestimates the volume, and voxels inherit that error.
-      tr: Convex hull hacmi eksik tahmin eder ve voxel'ler bu hatayı devralır.
+  - en: Uniform in joint space is not uniform in space; rarely visited regions keep adding new voxels.
+    tr: Joint uzayında düzgün olmak uzayda düzgün olmak değildir; az ziyaret edilen bölgeler yeni voxel eklemeyi sürdürür.
+  - en: Random joint vectors start to exceed the joint limits at large sample counts.
+    tr: Çok sayıda örnekte rastgele joint vektörleri joint limitlerini aşmaya başlar.
+  - en: The convex hull underestimates the volume, and voxels inherit that error.
+    tr: Convex hull hacmi eksik tahmin eder ve voxel'ler bu hatayı devralır.
   answer: 0
   why:
-    en: Step 3 table, 1 cm voxels give 230.4 L at one million samples, 2 cm voxels 282.9 L; quote both sample count and voxel size.
-    tr: Adım 3 tablosu, bir milyon örnekte 1 cm voxel 230,4 L, 2 cm voxel 282,9 L veriyor; örnek sayısını da voxel boyunu da belirt.
-- q:
+    en: 'Experiment, Step 3 table: 1 cm voxels give 230.4 L at one million samples, 2 cm voxels 282.9 L; quote both sample count and voxel size.'
+    tr: 'Deney, Adım 3 tablosu: bir milyon örnekte 1 cm voxel 230,4 L, 2 cm voxel 282,9 L veriyor; örnek sayısını da voxel boyunu da belirt.'
+- stage: post
+  q:
     en: The required approach direction is tilted β out of the arm plane. What does the solver return as β grows?
     tr: İstenen yaklaşma yönü kol düzleminden β kadar dışarı eğiliyor. β büyüdükçe çözücü ne döndürür?
   options:
-    - en: It fails to reach the position once β exceeds 10°.
-      tr: β 10°'yi aşınca konuma ulaşamaz.
-    - en: It always reaches the position, and the orientation error grows almost one-for-one with β.
-      tr: Konuma her zaman ulaşır, orientation hatası ise β ile neredeyse bire bir büyür.
-    - en: It reaches both position and orientation, given enough seeds.
-      tr: Yeterince seed verilirse hem konuma hem orientation'a ulaşır.
+  - en: It fails to reach the position once β exceeds 10°.
+    tr: β 10°'yi aşınca konuma ulaşamaz.
+  - en: It always reaches the position, and the orientation error grows almost one-for-one with β.
+    tr: Konuma her zaman ulaşır, orientation hatası ise β ile neredeyse bire bir büyür.
+  - en: It reaches both position and orientation, given enough seeds.
+    tr: Yeterince seed verilirse hem konuma hem orientation'a ulaşır.
   answer: 1
   why:
     en: Break it table, position error 0.000 mm for every β, approach error 43.058° at 45° and 87.682° at 90°; the 12 mm site offset keeps it slightly below β.

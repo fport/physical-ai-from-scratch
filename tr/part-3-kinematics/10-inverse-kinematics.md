@@ -45,18 +45,12 @@ flowchart TD
 ### IK kod olarak
 
 ```python
-import numpy as np
-
-def ik_position(fk_pos, jac_pos, target, q, lo, hi, lam=0.1, tol=5e-4, max_iter=200):
-    for it in range(max_iter):
-        e = target - fk_pos(q)                     # görev hatası (m), 3 sayı
-        if np.linalg.norm(e) < tol:                # 0,5 mm: başarı
-            return q, True
-        J = jac_pos(q)                             # 3 x n konum Jacobian'ı (m/rad)
-        A = J @ J.T + lam**2 * np.eye(len(e))      # lam = 0 düz pseudo-inverse adımını verir
-        dq = J.T @ np.linalg.solve(A, e)           # damped least-squares adımı (rad)
-        q = np.clip(q + dq, lo, hi)                # joint limitlerinin içinde kal
-    return q, False
+for it in range(max_iter):
+    e = target - fk_pos(q)                         # task error (m)
+    if np.linalg.norm(e) < tol:                    # 0.5 mm: success
+        break
+    J = jac_pos(q)                                 # 3 x n position Jacobian (lesson 09)
+    q = np.clip(q + J.T @ np.linalg.solve(J @ J.T + lam**2 * np.eye(3), e), lo, hi)   # damped step, limits
 ```
 
 | Yöntem | Adım $\Delta q$ | Kaynak |
@@ -83,7 +77,7 @@ $\sigma_i \to 0$ iken pseudo-inverse kazancı $1/\sigma_i$ patlar; DLS kazancı 
 
 **Singularity ve manipulability.** $J$ rank kaybettiğinde poz singular'dır. Yoshikawa'nın manipulability ölçüsü $w = \sqrt{\det(JJ^\top)} = \prod_i \sigma_i$, birim joint hızlarının ürettiği hız elipsoidinin hacmiyle orantılıdır ve singularity'de sıfıra düşer ([Yoshikawa 1985](https://doi.org/10.1177/027836498500400201)). En küçük $\sigma_i$'nin $u_i$ yönü, aletin zar zor hareket edebildiği yöndür.
 
-**Limitler ve dallar.** Her adımdan sonra kırpmak joint limitlerine uymanın en basit yoludur; iterasyonu bir limite dayalı hâlde takılı bırakabilir, Adım 1 bunu ölçüyor. Farklı seed'ler çözüm kümesinin farklı dallarına yakınsayabilir (Adım 2).
+**Limitler ve dallar.** Her adımdan sonra kırpmak joint limitlerine uymanın en basit yoludur; iterasyonu bir limite dayalı hâlde takılı bırakabilir, Deney'in Adım 1'i bunu ölçüyor. Farklı seed'ler çözüm kümesinin farklı dallarına yakınsayabilir (Deney'in Adım 2'si).
 
 Daha derine: AIEFS [Singular Value Decomposition](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/11-singular-value-decomposition), [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems); Lynch & Park, *Modern Robotics*, Böl. 5–6; Buss 2009; Yoshikawa 1985.
 
@@ -91,25 +85,156 @@ Daha derine: AIEFS [Singular Value Decomposition](https://aiengineeringfromscrat
 
 <!-- figure: 10-ik-dls -->
 
+## Sıfırdan yaz
+
+Şimdi damped least-squares çözücüyü ders 09'un `fk` ve `hinge_column` fonksiyonlarının üzerine yaklaşık 25 satır NumPy ile kendin yazacaksın ve MuJoCo'ya, NumPy'ın pseudo-inverse'üne ve Deney'e karşı kontrol edeceksin. Joint limitleri dışında MuJoCo'dan yeni hiçbir şey gelmiyor.
+
+Adımları kendi dosyana yaz (örneğin `scratch/my_ik.py`) ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/kinematics.py`](../../physai/kinematics.py) içinde; `uv run python experiments/10-inverse-kinematics/build.py` dört adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/10-inverse-kinematics/build_output.txt) dosyasında).
+
+### Adım 1 · Tek bir damped adım
+
+DLS adımı $J$'yi tersine çevirmek yerine 3 × 3'lük bir sistem çözer; $\lambda = 0$ iken pseudo-inverse adımıdır.
+
+```python
+def dls_step(J, e, lam):
+    """Damped least-squares step J^T (J J^T + lam^2 I)^-1 e; lam = 0 gives the pseudo-inverse step."""
+    return J.T @ np.linalg.solve(J @ J.T + lam ** 2 * np.eye(len(e)), e)
+```
+
+Onu matematik ayrıntısındaki SVD biçimine, $\sum_i \sigma_i/(\sigma_i^2+\lambda^2)\,v_i u_i^\top e$, karşı $q = 0$'da 1 cm'lik bir hata için kontrol et:
+
+```python
+J = jacobian(chain, np.zeros(5))[:3]                 # position rows, lesson 09
+U, sig, Vt = np.linalg.svd(J, full_matrices=False)
+svd = Vt.T @ (sig / (sig ** 2 + lam ** 2) * (U.T @ e))
+```
+
+```text
+== Step 1. One DLS step vs the SVD formula (q = 0, a 1 cm error) ==
+singular values of J_p at q = 0: 0.4764 0.3527 0.0771 m/rad
+lam = 0     |dq| = 0.1008 rad, max diff to sum sigma/(sigma^2+lam^2) v u^T e: 4.2e-17
+lam = 0.01  |dq| = 0.0992 rad, max diff to sum sigma/(sigma^2+lam^2) v u^T e: 2.8e-17
+lam = 0.1   |dq| = 0.0394 rad, max diff to sum sigma/(sigma^2+lam^2) v u^T e: 2.1e-17
+lam = 0 vs np.linalg.pinv(J) @ e: max diff 4.2e-17
+```
+
+En küçük singular value 0,0771 m/rad; bu yüzden λ = 0,01 adımı neredeyse değiştirmiyor (0,1008 → 0,0992 rad), λ = 0,1 ise 0,0394 rad'a kısaltıyor: damping yalnızca $\sigma_i$'nin λ'dan çok büyük olmadığı yönlerde ısırır.
+
+### Adım 2 · Döngü, joint limitleriyle
+
+Hata 0,5 mm'nin altına inene kadar adımı tekrarla ve her adımdan sonra joint limitlerine kırp. İterasyon başına tek bir `fk` çağrısı hem hatayı hem sütunları verir:
+
+```python
+def ik_solve(chain, target, q0, lo, hi, lam=0.1, tol=5e-4, max_iter=200):
+    """Position IK by damped least squares, clipped to the joint limits after every step.
+
+    Returns (q, success, iterations); success means |target - tool position| < tol (m).
+    """
+    q = np.array(q0, dtype=float)
+    for it in range(max_iter + 1):
+        axes, anchors, p = fk(chain, q)
+        e = target - p                             # task error (m)
+        if np.linalg.norm(e) < tol:
+            return q, True, it
+        if it == max_iter:
+            break
+        J = np.column_stack([hinge_column(a, o, p)[:3] for a, o in zip(axes, anchors)])  # position rows
+        q = np.clip(q + dls_step(J, e, lam), lo, hi)
+    return q, False, max_iter
+```
+
+```text
+== Step 2. Solve for (0.20, 0.05, 0.05) m from q = 0, check with mj_kinematics ==
+lam = 0    success True,   5 iterations, q = [-0.306 -1.745  1.573  0.949  0.012] rad, MuJoCo tool error 0.189 mm
+lam = 0.1  success True,  13 iterations, q = [-0.306 -0.922  1.091  0.969  0.009] rad, MuJoCo tool error 0.392 mm
+```
+
+MuJoCo'nun kendi forward kinematics'i iki cevabı da doğruluyor. İkisi farklı cevaplar: üç konum sayısı için beş joint iki boyutlu bir çözüm ailesi bırakır ve damping'siz çözücü lift −100° limitinde (−1,745 rad) kırpılmış hâlde bitirip yine de yakınsadı.
+
+### Adım 3 · Deney'in sweep'i
+
+Çözücünü Deney'in 500 hedefinde (aynı rastgele joint vektörlerinin FK'sı) onun en iyi damping'inde koştur:
+
+```python
+targets = np.array([fk(chain, q)[2] for q in np.random.default_rng(0).uniform(LO, HI, size=(500, 5))])
+res = [ik_solve(chain, t, np.zeros(5), LO, HI, lam=0.1) for t in targets]
+```
+
+```text
+== Step 3. The Experiment's sweep: 500 reachable targets, q0 = 0, tol 0.5 mm, 200 iterations ==
+lam = 0.1: success 88.6%, median 15 iterations, p95 92; 56 of 57 failures end at a joint limit
+```
+
+Her sayı Deney'in λ = 0,1 satırıyla aynı (%88,6, medyan 15, p95 92, 57'de 56), çünkü FK'n ve Jacobian'ın MuJoCo'nunkilerle yuvarlama hatası kadar aynı ve döngü de aynı.
+
+### Adım 4 · Singularity'yi izle
+
+Kolu bükük pozdan Deney'in düz pozuna doğru ger ve en zayıf yön $u_3$ boyunca 5 cm/s iste. Manipulability singular value'ların çarpımıdır:
+
+```python
+Jp = jacobian(chain, q_bent + s * (q_straight - q_bent))[:3]
+U, sig, Vt = np.linalg.svd(Jp)
+w = np.prod(sig)                                      # = sqrt(det(J J^T))
+v = 0.05 * U[:, 2]                                    # 5 cm/s along the weakest direction
+qdot_pinv, qdot_dls = dls_step(Jp, v, 0.0), dls_step(Jp, v, 0.1)
+```
+
+```text
+== Step 4. Stretching the arm: singular values, manipulability, joint speed for 5 cm/s ==
+    s  sigma1  sigma2    sigma3          w  |qdot| pinv  |qdot| DLS 0.1
+ 0.00  0.4764  0.2419  7.71e-02  8.879e-03         0.65           0.242
+ 0.50  0.5155  0.3885  4.42e-02  8.857e-03         1.13           0.185
+ 0.90  0.5295  0.4397  9.20e-03  2.143e-03         5.43           0.046
+ 0.99  0.5301  0.4412  9.35e-04  2.187e-04        53.47           0.005
+ 1.00  0.5301  0.4411  1.05e-04  2.444e-05       478.33           0.001
+```
+
+Bunlar Deney'in Adım 3 ve Boz sayıları: σ₃ 1,05e-04'e düşüyor, pseudo-inverse 478,33 rad/s istiyor, DLS 0,001 rad/s civarında kalıyor.
+
+### Elinde kalan
+
+`physai.kinematics` artık `dls_step` ve `ik_solve` içeriyor. Sonraki bir ders bir el konumu için joint hedeflerine ihtiyaç duyduğunda (ders 13'ün Kartezyen düz çizgisi her ara noktada IK çözüyor), döngü bu. [`tests/test_10_inverse_kinematics.py`](../../tests/test_10_inverse_kinematics.py) onu MuJoCo'nun FK'sına ve SVD formülüne karşı kontrol ediyor; bir şey değiştirdikten sonra `uv run pytest tests/test_10_inverse_kinematics.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+MuJoCo forward kinematics ve Jacobian hesaplar ama IK çözücüsü yoktur: kütüphane yolu `mj_jacSite` ile aynı döngüdür (Deney'in `ik_solve`'u bunu yapar) ya da genel, sınırlı bir least-squares çözücü:
+
+```python
+from scipy.optimize import least_squares
+
+def residual(q):
+    d.qpos[:5] = q
+    mujoco.mj_kinematics(m, d)
+    return d.site_xpos[site_id] - target              # metres
+
+sol = least_squares(residual, q0, bounds=(lo, hi))     # joint limits as bounds, sol.x = joint angles
+```
+
+Ders 08'in Boz bölümü bunu 12 seed ile kullandı. Limitlere düzgünce uyar (kırpma yok), bedeli çözüm başına daha fazla FK çağrısıdır.
+
+| Araç | Çağrı | Yöntem, limitler |
+|---|---|---|
+| physai | `ik_solve(chain, target, q0, lo, hi, lam=0.1)` | DLS, her adımdan sonra limitlere kırpılır |
+| Deney | `ik_solve(model, data, target, method="dls", damping=0.1)` | `mj_jacSite` üzerinde aynı döngü; ayrıca `"pinv"`, `"transpose"`, isteğe bağlı bir hedef eksen |
+| SciPy | `least_squares(residual, q0, bounds=(lo, hi))` | trust-region least squares, sınırları çözücü uygular |
+| *Modern Robotics* kodu | `IKinSpace(Slist, M, T, thetalist0, eomg, ev)` | `pinv` ile Newton-Raphson, tam 6 boyutlu pose, joint limiti yok, en fazla 20 iterasyon ([`core.py`](https://github.com/NxRLab/ModernRobotics/blob/master/packages/Python/modern_robotics/core.py)) |
+
+Üç tuzak:
+
+- **λ'nın birimi var.** Konum satırları m/rad iken λ metre cinsindendir. Orientation satırlarını (rad/rad) ve konum satırlarını tek bir $J$'de üst üste koyarsan tek bir λ bir metreye bir radyan gibi davranır; Deney'in `axis_weight`'i gibi önce satırları ağırlıklandır.
+- **Kırpma başarısızlığı gizler.** Kırpan bir çözücü her seferinde bir joint vektörü döndürür. Döndürülen `q`'ya değil, başarı bayrağına (ya da son hataya) bak.
+- **Seed dalı seçer.** Farklı başlangıç joint vektörleri farklı çözümlere yakınsar (Sıfırdan yaz, Adım 2 ve Deney'in Adım 2'si). Takip ederken seed'i robotun o anki pozundan al ki ardışık çözümler tek bir dalda kalsın.
+
 ## Deney
 
 Script: [`experiments/10-inverse-kinematics/experiment.py`](../../experiments/10-inverse-kinematics/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), deterministik, yaklaşık 6 s CPU süresi.
 
-Çözücü sonraki derslerden import edilebilir (deney kodu `if __name__ == "__main__":` altında):
+Script'in çözücüsü MuJoCo'nun Jacobian'ı üzerinde çalışır ve import edilebilir (deney kodu `if __name__ == "__main__":` altında):
 
 ```python
 sys.path.insert(0, "experiments/10-inverse-kinematics")
 from experiment import ik_solve
 res = ik_solve(model, data, target_pos, method="dls", damping=0.1)   # res.q, res.success, res.iters
-```
-
-Çekirdek döngüsü:
-
-```python
-e = target_pos - data.site_xpos[sid]
-mujoco.mj_jacSite(model, data, jp, jr, sid); J = jp[:, dadr]
-dq = J.T @ np.linalg.solve(J @ J.T + damping**2 * np.eye(len(e)), e)   # DLS
-q = np.clip(data.qpos[qadr] + dq, lo, hi)                              # joint limits
 ```
 
 **Önce tahmin et.** En yüksek başarı oranını hangi λ verir: 0 (saf Newton), 0,01, 0,1 ya da 0,3 (birim metre, çünkü $J_p$ m/rad cinsinden)?
@@ -174,9 +299,9 @@ Pseudo-inverse, gergin pozda 5 cm/s'lik bir istek için 478,33 rad/s istiyor. DL
 
 ## Kendini dene
 
-1. **Kolay.** Adım 1'de λ = 0,001 olan DLS neden neredeyse tam olarak pseudo-inverse gibi davranıyor?
+1. **Kolay.** Deney'in Adım 1'inde λ = 0,001 olan DLS neden neredeyse tam olarak pseudo-inverse gibi davranıyor?
 2. **Orta.** `ik_solve`'u `target_axis` ve `joints=ARM[:4]` ile (Adım 2'deki gibi wrist_roll sabit) kullanarak (0,20, 0,0, 0,15) m'de "parmaklar yatay, +x yönünde" iste. 1e-5'e yakınsar mı? Ders 08'deki kol düzlemiyle açıkla.
-3. **Zor.** $w < w_0$ için $\lambda(w) = \lambda_0 (1 - w/w_0)^2$, değilse 0 olan uyarlamalı bir damping uygula (Buss, λ'yı konfigürasyondan seçen birkaç yayımlanmış yöntem listeliyor) ve Adım 1 sweep'ini yeniden koş. Başarıda ve iterasyonda sabit λ = 0,1'i geçer mi?
+3. **Zor.** $w < w_0$ için $\lambda(w) = \lambda_0 (1 - w/w_0)^2$, değilse 0 olan uyarlamalı bir damping uygula (Buss, λ'yı konfigürasyondan seçen birkaç yayımlanmış yöntem listeliyor) ve Deney'in Adım 1 sweep'ini (ya da Sıfırdan yaz, Adım 3'ü) yeniden koş. Başarıda ve iterasyonda sabit λ = 0,1'i geçer mi?
 
 ### Cevaplar
 

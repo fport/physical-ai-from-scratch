@@ -16,7 +16,7 @@
 
 ## Problem
 
-Ders 26, scripted SO-101 demonstration'larından 13680 frame üretti. Bunlar üzerinde eğitmeden önce, training sırasında gördüğün sayıların bir anlam taşıyıp taşımadığına üç karar belirler: her frame'in ne içerdiği ve episode'ların nerede başladığı, feature'ların nasıl ölçeklendiği ve verinin training ve validation'a nasıl bölündüğü. Sonuncusu yanlış yapması en kolay olanı. 40 ms arayla gelen ardışık frame'ler neredeyse aynıdır; rastgele bir frame seviyesi bölme her iki tarafa da neredeyse kopyaları koyar ve validation hatası komşu frame'ler arasındaki interpolation'ın ölçüsüne dönüşür. Bu ders o yanılsamanın verimizde ne kadar büyük olduğunu ölçüyor.
+Ders 26, scripted SO-101 demonstration'larından 13680 frame üretti. Training sayılarının bir anlam taşıyıp taşımadığını üç karar belirler: her frame'in ne içerdiği ve episode'ların nerede başladığı, feature'ların nasıl ölçeklendiği ve verinin training ve validation'a nasıl bölündüğü. Sonuncusu yanlış yapması en kolay olanı: 40 ms arayla gelen frame'ler neredeyse aynıdır; rastgele frame seviyesi bir bölme iki tarafa da neredeyse kopyaları koyar ve validation hatası komşu frame'ler arasındaki interpolation'ı ölçer. Bu ders o yanılsamanın verimizde ne kadar büyük olduğunu ölçüyor.
 
 ## Ana fikir
 
@@ -24,7 +24,7 @@ Ders 26, scripted SO-101 demonstration'larından 13680 frame üretti. Bunlar üz
 
 Bir robot dataset'i, her frame için bir satır olan büyük bir tabloya benzer, ama aslında kısa kayıtlardan (**episode**'lardan) oluşan bir kümedir; her biri bir zaman serisidir. Bu tek gerçek iki kararı belirler.
 
-**Satıra göre değil, episode'a göre böl.** Bir uygulamanın tıklama log'undan churn modeli kuruyorsan aynı kullanıcının rastgele satırlarını hem training'e hem validation'a koymazsın: model kalıbı öğrenmek yerine kullanıcıyı tanır. Kullanıcıları bütün olarak dışarıda tutarsın. Aynı episode'da 40 ms arayla gelen iki frame, aynı kullanıcının bir saniye arayla yaptığı iki tıklama kadar birbirine benzer; bu yüzden validation episode'ları bütün olarak dışarıda tutmalı. Yoksa validation skoru, modelin zaten gördüğü frame'ler arasındaki minik boşlukları ne kadar iyi doldurduğunu ölçer.
+**Satıra göre değil, episode'a göre böl.** Bir uygulamanın tıklama log'undan kurulan bir churn modeli aynı kullanıcının rastgele satırlarını hem training'de hem validation'da görmemeli: kalıbı öğrenmek yerine kullanıcıyı tanır; bu yüzden kullanıcıları bütün olarak dışarıda tutarsın. Bir episode'da 40 ms arayla gelen frame'ler, bir kullanıcının bir saniye arayla yaptığı iki tıklama kadar benzer; validation episode'ları bütün olarak dışarıda tutmalı, yoksa modelin gördüğü frame'ler arasındaki minik boşlukları doldurmasını ölçer.
 
 **Training verisinin istatistikleriyle ölçekle.** Her girdi, training kümesinde hesaplanan sayılarla (ortalama ve yayılım ya da minimum ve maksimum) yeniden ölçeklenir ve bu sayılar eğitilmiş policy ile birlikte gider. O zaman birinin küpü metre mi milimetre mi logladığı önemini yitirir.
 
@@ -44,22 +44,10 @@ flowchart TD
 ### Bölme ve normalization, kod olarak
 
 ```python
-import numpy as np
-
-# Wrong: split by frame. Near-identical neighbours land on both sides.
-idx = rng.permutation(n_frames)
-train, val = idx[: int(0.8 * n_frames)], idx[int(0.8 * n_frames):]
-
-# Right: split by episode, like splitting a click log by user, not by row.
-eps = rng.permutation(np.unique(episode_index))      # episode ids, shuffled
-val = np.isin(episode_index, eps[: len(eps) // 5])   # 20% of episodes, all their frames
+f_train, f_val = split_rows(all_frames)                 # wrong: neighbours 40 ms apart on both sides
+val = np.isin(episode_index, held_out_episodes)         # right: whole episodes, like whole users
 train = ~val
-
-# Normalize with statistics of the training frames only (one value per feature)
-mu, sd = X[train].mean(0), X[train].std(0)
-lo, hi = X[train].min(0), X[train].max(0)
-mean_std = (X - mu) / sd                 # MEAN_STD: zero mean, unit spread
-min_max = 2 * (X - lo) / (hi - lo) - 1   # MIN_MAX: mapped to [-1, 1]
+x_norm = (x - x[train].mean(0)) / x[train].std(0)       # MEAN_STD with training statistics only
 ```
 
 | Büyüklük | Formül |
@@ -69,7 +57,7 @@ min_max = 2 * (X - lo) / (hi - lo) - 1   # MIN_MAX: mapped to [-1, 1]
 | bir frame'in global satırı | her episode $T$ frame ise `index` $= e \cdot T + t$ |
 | episode bölmesi | validation = dışarıda tutulan episode'ların her frame'i |
 
-Burada $x$ ham bir feature değeri, $\tilde x$ onun normalize edilmiş değeri, $\mu$ ve $\sigma$ o feature'ın training frame'leri üzerindeki ortalaması ve standart sapması, $x_{\min}$ ve $x_{\max}$ training frame'leri üzerindeki minimumu ve maksimumu, $e$ episode id'si (`episode_index`), $t$ episode içindeki konum (`frame_index`) ve $T$ frame cinsinden episode uzunluğudur.
+Burada $x$ ham bir feature değeri, $\tilde x$ onun normalize edilmiş değeri, $\mu, \sigma, x_{\min}, x_{\max}$ o feature'ın training frame'leri üzerindeki ortalaması, standart sapması, minimumu ve maksimumu, $e$ episode id'si (`episode_index`), $t$ episode içindeki konum (`frame_index`) ve $T$ frame cinsinden episode uzunluğudur.
 
 ### Bir frame ne tutar
 
@@ -96,22 +84,183 @@ Dokümantasyonda ve kodda doğrulandı ([LeRobotDataset v3.0](https://huggingfac
 
 `timestamp`, `frame_index`, `episode_index`, `index` ve `task_index` kullanıcı tarafından değil, kayıt aracı tarafından doldurulur ([`feature_utils.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/datasets/feature_utils.py)). v3'te episode sınırları dosya adlarında değil, metadata'da yaşar.
 
-LeRobot MIN_MAX, MEAN_STD, IDENTITY, QUANTILES ve QUANTILE10 normalization modlarını tanımlıyor ([`types.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/configs/types.py)); ACT config'i state ve action için varsayılan olarak MEAN_STD, Diffusion Policy config'i MIN_MAX kullanıyor ([ACT](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py), [Diffusion](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/diffusion/configuration_diffusion.py)).
-
 <details>
 <summary>Matematik ayrıntısı: frame bölmesi neden sızdırır ve istatistikler neden policy ile gider</summary>
 
-**Bağımsız birim episode'dur.** Bir episode içinde frame $t+1$, yumuşak bir hareketin 40 ms ilerletilmiş frame $t$'sidir; komşu satırlar güçlü biçimde korelelidir. Episode'lar arasında ise küp konumu bağımsız çekilir. Bir validation kümesinin amacı *yeni, bağımsız* girdilerdeki hatayı tahmin etmektir; frame bölmesinde neredeyse her validation frame'inin 40 ms ötede bir training komşusu vardır ve skor bunun yerine interpolation hatasını tahmin eder. Validation, [ders 25](25-evaluating-policies.md)'teki evaluation'ın test konumlarını dışarıda tutması gibi, episode'ları bütün olarak dışarıda tutmalı.
+**Bağımsız birim episode'dur.** Bir episode içinde komşu satırlar yumuşak bir hareketin 40 ms arayla iki anıdır ve güçlü biçimde korelelidir; episode'lar arasında ise küp konumu bağımsız çekilir. Bir validation kümesi *yeni, bağımsız* girdilerdeki hatayı tahmin eder; bu yüzden [ders 25](25-evaluating-policies.md)'teki evaluation'ın test konumlarını dışarıda tutması gibi episode'ları bütün olarak dışarıda tutmalı.
 
 **Sızıntı veri büyüdükçe küçülür.** Çok episode'la training kümesi küp alanını sık kaplar; gerçekten yeni bir episode'un bile yakın komşuları olur ve iki tahmin birbirine yaklaşır. Az episode'la en çok ayrışırlar; robot dataset'leri ise genellikle küçüktür.
 
-**Ölçek neden önemli.** Bir MLP'nin ilk katmanı girdilerinin ağırlıklı toplamlarını alır. Küp milimetre olarak loglanınca değerleri metreye göre yaklaşık 1000 kat büyür, joint açıları ise 1 rad mertebesinde kalır; ağırlıklar birime uyum sağlamadıkça toplamlara küp feature'ları hâkim olur ve varsayılan başlangıç ağırlıkları ile learning rate'ler 1 mertebesinde girdiler varsayar. Her feature'ı ortak bir aralığa ölçeklemek birimlere bağımlılığı ortadan kaldırır.
+**Ölçek neden önemli.** Bir MLP'nin ilk katmanı girdilerinin ağırlıklı toplamlarını alır. Milimetre olarak loglanan küp değerleri 1000 kat büyür, joint açıları ise 1 rad mertebesinde kalır; toplamlara küp hâkim olur ve varsayılan başlangıç ağırlıkları ile learning rate'ler 1 mertebesinde girdiler varsayar. Her feature'ı ortak bir aralığa ölçeklemek birimlere bağımlılığı ortadan kaldırır.
 
 **İstatistikler modele aittir.** $\mu, \sigma$ (ya da $x_{\min}, x_{\max}$) training verisine fit edilir ve policy'nin parçasıdır: farklı istatistiklerle evaluate edilince aynı ham observation farklı bir network girdisine dönüşür. Onları validation verisiyle birlikte hesaplamak ikinci, daha küçük bir sızıntıdır.
 
 Daha derine: [Model Evaluation](https://aiengineeringfromscratch.com/lesson?path=phases/02-ml-fundamentals/09-model-evaluation); [LeRobotDataset v3.0](https://huggingface.co/docs/lerobot/lerobot-dataset-v3) ve [`compute_stats.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/datasets/compute_stats.py).
 
 </details>
+
+## Sıfırdan yaz
+
+Şimdi dataset tarafını ders 26'nın `demos.npz`'i üzerinde kendin yazacaksın: episode muhasebesi, istatistikler, iki split, normalization ve split sızıntısının modelsiz bir yoklaması, hepsi NumPy ile (Deney'in MLP'si PyTorch istiyor; yoklama istemiyor). Adımları kendi dosyana yaz ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/data.py`](../../physai/data.py) içinde; `uv run python experiments/27-robot-datasets/build.py` beş adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/27-robot-datasets/build_output.txt) dosyasında).
+
+### Adım 1 · Episode'lar ve global indeks
+
+Satırlar episode'a göre sıralı; bir episode `episode_index`'in değiştiği yerde başlar:
+
+```python
+def episode_starts(episode_index):
+    """Row of the first frame of every episode, for rows sorted by episode."""
+    return np.flatnonzero(np.r_[True, episode_index[1:] != episode_index[:-1]])
+```
+
+```python
+def global_index(episode_index, frame_index):
+    """The dataset-wide row number `index` from (episode_index, frame_index)."""
+    starts = episode_starts(episode_index)
+    return starts[np.searchsorted(episode_index[starts], episode_index)] + frame_index
+```
+
+== Step 1. Episode boundaries and the global index ==
+episodes 120 | starts [0, 114, 228, 342] ... 13566 | lengths 114-114
+index == row number for all 13680 frames: True | episode 2, frame 5 -> index 233
+
+A kısmının sınırları ve ilk alıştırmanın cevabı (233), episode'ların eşit uzunlukta olduğunu varsaymadan.
+
+### Adım 2 · İstatistikler ve birleştirilmeleri
+
+```python
+def feature_stats(x):
+    """Per-feature statistics as a dataset's stats file stores them."""
+    return dict(mean=x.mean(0), std=x.std(0), min=x.min(0), max=x.max(0),
+                q01=np.percentile(x, 1, axis=0), q99=np.percentile(x, 99, axis=0), count=len(x))
+```
+
+Bir kayıt aracı istatistikleri episode başına hesaplayıp birleştirir; böylece bütün frame'leri aynı anda bellekte tutması gerekmez. Ortalama, standart sapma, min ve max tam olarak birleşir (havuzlanmış varyans); quantile'lar birleşmez:
+
+```python
+def merge_stats(a, b):
+    """Combine the mean/std/min/max/count of two disjoint sets of frames (pooled variance). Quantiles do not merge."""
+    n = a["count"] + b["count"]
+    mean = (a["count"] * a["mean"] + b["count"] * b["mean"]) / n
+    m2 = (a["count"] * (a["std"] ** 2 + (a["mean"] - mean) ** 2) + b["count"] * (b["std"] ** 2 + (b["mean"] - mean) ** 2))
+    return dict(mean=mean, std=np.sqrt(m2 / n), min=np.minimum(a["min"], b["min"]),
+                max=np.maximum(a["max"], b["max"]), count=n)
+```
+
+== Step 2. Statistics (all frames) and merged per-episode statistics ==
+       feature     mean      std      min      max      q01      q99
+ shoulder_lift   -0.240    0.515   -1.200    0.702   -1.200    0.620
+       gripper    0.731    0.505    0.141    1.200    0.162    1.200
+        cube_x    0.222    0.037    0.160    0.332    0.161    0.321
+120 per-episode stats merged vs computed on all frames: max |mean diff| 1.1e-15, max |std diff| 6.4e-15, min/max equal: True
+
+A kısmındaki tablonun satırları; birleştirilmiş 120 episode bütün frame'lerin istatistiğiyle yuvarlama hatasına kadar örtüşüyor.
+
+### Adım 3 · İki split
+
+```python
+def split_frames(rows, val_frac, rng):
+    """Frame split (the wrong one for time series): shuffle the rows, the last val_frac go to validation."""
+    perm = rng.permutation(rows)
+    cut = int((1 - val_frac) * len(perm))
+    return perm[:cut], perm[cut:]
+```
+
+```python
+def split_episodes(episode_index, val_episodes):
+    """Episode split: every frame of the held-out episodes goes to validation. Returns (train, val) masks."""
+    val = np.isin(episode_index, val_episodes)
+    return ~val, val
+```
+
+Deney'in generator'ı ve 10 episode'luk çekilişiyle:
+
+== Step 3. 10 episodes, 80/20: frame split vs episode split ==
+frame split:   912 / 228 frames, episodes on both sides 10/10, validation frames with a training neighbour 40 ms away 96.5%
+episode split: 912 / 228 frames, episodes on both sides 0/10
+
+Aynı boyutlar, çok farklı içerik. Frame split'te her episode iki tarafta da var ve validation frame'lerinin %96,5'inin aynı episode'da 40 ms ötede bir training frame'i var.
+
+### Adım 4 · Training istatistikleriyle normalize et
+
+```python
+def normalize(x, s, mode="mean_std"):
+    """MEAN_STD: (x - mean) / std. MIN_MAX: map [min, max] to [-1, 1]. s comes from the training frames."""
+    if mode == "mean_std":
+        return (x - s["mean"]) / (s["std"] + 1e-8)
+    return 2 * (x - s["min"]) / (s["max"] - s["min"] + 1e-8) - 1
+```
+
+```python
+def unnormalize(y, s, mode="mean_std"):
+    """Inverse of normalize (for actions a policy outputs in normalized units)."""
+    if mode == "mean_std":
+        return y * (s["std"] + 1e-8) + s["mean"]
+    return (y + 1) / 2 * (s["max"] - s["min"] + 1e-8) + s["min"]
+```
+
+== Step 4. Normalize with training statistics (episodes 0-79) ==
+mean_std: train range [-3.57, 2.86] | round trip error 1.1e-16 | m vs mm after normalizing: 7.9e-07
+ min_max: train range [-1.00, 1.00] | round trip error 4.4e-16 | m vs mm after normalizing: 2.0e-07
+
+MIN_MAX training aralığını tam olarak [−1, 1]'e eşliyor; MEAN_STD sıfır ortalama ve birim yayılım veriyor (burada −3,57 ile 2,86 arası). Normalization'dan sonra metre ile milimetre yalnız 1e-7 düzeyinde farklı: 0,037 m'lik standart sapmaya göre `1e-8` bölme koruması. B kısmındaki m'de 0,264° ve mm'de 0,265° buradan.
+
+### Adım 5 · Sızıntının modelsiz yoklaması
+
+Akla gelebilecek en ucuz "policy": en yakın training frame'inin action'ını tahmin et.
+
+```python
+def nearest_neighbour(X_train, Y_train, X_query, chunk=1024):
+    """1-nearest-neighbour regression: the target of the closest training row (L2), chunked to bound memory."""
+    out, sq = [], (X_train ** 2).sum(1)
+    for i in range(0, len(X_query), chunk):
+        q = X_query[i:i + chunk]
+        out.append(Y_train[np.argmin(sq[None] - 2 * q @ X_train.T, axis=1)])
+    return np.vstack(out)
+```
+
+C kısmıyla aynı split'lerde, 100–119 numaralı 20 test episode'uyla:
+
+== Step 5. 1-nearest-neighbour probe, MEAN_STD, the Experiment's splits; test = episodes 100-119 ==
+ train eps    split  val RMSE deg  test RMSE deg  test / val
+        10    frame         1.536          6.064        3.95
+        10  episode         5.303          6.614        1.25
+        30    frame         1.426          3.468        2.43
+        30  episode         2.730          3.607        1.32
+        90    frame         1.272          1.708        1.34
+        90  episode         2.516          1.687        0.67
+
+Hiç eğitim olmadan C kısmının deseni: frame split validation hatası sabit kalıyor (1,27–1,54°), test hatası ise 6,06°'den 1,71°'ye düşüyor; 10 episode'da frame split hatayı 3,95 kat küçük gösteriyor. Sayılar C kısmınınkinden farklı, çünkü model farklı: nearest neighbour MLP gibi yumuşakça interpolate etmek yerine 40 ms ötedeki bir frame'i kopyalıyor; validation hataları bu yüzden daha büyük, oranı da MLP'nin 6,33'ünden küçük.
+
+### Elinde kalan
+
+`physai.data` artık `episode_starts`, `global_index`, `feature_stats`, `merge_stats`, `split_frames`, `split_episodes`, `normalize`, `unnormalize` ve `nearest_neighbour`'ı da içeriyor. Sonraki öğrenme dersleri tam olarak bu parçalara ihtiyaç duyuyor: bir episode split'i ve training istatistikleri. [`tests/test_27_robot_datasets.py`](../../tests/test_27_robot_datasets.py) onları eşit olmayan oyuncak episode'larda, sızıntıyı da ders 26 verisinde kontrol ediyor; `uv run pytest tests/test_27_robot_datasets.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+LeRobot (bu repoda kurulu değil; çağrılar [v3.0 dokümantasyonundan](https://huggingface.co/docs/lerobot/lerobot-dataset-v3)) Adım 1–2'nin muhasebesini senin yerine yapar:
+
+```python
+from lerobot.datasets import LeRobotDataset
+dataset = LeRobotDataset(repo_id)                 # from the Hub, cached locally
+frame = dataset[100]                              # dict: 'observation.state', 'action', 'timestamp', ...
+stats = dataset.meta.stats                        # meta/stats.json: per-feature mean/std/min/max
+dataset = LeRobotDataset(repo_id, delta_timestamps={"action": [0.0, 0.04, 0.08]})   # windows, in seconds
+```
+
+| | physai | LeRobot |
+|---|---|---|
+| episode sınırları | `episode_starts(episode_index)` | `meta/episodes/`: uzunluklar ve paylaşılan dosyalara offset'ler |
+| istatistikler | `feature_stats`: mean, std, min, max, q01, q99, count | min, max, mean, std, count, quantile'lar 0,01–0,99 (Ana fikir) |
+| normalization | `normalize(x, s, "mean_std" / "min_max")` | MIN_MAX, MEAN_STD, IDENTITY, QUANTILES, QUANTILE10 modları ([`types.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/configs/types.py)); ACT state ve action için varsayılan olarak MEAN_STD, Diffusion Policy MIN_MAX kullanır ([ACT](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py), [Diffusion](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/diffusion/configuration_diffusion.py)) |
+
+Episode'a göre bölmek yine senin işin: Adım 3'teki gibi bütün `episode_index` değerlerini seç.
+
+Tuzaklar:
+
+- **İstatistikler yalnız training frame'lerinden.** Bütün frame'lerde hesaplanan istatistikler validation kümesinin bir kısmını girdilere sızdırır; ayrıca policy ile birlikte giderler ve kullanımda da aynı olmalıdırlar.
+- **Diskte float32, istatistik için float64.** Dataset float32 saklıyor, yaklaşık 7 anlamlı basamak; Adım 2 istatistikleri hesaplamadan önce float64'e çeviriyor.
+- **Frame değil saniye.** `delta_timestamps` offset'leri saniye cinsinden alır; 25 fps'te bir frame 0,04 s.
 
 ## Deney
 

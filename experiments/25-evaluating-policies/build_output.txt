@@ -1,0 +1,38 @@
+NumPy 2.5.4 | SciPy 1.18.1
+
+== Step 1. Wald and Wilson intervals (z = 1.96) vs scipy.stats.binomtest ==
+    k/n             Wald           Wilson     scipy Wilson
+   9/10   [0.714, 1.000]   [0.596, 0.982]   [0.596, 0.982]
+  10/10   [1.000, 1.000]   [0.722, 1.000]   [0.722, 1.000]
+  18/20   [0.769, 1.000]   [0.699, 0.972]   [0.699, 0.972]
+221/300   [0.687, 0.787]   [0.684, 0.783]   [0.684, 0.783]
+scipy uses z = 1.959964; with that z, max difference over k = 0..20 of n = 20: 2.2e-16
+
+== Step 2. Exact coverage at p = 221/300 by a binomial sum ==
+binom_pmf vs scipy.stats.binom.pmf (n = 50): max difference 2.3e-16
+   n  Wilson coverage  Wald coverage
+   5            0.981          0.764
+  10            0.975          0.927
+  20            0.962          0.908
+  50            0.947          0.914
+ 100            0.946          0.945
+
+== Step 3. A 9/10 claim, and trials for a Wilson half-width target ==
+policy A (p = 0.737): P(>= 9/10) = 0.215
+policy B (p = 0.877): P(>= 9/10) = 0.645
+ observed rate  +-0.10  +-0.05  +-0.02
+          0.50      93     381    2398
+          0.70      78     320    2014
+          0.90      34     141     864
+          0.95      24      82     465
+
+== Step 4. Fisher's exact test by hand vs scipy.stats.fisher_exact ==
+all 441 tables k_A/20 vs k_B/20: max p-value difference 3.3e-16
+14/20 vs 18/20: p = 0.235 | 74/100 vs 88/100: p = 0.018
+
+== Step 5. Exact power of Fisher's test, A (p = 0.737) vs B (p = 0.877), n trials each ==
+   n  P(Fisher p < 0.05)  P(B scores <= A)
+  10               0.028             0.301
+  20               0.119             0.173
+  50               0.337             0.046
+ 100               0.656             0.007

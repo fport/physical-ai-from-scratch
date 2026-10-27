@@ -16,7 +16,7 @@
 
 ## The problem
 
-Lesson 26 produced 13680 frames of scripted SO-101 demonstrations. Before training on them, three decisions decide whether the numbers you see during training mean anything: what each frame contains and where episodes start, how the features are scaled, and how the data is split into training and validation. The last one is the easiest to get wrong. Consecutive frames 40 ms apart are almost identical, so a random frame-level split puts near-duplicates on both sides, and the validation error turns into a measure of interpolation between neighbouring frames. This lesson measures how large that illusion is on our data.
+Lesson 26 produced 13680 frames of scripted SO-101 demonstrations. Three decisions decide whether the training numbers mean anything: what each frame contains and where episodes start, how the features are scaled, and how the data is split into training and validation. The last is the easiest to get wrong: frames 40 ms apart are almost identical, so a random frame-level split puts near-duplicates on both sides, and the validation error measures interpolation between neighbouring frames. This lesson measures how large that illusion is on our data.
 
 ## Core idea
 
@@ -24,7 +24,7 @@ Lesson 26 produced 13680 frames of scripted SO-101 demonstrations. Before traini
 
 A robot dataset looks like a big table of rows, one row per frame, but it is really a set of short recordings (**episodes**), each a time series. That one fact drives two decisions.
 
-**Split by episode, not by row.** If you build a churn model from an app's click log, you do not put random rows of the same user in both training and validation: the model would recognise the user instead of learning the pattern. You hold out whole users. Frames 40 ms apart in the same episode are as alike as two clicks from the same user a second apart, so validation must hold out whole episodes. Otherwise the validation score measures how well the model fills tiny gaps between frames it has already seen.
+**Split by episode, not by row.** A churn model built from an app's click log must not see random rows of the same user in both training and validation: it would recognise the user instead of learning the pattern, so you hold out whole users. Frames 40 ms apart in one episode are as alike as two clicks of one user a second apart, so validation must hold out whole episodes; otherwise it measures how well the model fills tiny gaps between frames it has seen.
 
 **Scale with the training data's statistics.** Each input is rescaled with numbers computed on the training set (mean and spread, or minimum and maximum), and those numbers ship with the trained policy. Then it no longer matters whether someone logged the cube in metres or millimetres.
 
@@ -44,22 +44,10 @@ flowchart TD
 ### Splitting and normalization, as code
 
 ```python
-import numpy as np
-
-# Wrong: split by frame. Near-identical neighbours land on both sides.
-idx = rng.permutation(n_frames)
-train, val = idx[: int(0.8 * n_frames)], idx[int(0.8 * n_frames):]
-
-# Right: split by episode, like splitting a click log by user, not by row.
-eps = rng.permutation(np.unique(episode_index))      # episode ids, shuffled
-val = np.isin(episode_index, eps[: len(eps) // 5])   # 20% of episodes, all their frames
+f_train, f_val = split_rows(all_frames)                 # wrong: neighbours 40 ms apart on both sides
+val = np.isin(episode_index, held_out_episodes)         # right: whole episodes, like whole users
 train = ~val
-
-# Normalize with statistics of the training frames only (one value per feature)
-mu, sd = X[train].mean(0), X[train].std(0)
-lo, hi = X[train].min(0), X[train].max(0)
-mean_std = (X - mu) / sd                 # MEAN_STD: zero mean, unit spread
-min_max = 2 * (X - lo) / (hi - lo) - 1   # MIN_MAX: mapped to [-1, 1]
+x_norm = (x - x[train].mean(0)) / x[train].std(0)       # MEAN_STD with training statistics only
 ```
 
 | Quantity | Formula |
@@ -69,7 +57,7 @@ min_max = 2 * (X - lo) / (hi - lo) - 1   # MIN_MAX: mapped to [-1, 1]
 | global row of a frame | `index` $= e \cdot T + t$ when every episode has $T$ frames |
 | episode split | validation = every frame of the held-out episodes |
 
-Here $x$ is one raw feature value, $\tilde x$ its normalized value, $\mu$ and $\sigma$ the mean and standard deviation of that feature over the training frames, $x_{\min}$ and $x_{\max}$ its minimum and maximum over the training frames, $e$ the episode id (`episode_index`), $t$ the position inside the episode (`frame_index`) and $T$ the episode length in frames.
+Here $x$ is one raw feature value, $\tilde x$ its normalized value, $\mu, \sigma, x_{\min}, x_{\max}$ that feature's mean, standard deviation, minimum and maximum over the training frames, $e$ the episode id (`episode_index`), $t$ the position inside the episode (`frame_index`) and $T$ the episode length in frames.
 
 ### What a frame holds
 
@@ -96,22 +84,183 @@ Verified in the docs and code ([LeRobotDataset v3.0](https://huggingface.co/docs
 
 `timestamp`, `frame_index`, `episode_index`, `index` and `task_index` are filled in by the recorder, not by the user ([`feature_utils.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/datasets/feature_utils.py)). In v3 episode boundaries live in the metadata, not in file names.
 
-LeRobot defines the normalization modes MIN_MAX, MEAN_STD, IDENTITY, QUANTILES and QUANTILE10 ([`types.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/configs/types.py)); the ACT config defaults to MEAN_STD for state and action, the Diffusion Policy config to MIN_MAX ([ACT](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py), [Diffusion](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/diffusion/configuration_diffusion.py)).
-
 <details>
 <summary>Math details: why a frame split leaks and why statistics travel with the policy</summary>
 
-**The independent unit is the episode.** Within an episode, frame $t+1$ is frame $t$ moved by 40 ms of a smooth motion, so neighbouring rows are strongly correlated. Across episodes the cube position is drawn independently. A validation set is meant to estimate error on *new, independent* inputs; with a frame split almost every validation frame has a training neighbour 40 ms away, and the score estimates interpolation error instead. Validation must hold out whole episodes, as the evaluation in [lesson 25](25-evaluating-policies.md) holds out test positions.
+**The independent unit is the episode.** Within an episode neighbouring rows are 40 ms of a smooth motion apart and strongly correlated; across episodes the cube position is drawn independently. A validation set estimates error on *new, independent* inputs, so it must hold out whole episodes, as the evaluation in [lesson 25](25-evaluating-policies.md) holds out test positions.
 
 **The leak shrinks as data grows.** With many episodes the training set covers the cube area densely, so even a truly new episode has close neighbours and the two estimates converge. With few episodes they diverge most; robot datasets are usually small.
 
-**Why scale matters.** An MLP's first layer forms weighted sums of its inputs. With the cube logged in millimetres its values are about 1000 times larger than in metres while joint angles stay of order 1 rad, so the sums are dominated by the cube features unless the weights adapt to the unit, and default initializations and learning rates assume inputs of order 1. Rescaling each feature to a common range removes the dependence on units.
+**Why scale matters.** An MLP's first layer forms weighted sums of its inputs. Logged in millimetres the cube values are 1000 times larger while joint angles stay of order 1 rad, so they dominate the sums, and default initializations and learning rates assume inputs of order 1. Rescaling each feature to a common range removes the dependence on units.
 
 **Statistics belong to the model.** $\mu, \sigma$ (or $x_{\min}, x_{\max}$) are fitted on training data and are part of the policy: evaluated with different statistics, the same raw observation becomes a different network input. Computing them on validation data as well is a second, smaller leak.
 
 Go deeper: [Model Evaluation](https://aiengineeringfromscratch.com/lesson?path=phases/02-ml-fundamentals/09-model-evaluation); [LeRobotDataset v3.0](https://huggingface.co/docs/lerobot/lerobot-dataset-v3) and [`compute_stats.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/datasets/compute_stats.py).
 
 </details>
+
+## Build it
+
+You will now write the dataset side yourself on lesson 26's `demos.npz`: episode bookkeeping, statistics, the two splits, normalization, and a model-free probe of the split leak, all in NumPy (the Experiment's MLP needs PyTorch; the probe does not). Type the steps into a file of your own and run it after each step. The finished functions are in [`physai/data.py`](../physai/data.py); `uv run python experiments/27-robot-datasets/build.py` runs all five steps with their checks (output in [`build_output.txt`](../experiments/27-robot-datasets/build_output.txt)).
+
+### Step 1 · Episodes and the global index
+
+Rows are sorted by episode, so an episode starts wherever `episode_index` changes:
+
+```python
+def episode_starts(episode_index):
+    """Row of the first frame of every episode, for rows sorted by episode."""
+    return np.flatnonzero(np.r_[True, episode_index[1:] != episode_index[:-1]])
+```
+
+```python
+def global_index(episode_index, frame_index):
+    """The dataset-wide row number `index` from (episode_index, frame_index)."""
+    starts = episode_starts(episode_index)
+    return starts[np.searchsorted(episode_index[starts], episode_index)] + frame_index
+```
+
+== Step 1. Episode boundaries and the global index ==
+episodes 120 | starts [0, 114, 228, 342] ... 13566 | lengths 114-114
+index == row number for all 13680 frames: True | episode 2, frame 5 -> index 233
+
+The boundaries of part A, and the answer to the first exercise (233), without assuming equal-length episodes.
+
+### Step 2 · Statistics, and merging them
+
+```python
+def feature_stats(x):
+    """Per-feature statistics as a dataset's stats file stores them."""
+    return dict(mean=x.mean(0), std=x.std(0), min=x.min(0), max=x.max(0),
+                q01=np.percentile(x, 1, axis=0), q99=np.percentile(x, 99, axis=0), count=len(x))
+```
+
+A recorder computes statistics per episode and combines them, so it never needs all frames in memory at once. Mean, standard deviation, min and max combine exactly (pooled variance); quantiles do not:
+
+```python
+def merge_stats(a, b):
+    """Combine the mean/std/min/max/count of two disjoint sets of frames (pooled variance). Quantiles do not merge."""
+    n = a["count"] + b["count"]
+    mean = (a["count"] * a["mean"] + b["count"] * b["mean"]) / n
+    m2 = (a["count"] * (a["std"] ** 2 + (a["mean"] - mean) ** 2) + b["count"] * (b["std"] ** 2 + (b["mean"] - mean) ** 2))
+    return dict(mean=mean, std=np.sqrt(m2 / n), min=np.minimum(a["min"], b["min"]),
+                max=np.maximum(a["max"], b["max"]), count=n)
+```
+
+== Step 2. Statistics (all frames) and merged per-episode statistics ==
+       feature     mean      std      min      max      q01      q99
+ shoulder_lift   -0.240    0.515   -1.200    0.702   -1.200    0.620
+       gripper    0.731    0.505    0.141    1.200    0.162    1.200
+        cube_x    0.222    0.037    0.160    0.332    0.161    0.321
+120 per-episode stats merged vs computed on all frames: max |mean diff| 1.1e-15, max |std diff| 6.4e-15, min/max equal: True
+
+The rows of part A's table, and 120 merged episodes agree with the all-frames statistics to round-off.
+
+### Step 3 · Two splits
+
+```python
+def split_frames(rows, val_frac, rng):
+    """Frame split (the wrong one for time series): shuffle the rows, the last val_frac go to validation."""
+    perm = rng.permutation(rows)
+    cut = int((1 - val_frac) * len(perm))
+    return perm[:cut], perm[cut:]
+```
+
+```python
+def split_episodes(episode_index, val_episodes):
+    """Episode split: every frame of the held-out episodes goes to validation. Returns (train, val) masks."""
+    val = np.isin(episode_index, val_episodes)
+    return ~val, val
+```
+
+With the Experiment's generator and its 10-episode draw:
+
+== Step 3. 10 episodes, 80/20: frame split vs episode split ==
+frame split:   912 / 228 frames, episodes on both sides 10/10, validation frames with a training neighbour 40 ms away 96.5%
+episode split: 912 / 228 frames, episodes on both sides 0/10
+
+Same sizes, very different content. In the frame split every episode is on both sides, and 96.5% of validation frames have a training frame 40 ms away in the same episode.
+
+### Step 4 · Normalize with training statistics
+
+```python
+def normalize(x, s, mode="mean_std"):
+    """MEAN_STD: (x - mean) / std. MIN_MAX: map [min, max] to [-1, 1]. s comes from the training frames."""
+    if mode == "mean_std":
+        return (x - s["mean"]) / (s["std"] + 1e-8)
+    return 2 * (x - s["min"]) / (s["max"] - s["min"] + 1e-8) - 1
+```
+
+```python
+def unnormalize(y, s, mode="mean_std"):
+    """Inverse of normalize (for actions a policy outputs in normalized units)."""
+    if mode == "mean_std":
+        return y * (s["std"] + 1e-8) + s["mean"]
+    return (y + 1) / 2 * (s["max"] - s["min"] + 1e-8) + s["min"]
+```
+
+== Step 4. Normalize with training statistics (episodes 0-79) ==
+mean_std: train range [-3.57, 2.86] | round trip error 1.1e-16 | m vs mm after normalizing: 7.9e-07
+ min_max: train range [-1.00, 1.00] | round trip error 4.4e-16 | m vs mm after normalizing: 2.0e-07
+
+MIN_MAX maps the training range to exactly [−1, 1]; MEAN_STD gives zero mean and unit spread (here −3.57 to 2.86). After normalization metres and millimetres differ only at the 1e-7 level, the `1e-8` division guard relative to a 0.037 m standard deviation. Hence part B's 0.264° in m and 0.265° in mm.
+
+### Step 5 · A model-free probe of the leak
+
+The cheapest "policy" there is: predict the action of the closest training frame.
+
+```python
+def nearest_neighbour(X_train, Y_train, X_query, chunk=1024):
+    """1-nearest-neighbour regression: the target of the closest training row (L2), chunked to bound memory."""
+    out, sq = [], (X_train ** 2).sum(1)
+    for i in range(0, len(X_query), chunk):
+        q = X_query[i:i + chunk]
+        out.append(Y_train[np.argmin(sq[None] - 2 * q @ X_train.T, axis=1)])
+    return np.vstack(out)
+```
+
+On the same splits as part C, with the 20 test episodes 100–119:
+
+== Step 5. 1-nearest-neighbour probe, MEAN_STD, the Experiment's splits; test = episodes 100-119 ==
+ train eps    split  val RMSE deg  test RMSE deg  test / val
+        10    frame         1.536          6.064        3.95
+        10  episode         5.303          6.614        1.25
+        30    frame         1.426          3.468        2.43
+        30  episode         2.730          3.607        1.32
+        90    frame         1.272          1.708        1.34
+        90  episode         2.516          1.687        0.67
+
+Part C's pattern without any training: the frame-split validation error stays flat (1.27–1.54°) while the test error falls from 6.06° to 1.71°; with 10 episodes the frame split understates it 3.95 times. The numbers differ from part C's because the model differs: a nearest neighbour copies a frame 40 ms away instead of interpolating smoothly like the MLP, so its validation errors are larger and its ratio smaller than the MLP's 6.33.
+
+### What you keep
+
+`physai.data` now also has `episode_starts`, `global_index`, `feature_stats`, `merge_stats`, `split_frames`, `split_episodes`, `normalize`, `unnormalize` and `nearest_neighbour`. The learning lessons that follow need exactly these pieces: an episode split and training statistics. [`tests/test_27_robot_datasets.py`](../tests/test_27_robot_datasets.py) checks them on unequal toy episodes and the leak on the lesson-26 data; run `uv run pytest tests/test_27_robot_datasets.py`.
+
+## Use it
+
+LeRobot (not installed in this repo; calls from its [v3.0 docs](https://huggingface.co/docs/lerobot/lerobot-dataset-v3)) does the bookkeeping of Steps 1–2 for you:
+
+```python
+from lerobot.datasets import LeRobotDataset
+dataset = LeRobotDataset(repo_id)                 # from the Hub, cached locally
+frame = dataset[100]                              # dict: 'observation.state', 'action', 'timestamp', ...
+stats = dataset.meta.stats                        # meta/stats.json: per-feature mean/std/min/max
+dataset = LeRobotDataset(repo_id, delta_timestamps={"action": [0.0, 0.04, 0.08]})   # windows, in seconds
+```
+
+| | physai | LeRobot |
+|---|---|---|
+| episode boundaries | `episode_starts(episode_index)` | `meta/episodes/`: lengths and offsets into shared files |
+| statistics | `feature_stats`: mean, std, min, max, q01, q99, count | min, max, mean, std, count, quantiles 0.01–0.99 (Core idea) |
+| normalization | `normalize(x, s, "mean_std" / "min_max")` | modes MIN_MAX, MEAN_STD, IDENTITY, QUANTILES, QUANTILE10 ([`types.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/configs/types.py)); ACT defaults to MEAN_STD for state and action, Diffusion Policy to MIN_MAX ([ACT](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py), [Diffusion](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/diffusion/configuration_diffusion.py)) |
+
+The split by episode is still yours: select whole `episode_index` values, as in Step 3.
+
+Traps:
+
+- **Statistics from training frames only.** Statistics computed on all frames leak a little of the validation set into the inputs; they also travel with the policy and must be the same at deployment.
+- **float32 on disk, float64 for statistics.** The dataset stores float32, about 7 significant digits; Step 2 casts to float64 before computing statistics.
+- **Seconds, not frames.** `delta_timestamps` takes offsets in seconds; at 25 fps one frame is 0.04 s.
 
 ## Experiment
 

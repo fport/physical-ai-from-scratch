@@ -4,40 +4,88 @@
     en: An impedance-controlled hand rests against a rigid surface, its target 5 cm behind it. What sets the force on the surface?
     tr: Impedance control altındaki bir el, hedefi 5 cm arkasında olacak şekilde rijit bir yüzeye dayanıyor. Yüzeydeki kuvveti ne belirler?
   options:
-    - en: The stiffness of the surface's contact.
-      tr: Yüzeyin contact stiffness'ı.
-    - en: The inertia the hand feels along z, $\Lambda_{zz}$.
-      tr: Elin z boyunca hissettiği atalet, $\Lambda_{zz}$.
-    - en: The stiffness you chose times how far the target sits behind the surface, $F = K e$.
-      tr: Seçtiğin stiffness çarpı hedefin yüzeyin ne kadar arkasında olduğu, $F = K e$.
+  - en: The stiffness of the surface's contact.
+    tr: Yüzeyin contact stiffness'ı.
+  - en: The inertia the hand feels along z, $\Lambda_{zz}$.
+    tr: Elin z boyunca hissettiği atalet, $\Lambda_{zz}$.
+  - en: The stiffness you chose times how far the target sits behind the surface, $F = K e$.
+    tr: Seçtiğin stiffness çarpı hedefin yüzeyin ne kadar arkasında olduğu, $F = K e$.
   answer: 2
   why:
     en: The force is designed, not measured - part B holds 5.00 / 14.98 / 49.77 / 148.45 N for K = 100–3000 at 5 cm. Contact stiffness and $\Lambda_{zz}$ shape the impact peak instead.
     tr: Kuvvet ölçülmez, tasarlanır - B bölümünde 5 cm'de K = 100–3000 için tutma kuvveti 5,00 / 14,98 / 49,77 / 148,45 N. Contact stiffness ve $\Lambda_{zz}$ ise çarpma tepesini belirler.
-- q:
+  stage: pre
+- stage: pre
+  q:
+    en: A 7-joint arm holds its hand still. Why does it need an extra posture term for the elbow?
+    tr: 7 joint'li bir kol elini sabit tutuyor. Dirsek için neden ayrı bir duruş terimine ihtiyaç duyar?
+  options:
+  - en: Because the elbow carries most of the gravity torque.
+    tr: Çünkü yerçekimi torkunun çoğunu dirsek taşır.
+  - en: Because the elbow can swing while the hand stays put, and the hand controller does not see that motion.
+    tr: Çünkü el yerinde dururken dirsek sallanabilir ve el kontrolcüsü bu hareketi görmez.
+  - en: It does not; seven joints always fix the elbow.
+    tr: İhtiyacı yok; yedi joint dirseği her zaman sabitler.
+  answer: 1
+  why:
+    en: 'In plain words: the null space. In part A2 without the term the arm ends 0.124 rad away in joint space with the hand in place; with it, 0.000 rad.'
+    tr: 'Sade anlatımla: null space. A2 bölümünde terim olmadan kol eli yerindeyken joint uzayında 0,124 rad uzakta bitiyor; terimle 0,000 rad.'
+- stage: check
+  q:
+    en: 'Build it, Step 1: for a 90° orientation error `orientation_error` has length 1.0, not 1.571. What does that mean for the controller?'
+    tr: 'Sıfırdan yaz, Adım 1: 90°''lik orientation hatası için `orientation_error`''ın uzunluğu 1,571 değil 1,0. Bu kontrolcü için ne demek?'
+  options:
+  - en: 'A bug: the error should equal the angle.'
+    tr: 'Bir hata: hata açıya eşit olmalı.'
+  - en: The orientation loop is switched off above 45°.
+    tr: Orientation döngüsü 45°'nin üstünde kapanır.
+  - en: 'The error is sin(angle) times the axis: exact for small errors, but large errors pull less hard than the angle.'
+    tr: 'Hata sin(açı) çarpı eksendir: küçük hatalarda doğru, ama büyük hatalar açının gerektirdiğinden daha zayıf çeker.'
+  answer: 2
+  why:
+    en: '|e| = 0.0175 at 1° (angle 0.0175 rad) but 1.0000 at 90° (1.5708 rad); max |e − sin(angle) axis| stays at round-off.'
+    tr: 1°'de |e| = 0,0175 (açı 0,0175 rad) ama 90°'de 1,0000 (1,5708 rad); en büyük |e − sin(açı) eksen| yuvarlama düzeyinde kalıyor.
+- stage: check
+  q:
+    en: Build it, Step 4 prints max |J M⁻¹ N| = 1.1e-15. What does that guarantee?
+    tr: Sıfırdan yaz, Adım 4 en büyük |J M⁻¹ N| = 1,1e-15 yazdırıyor. Bu neyi garanti eder?
+  options:
+  - en: A torque filtered by N never accelerates the hand, so the posture term can neither push nor correct it.
+    tr: N ile filtrelenmiş bir tork eli asla ivmelendirmez; duruş terimi eli ne itebilir ne düzeltebilir.
+  - en: The null-space term removes the hand error caused by the elbow push.
+    tr: Null-space terimi dirsek itmesinin yarattığı el hatasını giderir.
+  - en: The Jacobian is singular at the start pose.
+    tr: Jacobian başlangıç pozunda singular.
+  answer: 0
+  why:
+    en: Hence the TCP error is 14.13 mm without and 14.14 mm with the posture term, while the elbow returns from 0.30 cm to 0.00 cm.
+    tr: TCP hatası bu yüzden duruş terimi olmadan 14,13 mm, terimle 14,14 mm; dirsek ise 0,30 cm'den 0,00 cm'ye dönüyor.
+- stage: post
+  q:
     en: With one K and one D, a 5 cm step settles in 0.854 s along x but 0.532 s along y. Why?
     tr: Tek bir K ve tek bir D ile 5 cm'lik step x boyunca 0,854 s'de, y boyunca 0,532 s'de oturuyor. Neden?
   options:
-    - en: The hand feels a different inertia in each direction, so each axis is a different spring–mass system.
-      tr: El her yönde farklı bir atalet hissediyor, yani her eksen farklı bir yay–kütle sistemi.
-    - en: Gravity acts along x.
-      tr: Yerçekimi x boyunca etki ediyor.
-    - en: The Jacobian is singular along x.
-      tr: Jacobian x boyunca singular.
+  - en: The hand feels a different inertia in each direction, so each axis is a different spring–mass system.
+    tr: El her yönde farklı bir atalet hissediyor, yani her eksen farklı bir yay–kütle sistemi.
+  - en: Gravity acts along x.
+    tr: Yerçekimi x boyunca etki ediyor.
+  - en: The Jacobian is singular along x.
+    tr: Jacobian x boyunca singular.
   answer: 0
   why:
     en: Part A - $\Lambda_{xx}$ = 11.87 kg, $\Lambda_{yy}$ = 5.10 kg. Operational-space control scales the spring by $\Lambda$ and brings overshoot to 3.2–4.6% on all axes.
     tr: A bölümü - $\Lambda_{xx}$ = 11,87 kg, $\Lambda_{yy}$ = 5,10 kg. Operational-space control yayı $\Lambda$ ile ölçekliyor ve overshoot'u bütün eksenlerde %3,2–4,6'ya getiriyor.
-- q:
+- stage: post
+  q:
     en: At K = 10000 N/m the commanded wrench needs more torque than some joints can give. What happens with per-joint clipping?
     tr: K = 10000 N/m'de komut edilen wrench bazı joint'lerin verebileceğinden fazla torque istiyor. Joint başına kırpmayla ne olur?
   options:
-    - en: The force is simply capped, and the hand presses straight down at the maximum.
-      tr: Kuvvet sadece tavanda kesilir; el maksimumda dümdüz aşağı bastırır.
-    - en: The applied wrench changes direction and the hand tilts by 56.91°.
-      tr: Uygulanan wrench'in yönü değişir ve el 56,91° eğilir.
-    - en: Penetration grows tenfold because K grew tenfold.
-      tr: K on kat büyüdüğü için penetration da on kat büyür.
+  - en: The force is simply capped, and the hand presses straight down at the maximum.
+    tr: Kuvvet sadece tavanda kesilir; el maksimumda dümdüz aşağı bastırır.
+  - en: The applied wrench changes direction and the hand tilts by 56.91°.
+    tr: Uygulanan wrench'in yönü değişir ve el 56,91° eğilir.
+  - en: Penetration grows tenfold because K grew tenfold.
+    tr: K on kat büyüdüğü için penetration da on kat büyür.
   answer: 1
   why:
     en: Clipping each joint keeps each torque legal but bends the wrench (77.9% of steps saturated in part B). Up to K = 3000 penetration stayed between 0.545 and 0.888 mm, set by the contact model.

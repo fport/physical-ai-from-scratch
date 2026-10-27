@@ -22,11 +22,9 @@ Lessons 26–27 left us 120 scripted demonstrations and a clean dataset. The sim
 
 ### In plain words
 
-Suppose you want a bot that plays a video game. You record a good player: at every frame, the screen and the key they press. Then you train an ordinary supervised model on those (screen, keypress) pairs: screen in, key out. That is behavior cloning. It needs no reward and no trial and error during training, only recorded pairs. For our robot the "screen" is the joint angles plus the cube position, and the "keypress" is the next set of joint targets.
+Suppose you want a bot that plays a video game. You record a good player: at every frame, the screen and the key they press, and train an ordinary supervised model on those pairs: screen in, key out. That is behavior cloning: no reward, no trial and error, only recorded pairs. For our robot the "screen" is the joint angles plus the cube position, and the "keypress" is the next set of joint targets.
 
-Two things go wrong. First, the bot never plays exactly like the player, so after a few frames it sees screens the player never produced, and there it has no data; each small mistake pushes it further off. Second, sometimes the screen alone does not say what to do: the player waited, then pressed jump, and the screens just before and just after that decision look the same.
-
-And the score you watch during training (error on recorded frames) is not the score that matters (does the cube get lifted when the bot plays on its own). This lesson measures both and shows they can disagree.
+Two things go wrong. The bot never plays exactly like the player, so after a few frames it sees screens the player never produced, where it has no data, and each small mistake pushes it further off. And sometimes the screen alone does not say what to do: the player waited, then pressed jump, and the screens just before and after that decision look the same. Finally, the score you watch during training (error on recorded frames) is not the score that matters (is the cube lifted when the bot plays alone); this lesson measures both.
 
 ### Training on frames, running in a loop
 
@@ -66,7 +64,7 @@ for k in range(150):                          # 6 s at 25 Hz
 | open-loop RMSE | $\sqrt{\operatorname{mean}\big(\pi_\theta(o) - a\big)^2}$ over held-out demo frames |
 | closed-loop success | $k/n$ from the physical test of [lesson 25](25-evaluating-policies.md) |
 
-Here $\theta$ are the network weights, $\pi_\theta$ the policy network, $\mathcal D = \{(o_t, a_t)\}$ the demonstrations from the expert $\pi^*$, $o$ an observation (9 state values plus the clock), $a$ the expert's action (6 joint targets) and $\epsilon$ Gaussian noise with a standard deviation of 0.02 rad per joint and 1 mm on the cube. The objective is an ordinary MSE regression (see AIEFS: [Multi-Layer Networks](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/02-multi-layer-networks), [Loss Functions](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/05-loss-functions), [Introduction to PyTorch](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/11-intro-to-pytorch)). The catch is the training distribution: $o$ is drawn from the states the *expert* visits, while at run time the policy feeds itself its own states. Lesson 29 deals with that gap; this lesson measures what it does to BC.
+Here $\theta$ are the network weights, $\pi_\theta$ the policy, $\mathcal D = \{(o_t, a_t)\}$ the demonstrations of the expert $\pi^*$, $o$ an observation (9 state values plus the clock), $a$ the expert's action (6 joint targets) and $\epsilon$ Gaussian noise (0.02 rad per joint, 1 mm on the cube). The catch is the training distribution: $o$ comes from the states the *expert* visits, while at run time the policy feeds itself its own states. Lesson 29 deals with that gap.
 
 ### Our policy
 
@@ -78,9 +76,9 @@ Here $\theta$ are the network weights, $\pi_\theta$ the policy network, $\mathca
 | training | Adam, lr 1e-3, batch 256, 4000 steps, MSE |
 | augmentation | Gaussian noise on the inputs of each batch: 0.02 rad on joints, 1 mm on the cube; targets unchanged |
 
-**Why the clock and the noise.** The scripted expert is a state machine with timed segments. At the bottom of the descent, the arm state "jaws open, at the cube" is the same just before and just after the expert decides to close, so the state alone does not say which action comes next; the clock does. The noise matters because the demonstrations are noise-free curves in a 10-D input space: off those curves the network's output is unconstrained, and the learner leaves them within the first steps. Training on slightly perturbed inputs with the expert's unperturbed actions teaches it to map nearby states onto the expert's targets; because the targets are absolute joint positions, the same target pulls a displaced arm back. Both are design choices of this lesson, not part of BC. Break it measures them (50 demos, seed 0): 20/20 with both, 0/20 without noise, 4/20 without the clock.
+**Why the clock and the noise.** The scripted expert is a state machine with timed segments. At the bottom of the descent, "jaws open, at the cube" looks the same just before and just after the expert decides to close; the clock tells them apart. The demonstrations are noise-free curves in a 10-D input space, and off those curves the network's output is unconstrained. Training on slightly perturbed inputs with the expert's clean actions maps nearby states onto the expert's targets, and because the targets are absolute joint positions, the same target pulls a displaced arm back. Both are design choices of this lesson, not part of BC; Break it measures them (50 demos, seed 0): 20/20 with both, 0/20 without noise, 4/20 without the clock.
 
-**Closed-loop evaluation.** Every 40 ms the policy reads the simulated state and outputs joint targets; the SO-101 position servos track them. After 6 s the physical test of [lesson 25](25-evaluating-policies.md) decides success. Each configuration is run with 3 training seeds on the same 20 test positions (seed 28, never used for training), and we report each seed's k/20 and the pooled k/60 (the three seeds' trials added together) with a Wilson interval.
+**Closed-loop evaluation.** Every 40 ms the policy reads the simulated state and outputs joint targets for the SO-101 position servos; after 6 s the physical test of [lesson 25](25-evaluating-policies.md) decides. Each configuration runs with 3 training seeds on the same 20 test positions (seed 28, never used for training); we report each seed's k/20 and the pooled k/60 with a Wilson interval.
 
 <details>
 <summary>Math details: what MSE regression learns, and why the loop changes things</summary>
@@ -91,11 +89,160 @@ Here $\theta$ are the network weights, $\pi_\theta$ the policy network, $\mathca
 
 **Why input noise helps here.** Minimizing $\mathbb E\,\|\pi_\theta(o + \epsilon) - a\|^2$ asks the network to output the expert's action for every state in a small neighbourhood of the demonstrations, not just on the curves themselves. Because $a$ is an absolute joint target, outputting it from a slightly displaced state commands a move back toward the demonstrated path. This is a property of our action space; with velocity or delta actions the argument does not carry over directly.
 
-**Open loop vs closed loop.** The open-loop RMSE averages over all demonstration frames equally. Closed-loop success depends on a few decisive frames (the grasp) and on states the expert never visited, so the two need not move together.
-
 Go deeper: [Multi-Layer Networks and Forward Pass](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/02-multi-layer-networks), [Loss Functions](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/05-loss-functions), [Introduction to PyTorch](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/11-intro-to-pytorch); Pomerleau (1988) and UC Berkeley CS 285, lectures 2–3, in the sources below.
 
 </details>
+
+## Build it
+
+You will now write behavior cloning yourself: the normalization, the network's forward pass, the training loop and the closed-loop rollout, each checked before you move on. The data is lesson 26's demonstrations and the features are this lesson's (state plus clock), loaded from the Experiment script, so both tell one story. This is a smaller run than the Experiment: one training seed and 20 demonstrations, about 6 s on a CPU.
+
+Type the steps into a file of your own instead of copying them. The finished functions are in [`physai/imitation.py`](../physai/imitation.py); `uv run python experiments/28-behavior-cloning/build.py` runs all four steps (output in [`build_output.txt`](../experiments/28-behavior-cloning/build_output.txt)).
+
+### Step 1 · Normalize
+
+Joint angles are around 1 rad, cube coordinates a few centimetres, the clock up to 4.52 s. Each input is shifted by its mean and divided by its standard deviation (MEAN_STD, lesson 27), and the actions get the same treatment:
+
+```python
+def fit_mean_std(x, eps=1e-6):
+    """MEAN_STD normalization statistics per feature (lesson 27): shift and scale."""
+    x = np.asarray(x, np.float32)
+    return x.mean(0), x.std(0) + eps
+```
+
+The check compares the statistics with the ones lesson 27's trainer computes inside `train_mlp`:
+
+```text
+== Step 1. Normalization statistics, 20 demonstrations ==
+2280 frames, 10 inputs (5 joints, jaw, cube xyz, clock), 6 actions
+mean   -0.010  -0.256   0.221   1.375   1.623   0.731   0.221   0.014   0.036   2.260
+std     0.204   0.508   0.387   0.202   0.204   0.505   0.035   0.045   0.032   1.316
+max |ours - lesson 27| = 0.0e+00
+```
+
+The cube's x has a standard deviation of 0.035 m, its z of 0.032 m; without normalization these inputs would be about 6 to 16 times smaller than the joints and the network would barely see them.
+
+### Step 2 · The forward pass
+
+The policy is two ReLU layers of 256 and a linear output. In NumPy that is a loop over the layers:
+
+```python
+def mlp_forward(layers, x):
+    """ReLU MLP in NumPy: layers = [(W, b), ...] with W of shape (out, in); no activation on the last layer."""
+    h = np.asarray(x, np.float64)
+    for i, (W, b) in enumerate(layers):
+        h = h @ W.T + b
+        if i < len(layers) - 1:
+            h = np.maximum(h, 0.0)
+    return h
+```
+
+Copy the weights of a randomly initialized `torch.nn.Sequential` into the list and compare outputs:
+
+```text
+== Step 2. Forward pass: NumPy vs torch.nn.Sequential (float64, random weights) ==
+500 inputs: max |mlp_forward - torch| = 4.4e-16
+```
+
+The difference is rounding (4.4e-16). Running the policy in NumPy keeps PyTorch out of the 25 Hz control loop.
+
+### Step 3 · The training loop
+
+Training is ordinary regression on random batches of frames. The one robotics-specific line adds Gaussian noise to the inputs and keeps the expert's clean action as the label:
+
+```python
+def train_bc(X, Y, hidden=256, steps=4000, batch=256, lr=1e-3, seed=0, obs_noise=None):
+    """Behavior cloning: MSE regression from observations X to expert actions Y with a 2 x hidden ReLU MLP (Adam).
+
+    Inputs and targets are MEAN_STD-normalized; obs_noise (raw units, one std per input feature) is added to the
+    inputs of every batch, the targets stay clean. Returns (layers, x_stats, y_stats) for `bc_policy`.
+    """
+    import torch
+    import torch.nn as nn
+    torch.manual_seed(seed)
+    g = torch.Generator().manual_seed(seed)
+    X, Y = np.asarray(X, np.float32), np.asarray(Y, np.float32)
+    (xs, xk), (ys, yk) = fit_mean_std(X), fit_mean_std(Y)
+    xt, yt = torch.tensor(X), torch.tensor((Y - ys) / yk, dtype=torch.float32)
+    XS, XK = torch.tensor(xs, dtype=torch.float32), torch.tensor(xk, dtype=torch.float32)
+    NZ = None if obs_noise is None else torch.tensor(obs_noise, dtype=torch.float32)
+    net = nn.Sequential(nn.Linear(X.shape[1], hidden), nn.ReLU(), nn.Linear(hidden, hidden), nn.ReLU(),
+                        nn.Linear(hidden, Y.shape[1]))
+    opt = torch.optim.Adam(net.parameters(), lr)
+    for _ in range(steps):
+        idx = torch.randint(0, len(xt), (batch,), generator=g)        # a random batch of frames
+        x = xt[idx]
+        if NZ is not None:
+            x = x + torch.randn(x.shape, generator=g) * NZ           # perturb the input, keep the label
+        loss = ((net((x - XS) / XK) - yt[idx]) ** 2).mean()         # MSE in normalized action units
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    layers = [(m.weight.detach().double().numpy(), m.bias.detach().double().numpy()) for m in net if isinstance(m, nn.Linear)]
+    return layers, (xs.astype(np.float64), xk.astype(np.float64)), (ys.astype(np.float64), yk.astype(np.float64))
+```
+
+```python
+def bc_policy(layers, x_stats, y_stats):
+    """The trained network as a function raw observation(s) -> raw action(s): normalize, forward, unnormalize."""
+    (xs, xk), (ys, yk) = x_stats, y_stats
+    return lambda x: mlp_forward(layers, (np.atleast_2d(x) - xs) / xk) * yk + ys
+```
+
+The first check trains 200 steps with your function and with lesson 27's `train_mlp` (same seed, same noise) and compares the weights. The second trains the full 4000 steps and measures the open-loop error on the 20 held-out episodes:
+
+```text
+== Step 3. Training: ours vs lesson 27's train_mlp, then the full run ==
+200 steps, same seed: max |weights ours - lesson 27| = 0.0e+00
+4000 steps, seed 0: open-loop RMSE on episodes 100-119 = 0.883 deg (predicting the mean action: 23.753 deg)
+```
+
+Identical weights mean your loop is the Experiment's loop. The open-loop RMSE of seed 0, 0.883°, is close to the Experiment's 0.945°, which is the mean of three seeds; predicting the mean action everywhere would give 23.753°.
+
+### Step 4 · Close the loop
+
+Now the policy drives: every 40 ms it reads the simulated state, the servos chase its six joint targets for 20 physics steps, and after 6 s the physical test of lesson 25 decides.
+
+```python
+pi = bc_policy(layers, x_stats, y_stats)
+outs = [exp.rollout(scene, lambda o, t: pi(exp.features(o, t))[0], xy) for xy in exp.TEST_XY]
+```
+
+```text
+== Step 4. Closed loop: 20 test positions (seed 28), 6 s each ==
+success 20/20, Wilson 95% [0.84, 1.00]; outcomes: held 20
+```
+
+20/20, the Experiment's seed-0 entry at 20 demonstrations. A Wilson interval of [0.84, 1.00] from one seed and 20 positions is still wide; that is why the Experiment pools three seeds.
+
+### What you keep
+
+`physai.imitation` now has `fit_mean_std`, `mlp_forward`, `train_bc` and `bc_policy`. [Lesson 29](29-dagger.md) adds DAgger to the same module, and lesson 30's flow-matching sampler replaces the regression when the demonstrations disagree. [`tests/test_28_behavior_cloning.py`](../tests/test_28_behavior_cloning.py) pins them to NumPy and to lesson 27's trainer; run `uv run pytest tests/test_28_behavior_cloning.py` after you change anything.
+
+## Use it
+
+The library way to train a BC-family policy on a real arm is LeRobot. A policy class reads a `LeRobotDataset`, normalizes with the dataset's `meta/stats.json`, and is trained and evaluated from the command line ([il_robots](https://huggingface.co/docs/lerobot/il_robots)):
+
+```bash
+lerobot-train --dataset.repo_id=<user>/<dataset> --policy.type=act   # or diffusion, ...
+lerobot-rollout ...                                                  # evaluate on the robot
+```
+
+The order is the one you built: statistics first, then the network, then closed-loop evaluation. What changes between tools is where each piece lives:
+
+| Piece | This lesson / physai | LeRobot ACT | PyTorch by hand |
+|---|---|---|---|
+| normalization | `fit_mean_std`, MEAN_STD | `normalization_mapping`, MEAN_STD for state, action and images by default | your own `(x - mean) / std` |
+| policy output | the next 6 joint targets | a chunk of `chunk_size` actions (default 100) | whatever the last layer outputs |
+| run time | `bc_policy` in NumPy, 25 Hz | `select_action`, which queues `n_action_steps` actions | `net.eval()` and `torch.no_grad()` |
+
+Source: LeRobot's [`configuration_act.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py) and [`modeling_act.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/modeling_act.py).
+
+Three traps:
+
+- **Statistics from the wrong split.** Compute mean and std on the training episodes only and ship them with the weights; a policy run with different statistics sees shifted inputs and fails without an error.
+- **Time-indexed demonstrations.** A state-only policy cannot tell "before" from "after" a decision the state does not show (Break it: 4/20 without the clock). Check whether your expert has hidden phases before you blame the network.
+- **A low validation loss is not a success rate.** Step 3's 0.883° says little about Step 4; only the closed-loop test does (Experiment A: the RMSE keeps falling while success does not).
 
 ## Experiment
 
@@ -127,8 +274,8 @@ success = scene.success()                              # lifted >= 4 cm, both ja
 
 Open-loop RMSE is measured on the 20 unseen demo episodes (100–119). Three things stand out:
 
-- **Success saturates long before the loss does.** Success is already 60/60 at 20 demos; from 20 to 100 demos the RMSE still falls from 0.945° to 0.360° without any gain in success.
-- **More data was not monotonically better.** At 100 demos the pooled rate drops to 55/60; the 95% intervals of 50 and 100 demos barely overlap ([0.94, 1.00] vs [0.82, 0.96]). A two-sided Fisher test on 60/60 vs 55/60 gives p = 0.057, and even that treats the 60 rollouts as independent, which they are not: the three seeds share the same 100 demos and the same 20 test positions. The failures concentrate on test position #19, at x = 16.2 cm, the near edge of the demonstrated area, where all three seeds fail. So the drop is not statistically established, but it is not noise we can dismiss either. With a fixed 4000 training steps, 100 demos means fewer passes over each episode; we did not isolate the cause.
+- **Success saturates long before the loss does.** 60/60 at 20 demos; from 20 to 100 demos the RMSE still falls from 0.945° to 0.360°.
+- **More data was not monotonically better.** At 100 demos the pooled rate drops to 55/60; the 95% intervals of 50 and 100 demos barely overlap ([0.94, 1.00] vs [0.82, 0.96]). A two-sided Fisher test on 60/60 vs 55/60 gives p = 0.057, and it treats the 60 rollouts as independent, which they are not (same demos, same 20 positions). The failures concentrate on test position #19, at x = 16.2 cm, the near edge of the demonstrated area, where all three seeds fail. The drop is not statistically established, but not dismissible noise either. With a fixed 4000 training steps, 100 demos means fewer passes over each episode; we did not isolate the cause.
 - **Failures are physical, not numerical.** With 5 demos the arm closes the jaws but the cube stays on the floor (24 of 24 failures): the aim is off by more than the grasp tolerance of lesson 26.
 
 ![Left: pooled closed-loop success with Wilson 95% intervals versus the number of demonstrations: 36/60 at 5, 57/60 at 10, 60/60 at 20 and 50, 55/60 at 100. Right: open-loop action RMSE on a log scale keeps falling, from 4.138 degrees at 5 demos to 0.360 at 100.](../experiments/28-behavior-cloning/success_vs_demos.png)
@@ -146,7 +293,7 @@ Two knobs, 50 demonstrations, seed 0 (noise 0 turns off the 1 mm cube noise too;
 | 0.04 | yes | 20/20 | [0.84, 1.00] | – |
 | 0.02 | no | 4/20 | [0.08, 0.42] | never closed 16 |
 
-Without input noise the policy fits the demonstrations and fails every test: 0/20 at 0 and at 0.005 rad. Our reading, consistent with the drift measured in lesson 29: the learner leaves the narrow tube of demonstrated states. Each 40 ms step adds a small error, the next input is slightly off the demonstrations, the output there is extrapolated, and the errors compound. Remove the clock instead and 16 of 20 episodes end with the jaws never closing. Our reading here too: in the demonstrations the state "arm at the cube, jaws open" is followed by "keep open" in most frames and by "start closing" in only a few, so a state-only regression averages toward "keep open", and once the arm stops moving nothing in the state changes.
+Without input noise the policy fits the demonstrations and fails every test: 0/20 at 0 and at 0.005 rad. Our reading, consistent with the drift measured in lesson 29: each 40 ms step adds a small error, the next input lies slightly off the narrow tube of demonstrated states, the output there is extrapolated, and the errors compound. Remove the clock instead and 16 of 20 episodes end with the jaws never closing: "arm at the cube, jaws open" is followed by "keep open" in most frames and by "start closing" in a few, so a state-only regression averages toward "keep open" (our reading, as in Math details).
 
 ## On the real robot
 

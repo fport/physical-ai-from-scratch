@@ -1,44 +1,92 @@
-# Lesson 36 · Legged locomotion. Every answer is supported by the lesson page or
-# experiments/36-legged-locomotion/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 36 · Legged locomotion. Every answer is supported by the lesson page,
+# experiments/36-legged-locomotion/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: A dog-like robot's body is not bolted to anything. How does the policy make it move forward?
+    tr: Köpeğe benzeyen bir robotun gövdesi hiçbir yere cıvatalı değil. Policy onu nasıl ileri hareket ettirir?
+  options:
+    - en: It commands a force on the body directly.
+      tr: Gövdeye doğrudan bir kuvvet komut eder.
+    - en: It sends joint targets; PD turns them into torques, and the feet, which can only push and only as hard as friction allows, move the body.
+      tr: Joint hedefleri gönderir; PD onları torka çevirir ve yalnızca itebilen, ancak sürtünmenin izin verdiği kadar iten ayaklar gövdeyi hareket ettirir.
+    - en: It sets the base velocity, which the simulator integrates.
+      tr: Gövde hızını ayarlar, simülatör de onu integre eder.
+  answer: 1
+  why:
+    en: 'Core idea: the base is a floating body moved only by unilateral, friction-limited foot contacts. Standing, the four feet carry 149.2 N, exactly m g (section A).'
+    tr: 'Ana fikir: gövde yalnızca tek yönlü ve sürtünmeyle sınırlı ayak contact''larıyla hareket eden serbest bir cisimdir. Ayakta dururken dört ayak tam m g kadar, 149,2 N taşıyor (A bölümü).'
+- stage: pre
+  q:
     en: Why does locomotion PPO run thousands of simulated robots in parallel instead of one robot for longer?
     tr: Locomotion PPO neden tek bir robotu daha uzun süre koşturmak yerine binlerce simüle robotu paralel çalıştırır?
   options:
     - en: Each robot needs a different reward function.
       tr: Her robotun farklı bir reward fonksiyonuna ihtiyacı vardır.
-    - en: PPO's update is only valid for samples from (nearly) the current policy, and one robot's consecutive steps are nearly the same data; many robots give many independent trajectories per update.
-      tr: PPO'nun güncellemesi yalnızca (neredeyse) mevcut policy'den gelen örnekler için geçerlidir ve tek bir robotun ardışık adımları neredeyse aynı veridir; çok sayıda robot, güncelleme başına çok sayıda bağımsız trajectory verir.
     - en: A single simulated robot cannot run longer than 20 s.
       tr: Tek bir simüle robot 20 s'den uzun çalışamaz.
-  answer: 1
+    - en: PPO's update is only valid for samples from (nearly) the current policy, and one robot's consecutive steps are nearly the same data; many robots give many independent trajectories per update.
+      tr: PPO'nun güncellemesi yalnızca (neredeyse) mevcut policy'den gelen örnekler için geçerlidir ve tek bir robotun ardışık adımları neredeyse aynı veridir; çok sayıda robot, güncelleme başına çok sayıda bağımsız trajectory verir.
+  answer: 2
   why:
     en: 'Math details, on-policy sampling. The Go2 config collects 4096 × 24 = 98,304 samples per update, while each robot advances only 0.48 s.'
-    tr: 'Math details, on-policy örnekleme. Go2 config''i güncelleme başına 4096 × 24 = 98.304 örnek toplar; her robot ise yalnızca 0,48 s ilerler.'
-- q:
+    tr: 'Matematik ayrıntısı, on-policy örnekleme. Go2 config''i güncelleme başına 4096 × 24 = 98.304 örnek toplar; her robot ise yalnızca 0,48 s ilerler.'
+- stage: check
+  q:
+    en: In Build it, Step 1, eight robots stepped as one batch end bit for bit where eight separate simulations end (max difference 0.0e+00). What does that tell you about a batch?
+    tr: Sıfırdan yaz, Adım 1'de tek batch olarak adımlanan sekiz robot, sekiz ayrı simülasyonun bittiği yerde bit bit aynı bitiyor (en büyük fark 0,0e+00). Bu bir batch hakkında ne söyler?
+  options:
+    - en: Robots in a batch share one MjModel but never interact; each MjData is an independent simulation.
+      tr: Bir batch'teki robotlar tek bir MjModel'i paylaşır ama asla etkileşmez; her MjData bağımsız bir simülasyondur.
+    - en: The robots collide with each other but the effect is too small to see.
+      tr: Robotlar birbirine çarpıyor ama etkisi görülemeyecek kadar küçük.
+    - en: MuJoCo averages the robots' states.
+      tr: MuJoCo robotların durumlarının ortalamasını alır.
+  answer: 0
+  why:
+    en: The model holds what never changes, the data one robot's state. mujoco.rollout over the same batch also matches to 0.0e+00 (Use it).
+    tr: Model hiç değişmeyeni, data bir robotun durumunu tutar. Aynı batch üzerinde mujoco.rollout da 0,0e+00 ile uyuşuyor (Kütüphaneyle kullan).
+- stage: check
+  q:
+    en: Gymnasium 1.4's vector environments default to autoreset_mode NextStep. What does the step() that ends an episode return?
+    tr: Gymnasium 1.4'ün vector environment'ları varsayılan olarak autoreset_mode NextStep kullanır. Bir episode'u bitiren step() ne döndürür?
+  options:
+    - en: The fresh start of the next episode, as physai's VecEnv does.
+      tr: physai'nin VecEnv'i gibi bir sonraki episode'un taze başlangıcını.
+    - en: The terminal observation; the reset happens on the next step() call, whose action is ignored and whose reward is 0.
+      tr: Terminal observation'ı; reset bir sonraki step() çağrısında olur, o çağrının action'ı yok sayılır ve reward'u 0'dır.
+    - en: Nothing; the environment has to be reset by hand.
+      tr: Hiçbir şey; environment elle reset edilmelidir.
+  answer: 1
+  why:
+    en: Use it table, checked with CartPole-v1. In SameStep mode the returned observation is the fresh start and the terminal one is in info["final_obs"]; legged_gym also resets in the same step.
+    tr: Kütüphaneyle kullan tablosu, CartPole-v1 ile kontrol edildi. SameStep modunda dönen observation taze başlangıçtır, terminal olan info["final_obs"] içindedir; legged_gym de aynı adımda reset eder.
+- stage: post
+  q:
     en: With one robot, 8 threads ran 52,672 steps/s; with 8 robots, 488,908. What explains the difference?
     tr: Tek robotla 8 thread saniyede 52.672 adım koştu; 8 robotla 488.908. Farkı ne açıklar?
   options:
     - en: Threads make each physics step cheaper.
       tr: Thread'ler her physics adımını ucuzlatır.
-    - en: The C++ rollout module is much faster than a Python loop even for one robot.
-      tr: C++ rollout modülü tek robot için bile bir Python döngüsünden çok daha hızlıdır.
     - en: The cost of one step is roughly fixed; threads only help when there is a batch to split across them.
       tr: Bir adımın maliyeti kabaca sabittir; thread'ler yalnızca aralarında paylaştırılacak bir batch olduğunda işe yarar.
-  answer: 2
+    - en: The C++ rollout module is much faster than a Python loop even for one robot.
+      tr: C++ rollout modülü tek robot için bile bir Python döngüsünden çok daha hızlıdır.
+  answer: 1
   why:
     en: 'Section C: 58,368–88,725 steps per CPU-second in every cell. One robot through `rollout` on one thread (53,682 steps/s) is no faster than the Python loop (66,222 steps/s).'
     tr: 'C bölümü: her hücrede CPU saniyesi başına 58.368–88.725 adım. Tek thread''de `rollout` ile tek robot (saniyede 53.682 adım) Python döngüsünden (saniyede 66.222 adım) hızlı değil.'
-- q:
+- stage: post
+  q:
     en: In Break it, robots released from the keyframe pose ran at 34,194 steps/s instead of 379,209. Why?
     tr: Boz bölümünde keyframe pozundan bırakılan robotlar saniyede 379.209 yerine 34.194 adım koştu. Neden?
   options:
-    - en: While the feet land, the constraint solver needs 10.3 iterations per step instead of 1.7.
-      tr: Ayaklar yere basarken constraint solver adım başına 1,7 yerine 10,3 iterasyona ihtiyaç duyar.
     - en: The robots have many more contacts (4.4 vs 4.0 is a large change).
       tr: Robotların çok daha fazla contact'ı var (4,4'e karşı 4,0 büyük bir değişim).
     - en: The 8 threads stopped running in parallel.
       tr: 8 thread paralel çalışmayı bıraktı.
-  answer: 0
+    - en: While the feet land, the constraint solver needs 10.3 iterations per step instead of 1.7.
+      tr: Ayaklar yere basarken constraint solver adım başına 1,7 yerine 10,3 iterasyona ihtiyaç duyar.
+  answer: 2
   why:
     en: Break it table. The number of contacts barely changes; the solver work does. Benchmark with the states training actually visits, impacts included.
     tr: Boz tablosu. Contact sayısı neredeyse değişmiyor; değişen solver'ın işi. Benchmark'ı training'in gerçekten ziyaret ettiği durumlarla, çarpmalar dahil, yapın.

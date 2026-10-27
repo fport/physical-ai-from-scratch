@@ -1,44 +1,92 @@
-# Lesson 28 · Behavior cloning. Every answer is supported by the lesson page or
-# experiments/28-behavior-cloning/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 28 · Behavior cloning. Every answer is supported by the lesson page,
+# experiments/28-behavior-cloning/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: In a recorded game, one screen is followed by "wait" in most frames and by "jump" in a few, because the player waited, then jumped. What does a regression from screen to key learn for that screen?
+    tr: Kaydedilmiş bir oyunda bir ekranı çoğu frame'de "bekle", birkaçında "zıpla" izliyor, çünkü oyuncu bekledi, sonra zıpladı. Ekrandan tuşa bir regression o ekran için ne öğrenir?
+  options:
+    - en: Exactly when to jump, because the network sees enough frames.
+      tr: Tam ne zaman zıplanacağını, çünkü network yeterince frame görüyor.
+    - en: Nothing; regression cannot be trained on repeated inputs.
+      tr: Hiçbir şey; tekrarlanan girdilerle regression eğitilemez.
+    - en: Something close to the average action, so mostly "wait"; the screen alone does not say when the decision comes.
+      tr: Ortalama action'a yakın bir şey, yani çoğunlukla "bekle"; ekran tek başına kararın ne zaman geleceğini söylemez.
+  answer: 2
+  why:
+    en: For a fixed input, MSE learns the mean of the actions seen with it (Math details). On the arm, removing the clock left 16 of 20 episodes with the jaws never closing (Break it).
+    tr: Sabit bir girdi için MSE onunla görülen action'ların ortalamasını öğrenir (Matematik ayrıntısı). Kolda saati kaldırınca 20 episode'un 16'sında çeneler hiç kapanmadı (Boz).
+- stage: pre
+  q:
+    en: Your cloned policy has a tiny error on recorded frames. What tells you whether it actually picks the cube?
+    tr: Klonladığın policy'nin kaydedilmiş frame'lerdeki hatası çok küçük. Küpü gerçekten alıp almadığını ne söyler?
+  options:
+    - en: Running it in closed loop, where it feeds itself its own states, and applying the physical success test.
+      tr: Onu kendi state'leriyle kendini beslediği closed loop'ta çalıştırmak ve fiziksel başarı testini uygulamak.
+    - en: The error on frames; a smaller error always means more successful picks.
+      tr: Frame'lerdeki hata; daha küçük hata her zaman daha çok başarılı pick demektir.
+    - en: The training loss on the last batch.
+      tr: Son batch'teki training loss.
+  answer: 0
+  why:
+    en: The open-loop RMSE averages over demonstration frames; success depends on a few decisive states and on states the expert never visited. Experiment A shows the two disagreeing.
+    tr: Open-loop RMSE demonstration frame'leri üzerinden ortalama alır; başarı birkaç belirleyici state'e ve uzmanın hiç gitmediği state'lere bağlıdır. Deney A ikisinin ayrıştığını gösteriyor.
+- stage: check
+  q:
+    en: In Build it, Step 3, `train_bc` adds `torch.randn(...) * NZ` to each batch. What does that line do, and what stays unchanged?
+    tr: Sıfırdan yaz, Adım 3'te `train_bc` her batch'e `torch.randn(...) * NZ` ekliyor. Bu satır ne yapar, ne değişmeden kalır?
+  options:
+    - en: It adds noise to the expert's action labels so the policy explores.
+      tr: Policy keşfetsin diye uzmanın action etiketlerine gürültü ekler.
+    - en: It perturbs the inputs (0.02 rad on joints and jaw, 1 mm on the cube, 0 on the clock) and keeps the expert's clean action as the label.
+      tr: Girdileri bozar (eklem ve çenede 0,02 rad, küpte 1 mm, saatte 0) ve uzmanın temiz action'ını etiket olarak tutar.
+    - en: It replaces normalization, so `fit_mean_std` is no longer needed.
+      tr: Normalizasyonun yerini alır, böylece `fit_mean_std` artık gerekmez.
+  answer: 1
+  why:
+    en: Nearby states are mapped onto the expert's target, and an absolute joint target pulls a displaced arm back. With the same seed and noise, 200 steps of `train_bc` give weights identical to lesson 27's `train_mlp` (difference 0.0e+00).
+    tr: Yakın state'ler uzmanın hedefine eşlenir ve mutlak bir eklem hedefi kaymış kolu geri çeker. Aynı seed ve gürültüyle `train_bc`'nin 200 adımı ders 27'nin `train_mlp`'siyle aynı ağırlıkları veriyor (fark 0,0e+00).
+- stage: check
+  q:
+    en: Step 4 gives 20/20 with one training seed, Wilson 95% [0.84, 1.00]. Why does the Experiment still pool three seeds?
+    tr: Adım 4 tek bir eğitim seed'iyle 20/20 veriyor, Wilson %95 [0,84, 1,00]. Deney neden yine de üç seed'i birleştiriyor?
+  options:
+    - en: Because 20/20 is impossible and must be a bug.
+      tr: Çünkü 20/20 imkânsızdır ve bir hata olmalıdır.
+    - en: Because the Wilson interval only works for 60 trials.
+      tr: Çünkü Wilson aralığı yalnızca 60 deneme için çalışır.
+    - en: Because 20 trials from one trained policy leave a wide interval, and another seed can fail where this one succeeded (the 100-demo row has 18, 18 and 19 of 20).
+      tr: Çünkü tek bir eğitilmiş policy'den 20 deneme geniş bir aralık bırakır ve başka bir seed bunun başardığı yerde başarısız olabilir (100 demo satırında 20'de 18, 18 ve 19).
+  answer: 2
+  why:
+    en: Seed-to-seed variation is part of the result. Pooling gives 60/60 at 20 demos with [0.94, 1.00], still with the caveat that the three seeds share the same 20 test positions.
+    tr: Seed'den seed'e değişim sonucun parçasıdır. Birleştirmek 20 demoda [0,94, 1,00] ile 60/60 veriyor; üç seed'in aynı 20 test konumunu paylaştığı çekincesiyle.
+- stage: post
+  q:
     en: From 20 to 100 demonstrations the open-loop RMSE falls from 0.945° to 0.360°. What does closed-loop success do?
     tr: 20'den 100 demonstration'a open-loop RMSE 0,945°'den 0,360°'ye düşüyor. Closed-loop başarı ne yapıyor?
   options:
-  - en: It rises steadily and reaches its best value at 100 demos.
-    tr: Düzenli artıyor ve en iyi değerine 100 demoda ulaşıyor.
-  - en: 'It is 60/60 at 20 and 50 demos and 55/60 at 100: a lower loss did not mean more picks.'
-    tr: '20 ve 50 demoda 60/60, 100''de 55/60: daha düşük loss daha çok pick demek olmadı.'
-  - en: It falls to 0/60, because the network overfits.
-    tr: Network overfit ettiği için 0/60'a düşüyor.
+    - en: It rises steadily and reaches its best value at 100 demos.
+      tr: Düzenli artıyor ve en iyi değerine 100 demoda ulaşıyor.
+    - en: 'It is 60/60 at 20 and 50 demos and 55/60 at 100: a lower loss did not mean more picks.'
+      tr: '20 ve 50 demoda 60/60, 100''de 55/60: daha düşük loss daha çok pick demek olmadı.'
+    - en: It falls to 0/60, because the network overfits.
+      tr: Network overfit ettiği için 0/60'a düşüyor.
   answer: 1
   why:
     en: Part A table; a Fisher test on 60/60 vs 55/60 gives p = 0.057, so the drop is not statistically established, but success clearly stopped following the loss.
     tr: A kısmı tablosu; 60/60'a karşı 55/60 için Fisher testi p = 0,057 veriyor, yani düşüş istatistiksel olarak kanıtlanmış değil, ama başarı açıkça loss'u izlemeyi bırakmış.
-- q:
+- stage: post
+  q:
     en: Trained without input noise on 50 demonstrations, the policy scores 0/20. What is the lesson's reading?
     tr: 50 demonstration üzerinde girdi gürültüsü olmadan eğitilen policy 0/20 yapıyor. Dersin yorumu ne?
   options:
-  - en: The learner leaves the narrow tube of demonstrated states, its output there is extrapolated, and the errors compound step after step.
-    tr: Öğrenen gösterilmiş state'lerin dar tüpünden çıkar, oradaki çıktısı extrapolation'dır ve hatalar adım adım birikir.
-  - en: Noise-free data is too easy, so the network cannot fit it.
-    tr: Gürültüsüz veri fazla kolay, network onu fit edemiyor.
-  - en: Without noise the network ignores the clock input.
-    tr: Gürültü olmadan network saat girdisini yok sayıyor.
+    - en: The learner leaves the narrow tube of demonstrated states, its output there is extrapolated, and the errors compound step after step.
+      tr: Öğrenen gösterilmiş state'lerin dar tüpünden çıkar, oradaki çıktısı extrapolation'dır ve hatalar adım adım birikir.
+    - en: Noise-free data is too easy, so the network cannot fit it.
+      tr: Gürültüsüz veri fazla kolay, network onu fit edemiyor.
+    - en: Without noise the network ignores the clock input.
+      tr: Gürültü olmadan network saat girdisini yok sayıyor.
   answer: 0
   why:
     en: 'Break it table: 0/20 at 0 and 0.005 rad, 7/20 at 0.01 rad, 20/20 at 0.02 and 0.04 rad; lesson 29 measures the drift directly.'
     tr: 'Boz tablosu: 0 ve 0,005 rad''da 0/20, 0,01 rad''da 7/20, 0,02 ve 0,04 rad''da 20/20; ders 29 kaymayı doğrudan ölçüyor.'
-- q:
-    en: Remove the clock input and the policy scores 4/20, with 16 episodes in which the jaws never close. Why?
-    tr: 'Saat girdisini kaldır: policy 4/20 yapıyor ve 16 episode''da çeneler hiç kapanmıyor. Neden?'
-  options:
-  - en: Without the clock the network cannot tell where the cube is.
-    tr: Saat olmadan network küpün nerede olduğunu bilemez.
-  - en: The clock was the only input that was normalized.
-    tr: Saat normalize edilen tek girdiydi.
-  - en: The state "arm at the cube, jaws open" is followed by "keep open" in most frames and by "start closing" in only a few, so a state-only MSE regression averages toward "keep open".
-    tr: '"Kol küpte, çeneler açık" state''ini çoğu frame''de "açık tut", yalnızca birkaçında "kapatmaya başla" izliyor; yalnız state''e bakan bir MSE regression''ı "açık tut"a doğru ortalar.'
-  answer: 2
-  why:
-    en: 'Break it, last row (0.02 rad, no clock): 4/20, never closed 16. Math details: for a fixed input, MSE learns the mean of the actions seen with it.'
-    tr: 'Boz, son satır (0,02 rad, saat yok): 4/20, 16''sında hiç kapanmadı. Matematik ayrıntısı: sabit bir girdi için MSE, onunla görülen action''ların ortalamasını öğrenir.'

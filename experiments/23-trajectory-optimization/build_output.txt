@@ -1,0 +1,24 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | SciPy 1.18.1
+
+== Step 1. RK4 rollout of the pendulum vs MuJoCo (u(t) = 4 sin(1.5 t) through 11 knots) ==
+final state ours (theta, omega) = (-0.036999, 0.225944) | MuJoCo = (-0.036999, 0.225943)
+max difference 8.2e-07
+
+== Step 2. Cost gradient vs finite differences (N = 10, random torques) ==
+J = 57.5086 | max |grad - finite difference| = 6.6e-07
+
+== Step 3. Trapezoidal defects ==
+Jacobian 20 x 33, nonzeros 100 | max |analytic - finite difference| = 8.0e-08
+defects of the true motion (u linear through the knots of 4 sin(1.5 t), RK4 with 200 sub-steps per interval):
+  N = 10  h = 0.40 s  max |defect| = 1.41e-01
+  N = 20  h = 0.20 s  max |defect| = 1.95e-02
+  N = 40  h = 0.10 s  max |defect| = 2.50e-03
+
+== Step 4. Direct collocation, SLSQP from rest at the bottom, replayed in MuJoCo ==
+  N converged iters    cost solver residual replay err theta (deg)
+ 10      True    22   45.56         5.9e-12                  23.82
+ 20      True    32   39.63         3.2e-12                   6.73
+ 40      True    54   38.41         2.9e-12                   2.27
+
+== Step 5. Direct shooting, N = 10, SLSQP from zero torque, replayed in MuJoCo ==
+converged True | iterations 158 | cost 43.51 | solver residual 1.1e-13 | replay error 0.00 deg, 0.00 deg/s

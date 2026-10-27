@@ -24,9 +24,7 @@ LeRobot's SmolVLA guide tells an SO-101 owner to record about 50 episodes, fine-
 
 Take a chat model that can look at pictures. Show it three camera frames, the robot's current joint angles and the sentence "put the lego in the bin", and instead of answering with words, let it answer with motor commands. That is a vision-language-action model (VLA): an LLM whose output tokens are joint targets. Most of the network is the pretrained image-and-text model; the robot-specific part is a small piece at the end, the **action head**, which turns the model's internal features into numbers a servo can follow.
 
-There are two ways to build that head. The first treats an action like text: round each joint target to one of 256 levels and write each level as a word, one word per joint, one decoder pass per word. The second lets a small extra network write a whole **chunk** of real-valued actions at once, say the next 50 steps, by starting from random noise and cleaning it up in 10 small steps, the way image diffusion models turn noise into a picture.
-
-The trade-off is the one you would expect from a software point of view. Rounding costs resolution (how much is the experiment's question), and writing one word per joint costs one forward pass of a billions-of-parameters model per joint. A chunk costs one call for 50 actions, which is what lets a slow model drive a fast servo loop.
+There are two ways to build that head. The first treats an action like text: round each joint target to one of 256 levels and write each level as a word, one decoder pass per word. The second lets a small extra network write a whole **chunk** of real-valued actions at once, say the next 50 steps, starting from random noise and cleaning it up in 10 small steps, the way image diffusion models make a picture. Rounding costs resolution, and one word per joint costs one pass of a billions-of-parameters model per joint; a chunk costs one call for 50 actions, which lets a slow model drive a fast servo loop.
 
 ### The data flow
 
@@ -44,24 +42,12 @@ flowchart TD
 
 ### The two action heads, as code
 
-The token head is a quantizer you have probably written before for something else. The flow head is a tiny ODE solver whose velocity comes from a network.
+The token head is a quantizer; the flow head is a tiny ODE solver whose velocity comes from a network (Build it writes both).
 
 ```python
-# Token head (OpenVLA-style), per action dimension
-def tokenize(a, lo, hi, n_bins=256):          # lo, hi: 1st and 99th percentile of the training actions
-    x = (np.clip(a, lo, hi) - lo) / (hi - lo)  # 0..1
-    return np.minimum((x * n_bins).astype(int), n_bins - 1)   # bin index = the "word"
-
-def detokenize(k, lo, hi, n_bins=256):
-    return lo + (k + 0.5) / n_bins * (hi - lo)  # centre of the bin
-
-# Flow head (π0 / SmolVLA): turn noise into a chunk of H actions in N Euler steps
-def sample_chunk(v_theta, obs, H=50, dim=32, N=10):
-    A = np.random.randn(H, dim)                 # start: pure Gaussian noise
-    for i in range(N):
-        tau = i / N                             # 0 = noise, 1 = clean actions
-        A = A + (1 / N) * v_theta(A, tau, obs)  # follow the learned velocity field
-    return A                                    # H future actions, real numbers
+k = tokenize(a, lo, hi, 256)                  # lo, hi: 1st and 99th percentile of the training actions
+a_hat = detokenize(k, lo, hi, 256)            # the bin centre: |a - a_hat| <= Delta / 2
+A = sample_chunk(lambda x, tau: v_theta(x, tau, obs), np.random.randn(50 * 32), 10)   # noise -> 50 x 32 chunk
 ```
 
 | Head | Output | Error | Cost per control step |
@@ -69,7 +55,7 @@ def sample_chunk(v_theta, obs, H=50, dim=32, N=10):
 | tokens | $k = \big\lfloor B\,\frac{a - a_{lo}}{a_{hi} - a_{lo}} \big\rfloor$, $\hat a = a_{lo} + (k + \tfrac12)\Delta$ | $\lvert a - \hat a\rvert \le \Delta/2$, $\Delta = \frac{a_{hi} - a_{lo}}{B}$ | $D$ decoder passes |
 | flow matching | $A^{\tau+\delta} = A^\tau + \delta\, v_\theta(A^\tau, o)$, $A^0 \sim \mathcal N(0, I)$ | learned, no fixed bound | $1/\delta$ expert passes per chunk of $H$ actions |
 
-$a$ is one action dimension (a joint target), $B$ the number of bins, $[a_{lo}, a_{hi}]$ the clipping range, $\Delta$ the bin width, $D$ the action dimension, $A$ a chunk of $H$ actions, $\tau \in [0, 1]$ the flow time, $\delta$ the step size and $v_\theta$ the learned velocity network that sees the observation $o$.
+$a$ is one action dimension, $B$ the number of bins, $\Delta$ the bin width, $D$ the action dimension, $A$ a chunk of $H$ actions, $\tau \in [0, 1]$ the flow time, $\delta$ the step and $v_\theta$ the velocity network that sees the observation $o$.
 
 <details>
 <summary>Math details: the observation, the flow-matching loss and the quantization error</summary>
@@ -106,7 +92,144 @@ Go deeper: [Embodied VLAs: RT-2, OpenVLA, π0, GR00T](https://aiengineeringfroms
 | output per call | 1 action | chunk, H = 50 | chunk, n = 50 |
 | pretraining data | 970k episodes, Open X-Embodiment | 10,000 h from 7 robot configurations and 68 tasks, plus OXE, DROID, Bridge | 481 community datasets, 22.9k episodes, 10.6M frames |
 
-**Cross-embodiment** means one network for robots with different bodies. Robots differ in action dimension, so the configs below pad state and action to a fixed `max_action_dim` = 32 (a smaller robot leaves the extra slots as padding): a 6-D SO-101 and a higher-dimensional bimanual arm share one network. **Fine-tuning** then adapts the pretrained model to one robot and task: SmolVLA's config freezes the vision encoder and trains only the expert; OpenVLA's LoRA (small low-rank matrices added to the frozen weights) matches full fine-tuning "while training only 1.4% of the model parameters" ([arXiv 2406.09246](https://arxiv.org/abs/2406.09246), §5.3).
+**Cross-embodiment** means one network for robots with different bodies. The configs below pad state and action to `max_action_dim` = 32, so a 6-D SO-101 and a bimanual arm share one network. **Fine-tuning** then adapts the pretrained model to one robot and task: SmolVLA's config freezes the vision encoder and trains only the expert; OpenVLA's LoRA (small low-rank matrices added to the frozen weights) matches full fine-tuning "while training only 1.4% of the model parameters" ([arXiv 2406.09246](https://arxiv.org/abs/2406.09246), §5.3).
+
+## Build it
+
+You will now write both action heads without a network: the token quantizer exactly as the Experiment uses it, and a flow-matching sampler driven by the velocity a perfectly trained network would output. The data are the 229 actions of lesson 16's scripted pick (recorded by the Experiment's `demo()`). The functions are in [`physai/foundation.py`](../physai/foundation.py); `uv run python experiments/41-vla/build.py` runs the steps (output in [`build_output.txt`](../experiments/41-vla/build_output.txt)).
+
+### Step 1 · Tokens
+
+```python
+def tokenize(a, lo, hi, n_bins=256):
+    """OpenVLA-style action tokens: clip each dimension to [lo, hi], cut it into n_bins equal bins, return the index."""
+    x = (np.clip(a, lo, hi) - lo) / (hi - lo)               # 0..1
+    return np.minimum((x * n_bins).astype(int), n_bins - 1)
+```
+
+```python
+def detokenize(k, lo, hi, n_bins=256):
+    """Back to an action: the centre of bin k."""
+    return lo + (k + 0.5) / n_bins * (hi - lo)
+```
+
+```text
+== Step 1. Tokens per dimension, bins between the 1st and 99th percentile ==
+demonstration: 229 actions x 6 dims; arm-joint ranges (deg): 3.7 69.4 26.1 31.2 0.4
+ bins  same tokens as experiment.py  re-tokenized = same  max |err| / (Delta/2)
+    4                          True                 True                  1.000
+    8                          True                 True                  1.000
+   16                          True                 True                  1.000
+   64                          True                 True                  1.000
+  256                          True                 True                  1.000
+ 1024                          True                 True                  1.000
+```
+
+Your tokens equal the Experiment's at every bin count, de-tokenizing and tokenizing again returns the same token, and the largest error is exactly half a bin. Exactly, not just below: this demonstration holds its extreme poses, its 1st and 99th percentiles are its minimum and maximum, and those values sit on the outer bin edges.
+
+### Step 2 · Half a bin, and $\Delta/\sqrt{12}$
+
+```text
+== Step 2. RMS error of the arm joints vs Delta / sqrt(12) ==
+ bins  RMS err deg  Delta/sqrt(12) deg  max err deg  Delta/2 (widest) deg
+    4        3.161               2.598        8.672                 8.672
+    8        1.566               1.299        4.336                 4.336
+   16        0.745               0.650        2.168                 2.168
+   64        0.209               0.162        0.542                 0.542
+  256        0.048               0.041        0.136                 0.136
+ 1024        0.012               0.010        0.034                 0.034
+```
+
+The RMS error halves with every bit, as $\Delta/\sqrt{12}$ predicts, but stays 17–29% above it (0.048° vs 0.041° at 256 bins): the formula assumes values spread evenly inside a bin, and the held extreme poses all sit at the worst place, half a bin from a centre. The numbers match the Experiment's table.
+
+### Step 3 · At the gripper
+
+The joint errors become a tip error through forward kinematics; `fk` from [`physai/kinematics.py`](../physai/kinematics.py) (lesson 09) returns the gripper-frame position.
+
+```text
+== Step 3. At the gripper: forward kinematics of the de-tokenized actions ==
+ bins  mean tip err mm  max tip err mm
+    4            15.69           40.36
+    8             8.83           19.75
+   16             3.51            9.54
+   64             1.24            2.00
+  256             0.26            0.60
+ 1024             0.07            0.17
+```
+
+The same tip errors as the Experiment's table: 0.26 mm mean at 256 bins, and 40.36 mm worst case at 4 bins, more than the 30 mm cube.
+
+### Step 4 · What the head costs
+
+```text
+== Step 4. Network passes per second at a 30 Hz control loop ==
+tokens, one action per call, 6 dims: 30 x 6 = 180 decoder passes/s
+tokens for the 7-D OpenVLA action: 30 x 7 = 210 decoder passes/s
+chunk of 50, execute 50 before re-planning, 10 flow steps: 0.6 VLM passes/s, 6 expert passes/s, 1667 ms without reacting to new images
+chunk of 50, execute 10 before re-planning, 10 flow steps: 3.0 VLM passes/s, 30 expert passes/s, 333 ms without reacting to new images
+```
+
+Tokens cost one pass of the whole language model per dimension, every step; a chunk costs one VLM pass and 10 small expert passes per 50 actions. The price is the last column: while a chunk of 50 plays at 30 Hz, the policy ignores new images for 1.67 s; executing 10 actions per chunk buys reaction time with five times the compute.
+
+### Step 5 · The flow head
+
+Training a velocity network is the GPU part (Appendix B), but its target has a closed form for a finite list of training chunks: the average direction from the noisy point to the chunks that could have produced it. Use that exact velocity in place of the network:
+
+```python
+def flow_velocity(x, tau, data):
+    """The flow-matching velocity a perfectly trained network would output when the training set is `data` (n, d):
+    for x_tau = tau a + (1 - tau) eps, E[a - eps | x_tau = x] = (weighted mean of the data - x) / (1 - tau)."""
+    logw = -((x[None] - tau * data) ** 2).sum(axis=1) / (2 * (1 - tau) ** 2)   # posterior over training chunks
+    w = np.exp(logw - logw.max())
+    return (w @ data / w.sum() - x) / (1 - tau)
+```
+
+```python
+def sample_chunk(velocity, x0, n_steps):
+    """Flow-matching inference: integrate dx/dtau = v(x, tau) from noise (tau = 0) to an action chunk (tau = 1)."""
+    x = x0.copy()
+    for i in range(n_steps):
+        x = x + velocity(x, i / n_steps) / n_steps        # Euler step of size 1 / n_steps
+    return x
+```
+
+```text
+== Step 5. Flow head: Euler steps through the exact velocity of the demonstration's chunks ==
+training set: 180 chunks of 50 x 6 = 300 numbers; 20 samples from noise
+flow steps  RMS to nearest chunk rad  within 0.01 rad  RMS to the mean chunk rad
+         1                    0.2576             0/20                     0.0000
+         2                    0.0473             0/20                     0.2466
+         5                    0.0045            18/20                     0.2890
+        10                    0.0032            20/20                     0.2912
+        20                    0.0006            20/20                     0.2921
+```
+
+One Euler step lands exactly on the *mean* chunk (0.0000 rad from it), an average of 180 different motions, 0.2576 rad from any real one: the blur that a single regression to the mean produces (lesson 30). With more steps the sample commits to one demonstration: 18 of 20 samples end within 0.01 rad of a training chunk after 5 steps, all 20 after 10, π0's and SmolVLA's step count.
+
+### What you keep
+
+`physai.foundation` now has `tokenize`, `detokenize`, `flow_velocity` and `sample_chunk`. Lesson 42 puts a validation layer between such outputs and the robot. [`tests/test_41_vla.py`](../tests/test_41_vla.py) checks the quantization bounds and the sampler: `uv run pytest tests/test_41_vla.py`.
+
+## Use it
+
+In LeRobot the head is inside the policy. `select_action` returns one action per call from a queue of `n_action_steps` actions and runs the model only when the queue is empty ([`modeling_smolvla.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/smolvla/modeling_smolvla.py)); not run here:
+
+```python
+policy = SmolVLAPolicy.from_pretrained("lerobot/smolvla_base")
+action = policy.select_action(batch)      # images, state, task text -> one action; a new chunk every n_action_steps calls
+```
+
+| Tool | Action output | Convention to check |
+|---|---|---|
+| physai | `tokenize(a, lo, hi, 256)`, `sample_chunk(v, noise, 10)` | noise at $\tau = 0$, clean actions at $\tau = 1$ |
+| OpenVLA | 256 bins per dimension between the 1st and 99th quantile ([arXiv 2406.09246](https://arxiv.org/abs/2406.09246), §3.2) | bin tokens overwrite the 256 least-used Llama tokens |
+| LeRobot SmolVLA | chunk of `chunk_size` 50, `n_action_steps` executed, `num_steps` 10 flow steps (Experiment, part A) | its training code names its convention [`FlowConvention.NOISE_AT_ONE`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/common/flow_matching.py) (noise at t = 1, integrated 1 → 0): time runs the other way |
+
+Traps:
+
+- **The range is frozen.** Bins span the training data's 1st–99th percentile; a new task with wider motions is clipped silently.
+- **Flow time direction.** Some code puts noise at $\tau = 0$, some at $t = 1$; mixing the two integrates the wrong way.
+- **Padding.** Configs pad actions to `max_action_dim` 32; only the first 6 numbers drive an SO-101.
 
 ## Experiment
 
@@ -133,7 +256,7 @@ Read from the configs: `smolvla_base` expects a 6-D state and three 3 × 256 × 
 | **total** | **450.0M** | **3501.4M** | **7541.2M** |
 | header bytes fetched | 73,056 | 129,872 | 126,432 |
 
-The totals match the papers' 450M and 7B. The stored π0 checkpoint holds 3501.4M against the paper's 3.3B; most of the difference is the action expert's 263.3M vocabulary head (the layer that scores every word of the vocabulary), which π0 does not use (actions leave through the small `action_out_proj`): 3501.4M − 263.3M = 3238.1M. PaliGemma's 526.6M head is needed: the header stores no separate token-embedding tensor, so it doubles as the tied input embedding. The three headers add up to 329,360 bytes; no weights were downloaded. Note where SmolVLA's budget goes: 204.6M language model, 98.2M action expert. Per inference call SmolVLA and π0 return 50 × 32 continuous values after 10 flow steps; OpenVLA returns 7 tokens, so 7 decoder passes per control step.
+The totals match the papers' 450M and 7B. The stored π0 checkpoint holds 3501.4M against the paper's 3.3B; most of the difference is the action expert's 263.3M vocabulary head (the layer that scores every word of the vocabulary), which π0 does not use (actions leave through the small `action_out_proj`): 3501.4M − 263.3M = 3238.1M. PaliGemma's 526.6M head is needed: the header stores no separate token-embedding tensor, so it doubles as the tied input embedding. The three headers add up to 329,360 bytes; no weights were downloaded. SmolVLA's budget: 204.6M language model, 98.2M action expert; per call it returns 50 × 32 values, OpenVLA 7 tokens (7 decoder passes).
 
 **B. Sweep the number of bins.** Take lesson 16's scripted pick (MuJoCo, 229 actions of 6 joint targets at 50 Hz), tokenize each dimension OpenVLA-style, de-tokenize to bin centres, and replay the result open loop (the stored actions are played back without looking at the scene) in the same scene with the physical success test (cube bottom ≥ 4 cm, both jaws in contact). Tip error is the gripper-frame position from forward kinematics ([lesson 8](../part-3-kinematics/08-forward-kinematics.md)). Full script: [`experiments/41-vla/experiment.py`](../experiments/41-vla/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministic.
 
@@ -150,16 +273,16 @@ The totals match the papers' 450M and 7B. The stored π0 checkpoint holds 3501.4
 | 8 | 3 | 1.566 | 4.336 | 8.83 | 19.75 | lifted | 5.19 |
 | 4 | 2 | 3.161 | 8.672 | 15.69 | 40.36 | **not lifted** | 0.00 |
 
-The original demonstration lifted the cube to 7.37 cm; its un-tokenized 50 Hz replay to 7.25 cm. At 256 bins the error is 0.26 mm at the gripper, well below anything else in the loop: the price of tokens is not resolution. It is that one action costs one decoder pass per dimension, and that the clipping range is frozen from the training data. Here 0.00% of values fell outside it: this demonstration holds its extreme poses for many steps, so its 1st and 99th percentiles equal its minimum and maximum. (The figure also shows the 32- and 128-bin rows from `output.txt`.)
+The original demonstration lifted the cube to 7.37 cm, its un-tokenized 50 Hz replay to 7.25 cm. At 256 bins the error is 0.26 mm at the gripper, below anything else in the loop: the price of tokens is not resolution but one decoder pass per dimension and a clipping range frozen from the training data (here 0.00% of values fell outside: the 1st and 99th percentiles equal the minimum and maximum). The figure also shows the 32- and 128-bin rows of `output.txt`.
 
 ## Break it
 
-Lower the bins. Each bit removed roughly doubles the error, as uniform quantization predicts (arm-joint RMS 0.745° → 1.566° → 3.161° for 16 → 8 → 4 bins). The grasp survives down to 8 bins with a 19.75 mm worst-case tip error, though the cube ends lower (5.19 cm). At 4 bins the worst-case tip error, 40.36 mm, is larger than the 30 mm cube, and the replay does not lift it. A token head is a quantizer with a known error bound; pick the bin count from the tolerance of the task (here: a few millimetres at the jaw), not from the vocabulary size.
+Lower the bins. Each bit removed roughly doubles the error (arm-joint RMS 0.745° → 1.566° → 3.161° for 16 → 8 → 4 bins). The grasp survives down to 8 bins with a 19.75 mm worst-case tip error, the cube ending lower (5.19 cm). At 4 bins the worst case, 40.36 mm, exceeds the 30 mm cube and the replay does not lift it. Pick the bin count from the task's tolerance (a few millimetres at the jaw), not from the vocabulary size.
 
 ## On the real robot
 
-- **SO-101 with SmolVLA.** LeRobot's procedure: record ~50 episodes ("10 episodes" for each of 5 cube positions in their reference dataset; 25 episodes "was not enough"), fine-tune with `lerobot-train --policy.path=lerobot/smolvla_base` (20k steps "~4 hrs on a single A100"), deploy with `lerobot-rollout --robot.type=so101_follower` ([docs](https://huggingface.co/docs/lerobot/smolvla)). The GPU part is in [Appendix B](../appendix/b-smolvla-finetuning.md). **Not yet measured on our arm.**
-- **Latency is a budget.** π0 reports 73 ms per chunk on an RTX 4090 with three cameras ([arXiv 2410.24164](https://arxiv.org/abs/2410.24164), Table I); OpenVLA "approximately 6Hz" on an RTX 4090 ([arXiv 2406.09246](https://arxiv.org/abs/2406.09246)). Chunking is what lets a slow model drive a 30–50 Hz servo loop; SmolVLA adds asynchronous inference so the next chunk is computed while the current one executes ([arXiv 2506.01844](https://arxiv.org/abs/2506.01844)). Mac numbers: [Appendix C](../appendix/c-inference-speed-on-mac.md).
+- **SO-101 with SmolVLA.** LeRobot's procedure: record ~50 episodes (10 per cube position in their reference dataset; 25 "was not enough"), fine-tune with `lerobot-train --policy.path=lerobot/smolvla_base` (20k steps "~4 hrs on a single A100"), deploy with `lerobot-rollout --robot.type=so101_follower` ([docs](https://huggingface.co/docs/lerobot/smolvla)). The GPU part is in [Appendix B](../appendix/b-smolvla-finetuning.md). **Not yet measured on our arm.**
+- **Latency is a budget.** π0 reports 73 ms per chunk on an RTX 4090 with three cameras ([arXiv 2410.24164](https://arxiv.org/abs/2410.24164), Table I); OpenVLA "approximately 6Hz" on an RTX 4090 ([arXiv 2406.09246](https://arxiv.org/abs/2406.09246)). Chunking lets a slow model drive a 30–50 Hz servo loop (Build it, Step 4); SmolVLA computes the next chunk while the current one executes ([arXiv 2506.01844](https://arxiv.org/abs/2506.01844)). Mac numbers: [Appendix C](../appendix/c-inference-speed-on-mac.md).
 - **Hardware for π0.** openpi lists > 8 GB GPU memory for inference, > 22.5 GB for LoRA fine-tuning, and states it is tested only on Ubuntu 22.04 ([openpi](https://github.com/Physical-Intelligence/openpi)). The safety layer of [lesson 15](../part-4-dynamics-and-control/15-safety.md) sits between any of these outputs and the servos.
 
 ## Check yourself

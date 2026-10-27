@@ -22,10 +22,10 @@ The detector in lesson 21 will say "the cube is at pixel (u, v)". The arm needs 
 
 ### In plain words
 
-A pixel tells you a direction, not a distance. Picture a laser pointer held at the camera's lens, aimed through that pixel: every point along the beam lands on the same pixel. To turn the pixel into a 3D point you need one more fact, and there are two common ones.
+A pixel tells you a direction, not a distance: picture a laser pointer at the lens, aimed through that pixel; every point along the beam lands on the same pixel. To get a 3D point you need one more fact, and there are two common ones.
 
 - **Where the beam stops.** A depth image stores, for every pixel, how far away the surface is. Walk that far along the beam and you have the point. This is **back-projection**, the inverse of the camera function of lesson 19.
-- **Which surface the object lies on.** If the object sits on the table, the point is where the beam hits the table plane. A **homography** is a shortcut for this case: a 3×3 map from image to table, fitted from a few marked spots on the table, with no camera model at all. It is like georeferencing an aerial photo of flat land from a handful of known landmarks. It is exact for things lying flat on the table and wrong for anything that sticks up.
+- **Which surface the object lies on.** If the object sits on the table, the point is where the beam hits the table plane. A **homography** is a shortcut for this case: a 3×3 map from image to table, fitted from a few marked spots, with no camera model at all, like georeferencing an aerial photo from known landmarks. It is exact for things lying flat and wrong for anything that sticks up.
 
 Both need the robot and the camera to agree on frames: the table and the robot base share one world frame, and the camera's pose in it comes from calibration.
 
@@ -44,17 +44,9 @@ flowchart TD
 ### The two routes, as code
 
 ```python
-def back_project(u, v, Z, K, R_wc, c):
-    ray = np.linalg.inv(K) @ [u, v, 1.0]   # direction through the pixel, scaled so ray[2] == 1
-    X_c = Z * ray                          # Z = depth along the optical axis (camera z), metres
-    return R_wc @ X_c + c                  # camera frame -> world frame
-
-def table_point(u, v, H):
-    x, y, w = H @ [u, v, 1.0]              # homography: pixel -> table, up to a scale factor
-    return x / w, y / w                    # divide the scale out; z is assumed to be 0
-
-# A GPU depth buffer stores d in [0, 1], not metres. MuJoCo's Renderer converts it for you:
-Z = n * f / (n + d * (f - n))              # reversed buffer; n, f = near and far clip distances
+X_w = c + R_wc @ (Z * np.linalg.inv(K) @ [u, v, 1.0])   # route 1: Z = depth along the optical axis
+x, y, w = H @ [u, v, 1.0]                               # route 2: homography pixel -> table ...
+x, y = x / w, y / w                                     # ... divide the scale out; z assumed 0
 ```
 
 | Piece | Formula |
@@ -78,7 +70,7 @@ $(u, v)$ is the pixel, $K$ the camera matrix, $Z$ the depth measured along the c
 
 **From lesson 19's extrinsics.** Lesson 19 wrote $X_c = R\,X_w + t$. Solving for $X_w$ gives $X_w = R^\top X_c - R^\top t$, so $R_{wc} = R^\top$ and the camera centre is $c = -R^\top t$.
 
-**Depth from MuJoCo.** The GPU stores a non-linear z-buffer value $d\in[0,1]$, not metres. With near/far clipping distances $n = \texttt{znear}\cdot\text{extent}$ and $f = \texttt{zfar}\cdot\text{extent}$, where extent is the overall size of the model as MuJoCo computes it (`znear` and `zfar` default to 0.01 and 50; [MuJoCo XML · visual/map](https://mujoco.readthedocs.io/en/stable/XMLreference.html#visual-map-znear)), a conventional OpenGL buffer gives $Z = \dfrac{nf}{f - d\,(f-n)}$. MuJoCo 3.17's Python `Renderer` reads a reversed buffer (1 at near, 0 at far) and applies the equivalent $Z = \dfrac{nf}{n + d\,(f-n)}$ in float64, then returns metres as float32 ([`rendering/classic/renderer.py`, tag 3.17.0](https://github.com/google-deepmind/mujoco/blob/3.17.0/python/mujoco/rendering/classic/renderer.py)). So `Renderer.enable_depth_rendering()` already returns metric depth along the optical axis; if you read the raw buffer yourself (C API `mjr_readPixels`), you must linearize it. The docs warn that a near plane too close costs depth resolution.
+**Depth from MuJoCo.** The GPU stores a non-linear z-buffer value $d\in[0,1]$, not metres. With near/far clipping distances $n = \texttt{znear}\cdot\text{extent}$ and $f = \texttt{zfar}\cdot\text{extent}$ (extent = the model's overall size; `znear` and `zfar` default to 0.01 and 50, [MuJoCo XML · visual/map](https://mujoco.readthedocs.io/en/stable/XMLreference.html#visual-map-znear)), a conventional OpenGL buffer gives $Z = \dfrac{nf}{f - d\,(f-n)}$. MuJoCo 3.17's Python `Renderer` reads a reversed buffer (1 at near, 0 at far), applies $Z = \dfrac{nf}{n + d\,(f-n)}$ in float64 and returns float32 metres ([`renderer.py`, tag 3.17.0](https://github.com/google-deepmind/mujoco/blob/3.17.0/python/mujoco/rendering/classic/renderer.py)); Build it, Step 2 does the same from `mjr_readPixels`. The docs warn that a near plane too close costs depth resolution.
 
 **Homography.** Points on a plane map to the image by a 3×3 projective transform. For the table $z=0$, the projection of lesson 19 loses the third column of $R$: $s\,[u,v,1]^\top = K[r_1\ r_2\ t]\,[x,y,1]^\top$, so $[x,y,1]^\top \sim H\,[u,v,1]^\top$ with $H = (K[r_1\ r_2\ t])^{-1}$. $H$ has 8 degrees of freedom (9 entries, defined up to scale); 4 point pairs (no 3 collinear) determine it, more pairs give a least-squares fit (`cv2.findHomography`, method 0; RANSAC/LMEDS/RHO for outliers, [OpenCV calib3d](https://github.com/opencv/opencv/blob/4.x/modules/calib3d/include/opencv2/calib3d.hpp)). No $K$, no depth needed, only known table points. The price: the formula is only true for $z = 0$.
 
@@ -88,9 +80,175 @@ Go deeper: [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=pha
 
 </details>
 
+## Build it
+
+You will now write both routes from pixel to table in NumPy: rays and back-projection, the depth-buffer conversion, and the table homography, then rerun the Experiment's sweeps with your own code. The scene, the 300 table pixels, the markers and the random noise come from the Experiment script (same seed); MuJoCo renders, OpenCV referees.
+
+Type the steps into a file of your own and run it after each step. The finished functions are in [`physai/vision.py`](../physai/vision.py); `uv run python experiments/20-pixels-to-table/build.py` runs all five steps with the checks (output in [`build_output.txt`](../experiments/20-pixels-to-table/build_output.txt)).
+
+### Step 1 · Rays and back-projection
+
+A pixel's ray is $K^{-1}[u, v, 1]^\top$ turned into the world. Scaled so its camera $z$ is 1, walking $Z$ along it lands at depth $Z$; intersecting it with a plane needs only the camera height.
+
+```python
+def pixel_rays(uv, K, R_wc):
+    """World-frame directions of the rays through pixels uv (N, 2), scaled so each has camera z = 1."""
+    p = np.c_[uv, np.ones(len(uv))] @ np.linalg.inv(K).T      # [x/z, y/z, 1] in the camera frame
+    return p @ R_wc.T                                         # rotate into the world
+```
+
+```python
+def back_project(uv, Z, K, R_wc, c):
+    """World points seen at pixels uv with depth Z (N,) measured along the optical axis, not along the ray."""
+    return c + Z[:, None] * pixel_rays(uv, K, R_wc)
+```
+
+```python
+def ray_plane(uv, K, R_wc, c, z0=0.0):
+    """Where the pixel rays meet the horizontal plane z = z0; also returns the z-depth of each hit."""
+    r = pixel_rays(uv, K, R_wc)
+    s = (z0 - c[2]) / r[:, 2]                                 # how far to walk along each ray
+    return c + s[:, None] * r, s
+```
+
+Noisy pixels fall between pixel centres, so the depth lookup interpolates:
+
+```python
+def bilinear(img, uv):
+    """Sample img at sub-pixel positions uv (N, 2) from the four nearest pixels (pixel centres on integers)."""
+    u0 = np.clip(np.floor(uv[:, 0]).astype(int), 0, img.shape[1] - 2)
+    v0 = np.clip(np.floor(uv[:, 1]).astype(int), 0, img.shape[0] - 2)
+    a, b = uv[:, 0] - u0, uv[:, 1] - v0                       # weights inside the pixel square
+    return ((1 - a) * (1 - b) * img[v0, u0] + a * (1 - b) * img[v0, u0 + 1]
+            + (1 - a) * b * img[v0 + 1, u0] + a * b * img[v0 + 1, u0 + 1])
+```
+
+```text
+== Step 1. Rays, the table plane and depth back-projection (camera 0.6 m, 300 table pixels) ==
+max |ray_plane - Experiment's hit_plane| = 0.0e+00 m
+rendered depth vs z-depth s:           median 0.001 mm, max 0.008 mm
+rendered depth vs ray length:          median 45.8 mm, max 138.0 mm
+back_project, depth used as Z:         median 0.001 mm, max 0.009 mm
+back_project, depth misused as length: median 45.8 mm, max 138.0 mm
+sub-pixel lookup: max |bilinear - cv2.remap| = 3.5e-08 m
+```
+
+These are the Experiment's first table, now from your code: MuJoCo's depth matches the z-depth of each ray-plane hit to 0.008 mm, and reading it as ray length costs up to 138.0 mm. Your bilinear lookup equals `cv2.remap` to 3.5e-08 m.
+
+### Step 2 · The raw depth buffer
+
+`Renderer` hides one conversion. Read the same frame's depth buffer yourself with `mjr_readPixels` and convert it:
+
+```python
+def linearize_depth(d, near, far):
+    """Reversed-Z depth-buffer value d (1 at near, 0 at far) to metres along the optical axis."""
+    return near * far / (near + d * (far - near))
+```
+
+```text
+== Step 2. The raw depth buffer ==
+near 5.0 mm, far 24.9 m; raw values 0.005052 .. 0.008911 (1 = near, 0 = far)
+max |linearize_depth(raw) - Renderer| = 0.0012 mm
+image centre: Renderer 0.6924 m, ours 0.6924 m, conventional formula 0.0050 m
+```
+
+The raw values are not metres: 0.005 to 0.009 for everything in view, because the buffer stores roughly near/depth (1 at the near plane, 0 at the far plane). Your conversion matches the Renderer to 0.0012 mm, the float32 rounding of its constants. The textbook formula for a conventional buffer, applied to this reversed one, puts the table 5.0 mm from the lens: at the near plane. The buffer also comes bottom row first (OpenGL), hence the `flipud`.
+
+### Step 3 · The table homography
+
+For the plane $z = 0$ the camera model gives the homography directly (Math details):
+
+```python
+def plane_homography(K, R_wc, c):
+    """Pixel -> table (x, y) homography of the plane z = 0, from the camera model: (K [r1 r2 t])^-1."""
+    R = R_wc.T                                                # world -> camera, as in lesson 19
+    t = -R @ c
+    H = np.linalg.inv(K @ np.c_[R[:, 0], R[:, 1], t])
+    return H / H[2, 2]
+```
+
+```python
+def apply_homography(H, p):
+    """Map points p (N, 2) with H and divide out the scale."""
+    q = np.c_[p, np.ones(len(p))] @ H.T
+    return q[:, :2] / q[:, 2:3]
+```
+
+Fit it from markers instead with `homography_dlt` from [lesson 19](19-camera-calibration.md), pixels as the source and table points as the target:
+
+```text
+== Step 3. The table homography: from the camera model and from markers ==
+plane_homography vs ray_plane on the 300 pixels: max 2.8e-16 m
+ 4 markers: exact pixels, max |H_fit - H_cam| on the table 1.0e-15 m; 1 px noise, ours vs cv2: median 0.000 mm, max 0.000 mm
+12 markers: exact pixels, max |H_fit - H_cam| on the table 1.2e-15 m; 1 px noise, ours vs cv2: median 0.181 mm, max 1.380 mm
+```
+
+From exact marker pixels, 4 or 12 markers give the camera-model homography to 1e-15 m. With 1 px of noise, 4 points still fix $H$ exactly, so your result equals OpenCV's. With 12 points the two differ by a median of 0.181 mm: your DLT minimizes an algebraic error, `findHomography` refines the result on the reprojection error.
+
+### Step 4 · The noise sweep with your code
+
+The Experiment's loop, seed and pixels, with `homography_dlt` instead of `cv2.findHomography` and `bilinear` instead of `cv2.remap`:
+
+```text
+== Step 4. The pixel-noise sweep with your functions (Experiment seed and loop, 200 pixels x 50 trials) ==
+ noise px  H from 4 pts  H from 12 pts  depth back-proj   (median mm)
+        0          0.00           0.00             0.00
+      0.5          2.15           1.76             0.81
+        1          4.33           3.33             1.60
+        2          8.90           7.59             3.21
+        4         17.08          13.92             6.37
+```
+
+The 4-point and depth columns equal the Experiment table (4.33 and 1.60 mm at 1 px). The 12-point column differs slightly (3.33 vs 3.27 mm at 1 px, 13.92 vs 14.17 mm at 4 px) because of the refinement difference from Step 3; the ordering and the conclusion do not change.
+
+### Step 5 · Break it with your functions
+
+```text
+== Step 5. Break it: the top face of each box (no pixel noise) ==
+ box height mm  homography mm  depth back-proj mm  ray_plane at z = 0.6 h mm
+            10            4.7                0.00                        1.9
+            20           10.8                0.00                        4.3
+            50           36.7                0.00                       14.7
+           100           88.5                0.01                       35.4
+```
+
+The homography errors are the Break it table. The last column answers Check yourself 3 by running it: intersecting each ray with a guessed height of 0.6 $h$ (30 mm for the 50 mm box) leaves 14.7 mm, 40 % of the homography's error, because along one ray the horizontal offset is linear in height.
+
+### What you keep
+
+`physai.vision` now also has `pixel_rays`, `back_project`, `ray_plane`, `linearize_depth`, `bilinear`, `plane_homography` and `apply_homography`. [Lesson 21](21-object-perception.md) turns a detected blob into a table point with the same back-projection. [`tests/test_20_pixels_to_table.py`](../tests/test_20_pixels_to_table.py) pins them to exact geometry, SciPy and OpenCV; run `uv run pytest tests/test_20_pixels_to_table.py` after you change anything.
+
+## Use it
+
+MuJoCo renders metric depth; OpenCV fits and applies homographies.
+
+```python
+r = mujoco.Renderer(m, 480, 640)
+r.enable_depth_rendering()
+r.update_scene(d, camera="cam")
+depth = r.render()                                      # (480, 640) float32, metres along the optical axis
+H, inliers = cv2.findHomography(marker_px, marker_xy, 0)            # 0 = all points; cv2.RANSAC for outliers
+xy = cv2.perspectiveTransform(px.reshape(-1, 1, 2), H).reshape(-1, 2)   # needs shape (N, 1, 2)
+```
+
+| Piece | This lesson / physai | OpenCV | MuJoCo |
+|---|---|---|---|
+| fit $H$ | `homography_dlt(src, dst)` | `findHomography(srcPoints, dstPoints, method)` returns `(H, mask)` | — |
+| apply $H$ | `apply_homography(H, p)`, $p$ is (N, 2) | `perspectiveTransform(src, H)`, src is (N, 1, 2) | — |
+| metric depth | $Z$ along the optical axis | — | `Renderer` with `enable_depth_rendering()` |
+| raw depth buffer | `linearize_depth(d, near, far)` | — | `mjr_readPixels`; near, far = `znear`, `zfar` × `stat.extent` |
+
+Sources: [OpenCV calib3d](https://github.com/opencv/opencv/blob/4.x/modules/calib3d/include/opencv2/calib3d.hpp), [MuJoCo renderer at 3.17.0](https://github.com/google-deepmind/mujoco/blob/3.17.0/python/mujoco/rendering/classic/renderer.py), [MuJoCo XML · visual/map](https://mujoco.readthedocs.io/en/stable/XMLreference.html#visual-map-znear); the (N, 1, 2) requirement is what OpenCV 5.0.0 enforces here.
+
+Traps:
+
+- **Z-depth, not range.** Multiply $K^{-1}[u,v,1]^\top$ by the depth, never the unit ray (Step 1: up to 138.0 mm).
+- **The raw buffer is reversed and upside down.** Use the reversed formula and flip the rows (Step 2: the conventional formula gives 5.0 mm).
+- **Direction of $H$.** `findHomography(src, dst)` maps src to dst. Here src is pixels and dst is table points; swap them and you get the table-to-image map, whose inverse you would need.
+
 ## Experiment
 
-**Setup.** MuJoCo scene: grey table plane, four boxes 10/20/50/100 mm tall, a 640×480 camera (`fovy = 50`) tilted 30° from vertical, aimed at (0.25, 0, 0). Ground truth for a pixel is the exact intersection of its ray with the surface it sees. Homography markers: 4 or 12 known table points inside a 20 × 20 cm patch, their pixels perturbed by Gaussian noise $\sigma$ (standing in for detection error); test pixels are random table pixels across the whole view, also perturbed. Depth back-projection uses the rendered depth with bilinear lookup (interpolating between the four nearest depth pixels).
+**Setup.** MuJoCo scene: grey table plane, four boxes 10/20/50/100 mm tall, a 640×480 camera (`fovy = 50`) tilted 30° from vertical, aimed at (0.25, 0, 0). Ground truth for a pixel is the exact intersection of its ray with the surface it sees. Homography markers: 4 or 12 known table points inside a 20 × 20 cm patch, their pixels perturbed by Gaussian noise $\sigma$ (detection error); test pixels are random table pixels across the view, also perturbed. Depth back-projection uses the rendered depth with bilinear lookup.
 
 ```python
 r.enable_depth_rendering(); depth = r.render()            # metres along the optical axis
@@ -137,7 +295,7 @@ The returned values are z-depth. Treating them as ray length costs up to 138.0 m
 
 **Observe.**
 
-1. All errors are linear in pixel noise. In the height sweep the depth back-projection error is 1.2–1.3 times the pixel footprint at the target: with perfect depth, pixel noise is the whole error budget.
+1. All errors are linear in pixel noise. The depth back-projection error is 1.2–1.3 times the pixel footprint at the target: with perfect depth, pixel noise is the whole error budget.
 2. The homography is up to about 3 times worse at equal noise: its 8 parameters are fitted from noisy markers that cover only a 20 × 20 cm patch, and test pixels extrapolate beyond it. 12 markers beat 4 (3.27 vs 4.33 mm at 1 px).
 3. With height the depth error grows like the footprint (0.88 → 5.72 mm, footprint 0.67 → 4.49 mm), the homography error faster (1.13 → 13.92 mm): the fixed marker patch covers fewer pixels as the camera rises.
 4. Simulated depth is noise-free; real depth sensors add their own noise, so the depth column is a lower bound.
@@ -153,7 +311,7 @@ Query the pixel that sees the centre of each box's top face (no pixel noise):
 | 50 | 36.7 | 0.00 |
 | 100 | 88.5 | 0.01 |
 
-The homography maps every pixel to where its ray hits $z = 0$, so a point at height $h$ slides away from the camera along the ray: the error grows with $h$ and with how oblique the ray is. A 10 mm object already costs 4.7 mm. Fix: if the object height $h$ is known, intersect the ray with $z = h$ instead (this needs $K$ and the pose, not just $H$), or use depth.
+The homography maps every pixel to where its ray hits $z = 0$, so a point at height $h$ slides away from the camera along the ray: the error grows with $h$ and with how oblique the ray is. A 10 mm object already costs 4.7 mm. Fix: if the height $h$ is known, intersect the ray with $z = h$ (this needs $K$ and the pose, not just $H$), or use depth.
 
 ## On the real robot
 
@@ -171,7 +329,7 @@ The homography maps every pixel to where its ray hits $z = 0$, so a point at hei
 
 1. $H$ is defined up to scale: 9 entries minus 1 = 8 unknowns, and each point pair gives 2 equations.
 2. Depth sensor noise and calibration error in $K$ and the camera pose (also: rolling-shutter and timing offsets on a moving robot).
-3. With the correct $h$ the ray hits the true point. Along one fixed ray the horizontal offset is linear in height, and the homography row is the special case $h = 0$; so assuming 30 mm for the 50 mm box gives $36.7 \times 20/50 \approx 14.7$ mm (derived from the table, not run).
+3. With the correct $h$ the ray hits the true point. Along one ray the horizontal offset is linear in height and the homography is the case $h = 0$, so 30 mm for the 50 mm box gives $36.7 \times 20/50 \approx 14.7$ mm; Build it, Step 5 runs it: 14.7 mm.
 
 ## Takeaways and sources
 
@@ -186,4 +344,4 @@ Sources:
 - [MuJoCo `rendering/classic/renderer.py` at 3.17.0](https://github.com/google-deepmind/mujoco/blob/3.17.0/python/mujoco/rendering/classic/renderer.py): reversed-Z read and conversion to metres.
 - [OpenCV calib3d](https://github.com/opencv/opencv/blob/4.x/modules/calib3d/include/opencv2/calib3d.hpp): `findHomography` methods.
 - R. Hartley, A. Zisserman, *Multiple View Geometry in Computer Vision*, 2nd ed., Cambridge University Press, 2004 ([book page](https://www.robots.ox.ac.uk/~vgg/hzbook/)): plane-induced homographies and back-projection.
-- All numbers above: [`experiment.py`](../experiments/20-pixels-to-table/experiment.py), output in [`output.txt`](../experiments/20-pixels-to-table/output.txt).
+- All numbers above: [`experiment.py`](../experiments/20-pixels-to-table/experiment.py), output in [`output.txt`](../experiments/20-pixels-to-table/output.txt); Build it: [`build.py`](../experiments/20-pixels-to-table/build.py), [`build_output.txt`](../experiments/20-pixels-to-table/build_output.txt).

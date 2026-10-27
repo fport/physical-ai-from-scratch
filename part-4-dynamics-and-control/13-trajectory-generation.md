@@ -31,7 +31,7 @@ Think of an elevator. A cheap one lurches when it starts and stops; a good one e
 - **cubic**: speed is smooth, but acceleration still jumps at the start and the end;
 - **quintic**: position, speed and acceleration all start and end at rest. This is the **minimum-jerk** move.
 
-Duration matters more than shape: do the same move in half the time and every acceleration (and torque) is four times larger, every jerk eight times. Two more choices follow: interpolate in joint angles (cheap, but the hand follows a curve) or along a straight line for the hand (needs IK at every point), and whether to add **feedforward**, the torque the planned acceleration needs, sent in advance instead of waiting for an error to build up.
+Duration matters more than shape: do the same move in half the time and every acceleration (and torque) is four times larger, every jerk eight times. Two more choices: interpolate in joint angles (cheap, the hand follows a curve) or along a straight hand line (IK at every point), and whether to add **feedforward**, the torque the planned acceleration needs, sent in advance.
 
 ```mermaid
 flowchart TD
@@ -50,14 +50,8 @@ flowchart TD
 Every move is "start + fraction of the way × total change"; only the fraction `s` changes with time.
 
 ```python
-def quintic(t, T):
-    u = min(max(t / T, 0.0), 1.0)              # normalised time, 0 at start, 1 at the end
-    s = 10*u**3 - 15*u**4 + 6*u**5             # fraction of the move done, 0 -> 1
-    sd = (30*u**2 - 60*u**3 + 30*u**4) / T     # ds/dt  [1/s]
-    sdd = (60*u - 180*u**2 + 120*u**3) / T**2  # d2s/dt2 [1/s^2]
-    return s, sd, sdd
-
-s, sd, sdd = quintic(t, T)
+u = min(max(t / T, 0.0), 1.0)                          # normalised time, 0 at start, 1 at the end
+s, sd, sdd = quintic_s(u), quintic_s1(u) / T, quintic_s2(u) / T**2   # fraction done and its time derivatives
 q_ref, qd_ref, qdd_ref = q0 + s*dq, sd*dq, sdd*dq      # per-joint reference [rad, rad/s, rad/s^2]
 tau = g(q) + kp*(q_ref - q) + kd*(qd_ref - qd)         # PD tracking + gravity (lesson 12)
 tau += M(q) @ qdd_ref                                  # optional feedforward (lesson 11's M)
@@ -75,7 +69,7 @@ Here $q(t) = q_0 + s(t/T)\,\Delta q$, $u = t/T \in [0,1]$ is normalised time, $s
 
 ![Position, velocity and acceleration of the linear, trapezoid, cubic and quintic time scalings over normalised time. Only the quintic starts and ends with both zero velocity and zero acceleration; the cubic's acceleration jumps to 6 at the ends, the trapezoid's jumps at its corners.](../experiments/13-trajectory-generation/time_scalings.png)
 
-**Joint space vs Cartesian.** Interpolating in joint space stays inside the joint limits whenever both ends do, but the hand follows a curve. A Cartesian straight line needs IK at every waypoint (lesson 10) and can pass through singularities or joint limits; it costs more joint motion.
+**Joint space vs Cartesian.** Joint-space interpolation stays inside the joint limits whenever both ends do, but the hand follows a curve. A Cartesian line needs IK at every waypoint (lesson 10) and can meet singularities or joint limits.
 
 **Feedforward.** A tracking controller $\tau = g(q) + K_p(q_r - q) + K_d(\dot q_r - \dot q)$ produces torque only from an error. Adding the model term $M(q)\ddot q_r$ (lesson 11) supplies the accelerating torque in advance; a smooth reference makes $\ddot q_r$ available and bounded.
 
@@ -95,6 +89,178 @@ Go deeper: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/
 </details>
 
 <!-- figure: 13-time-scaling -->
+
+## Build it
+
+You will now write the time scalings yourself in about 40 lines of NumPy, derive the polynomials instead of copying them, and check every number of the formula table, then track the result on the Experiment's Panda with lesson 11's mass matrix.
+
+Type the steps into a file of your own (for example `scratch/my_trajectory.py`) and run it after each step. The finished functions are in [`physai/trajectory.py`](../physai/trajectory.py); `uv run python experiments/13-trajectory-generation/build.py` runs all five steps with the checks (output in [`build_output.txt`](../experiments/13-trajectory-generation/build_output.txt)).
+
+### Step 1 · Polynomials from boundary conditions
+
+Each condition "the $r$-th derivative at $u$ equals $v$" is one linear equation in the coefficients, because $\frac{d^r}{du^r}u^k = \frac{k!}{(k-r)!}u^{k-r}$. As many conditions as coefficients, one `solve`:
+
+```python
+def poly_from_boundary(conds, degree):
+    """Coefficients c (s = sum_k c_k u^k) that meet every condition (u, derivative order, value)."""
+    A = [[factorial(k) / factorial(k - r) * u ** (k - r) if k >= r else 0.0 for k in range(degree + 1)]
+         for u, r, _ in conds]
+    return np.linalg.solve(np.array(A), np.array([v for _, _, v in conds], dtype=float))
+```
+
+```python
+def poly_eval(c, u, order=0):
+    """The order-th derivative of the polynomial with coefficients c, at u."""
+    return P.polyval(u, P.polyder(c, order))
+```
+
+```python
+REST = [(0, 0, 0.0), (1, 0, 1.0), (0, 1, 0.0), (1, 1, 0.0)]      # s(0) = 0, s(1) = 1, at rest at both ends
+CUBIC = poly_from_boundary(REST, 3)
+QUINTIC = poly_from_boundary(REST + [(0, 2, 0.0), (1, 2, 0.0)], 5)  # ... and zero acceleration at both ends
+```
+
+```text
+== Step 1. Coefficients from boundary conditions (c0 + c1 u + c2 u^2 + ...) ==
+cubic   (s, s' at both ends):          0.00   0.00   3.00  -2.00
+quintic (s, s', s'' at both ends):     0.00   0.00   0.00  10.00 -15.00   6.00
+max diff to 3u^2 - 2u^3: 0.0e+00, to 10u^3 - 15u^4 + 6u^5: 1.1e-14
+one more pair (zero jerk at both ends) gives degree 7: 0 0 0 0 35 -84 70 -20
+```
+
+The textbook polynomials fall out, and one more pair of conditions gives the next member of the family ($35u^4 - 84u^5 + 70u^6 - 20u^7$, zero jerk at the ends too).
+
+### Step 2 · Derivatives and peaks
+
+Each shape returns $s$, $s'$ and $s''$ on normalised time:
+
+```python
+def cubic(u):
+    """Cubic time scaling 3u^2 - 2u^3: s, ds/du, d2s/du2."""
+    return poly_eval(CUBIC, u), poly_eval(CUBIC, u, 1), poly_eval(CUBIC, u, 2)
+```
+
+```python
+def quintic(u):
+    """Quintic (minimum-jerk) time scaling 10u^3 - 15u^4 + 6u^5: s, ds/du, d2s/du2."""
+    return poly_eval(QUINTIC, u), poly_eval(QUINTIC, u, 1), poly_eval(QUINTIC, u, 2)
+```
+
+```text
+== Step 2. Peaks of the normalised shapes (100001 points on [0, 1]) ==
+   shape  max ds/du  max d2s/du2    at u  max |d3s/du3| inside
+   cubic     1.5000       6.0000  0.0000               12.0000
+ quintic     1.8750       5.7735  0.2113               60.0000
+formulas: cubic 1.5, 6 at u = 0; quintic 1.875, 10 sqrt(3)/3 = 5.7735 at u = (3 - sqrt(3))/6 = 0.2113, jerk 60
+```
+
+Every value matches the closed forms of the math details: the cubic's acceleration peaks at the ends (6), the quintic's at $u = 0.2113$ ($10\sqrt3/3$ = 5.7735), and the quintic's jerk is 60 at the ends. The cubic's jerk is a constant 12 inside, but its acceleration jumps from 0 to 6 at $u = 0$: that jump is the "∞" in the table.
+
+### Step 3 · The trapezoid
+
+The trapezoid is piecewise: a parabola, a straight line, a parabola. Its acceleration $a$ follows from $s(1) = 1$:
+
+```python
+def trapezoid(u, ta=1 / 3):
+    """Trapezoidal velocity: accelerate for ta, cruise, decelerate for ta. Returns s, ds/du, d2s/du2."""
+    a = 1 / (ta * (1 - ta))                        # the acceleration that makes s(1) = 1
+    if u < ta:
+        return 0.5 * a * u ** 2, a * u, a
+    if u <= 1 - ta:
+        return 0.5 * a * ta ** 2 + a * ta * (u - ta), a * ta, 0.0
+    return 1 - 0.5 * a * (1 - u) ** 2, a * (1 - u), -a
+```
+
+```text
+== Step 3. The trapezoid (ta = 1/3) ==
+s(1) = 1.000000, peak ds/du = 1.5000, peak |d2s/du2| = 4.5000
+max |s - integral of ds/du| = 1.0e-10 (s is continuous; d2s/du2 jumps 0 -> 4.5)
+```
+
+### Step 4 · From shape to joint reference
+
+The chain rule turns $s(u)$ into a joint reference: divide by $T$ for each derivative. Outside the move the reference is at rest:
+
+```python
+def joint_reference(shape, t, T, q0, dq):
+    """Reference angle, speed and acceleration at time t of the move q0 -> q0 + dq lasting T seconds."""
+    s, s1, s2 = shape(min(max(t / T, 0.0), 1.0))
+    if not 0.0 < t < T:                            # at rest before and after the move
+        s1 = s2 = 0.0
+    return q0 + s * dq, s1 / T * dq, s2 / T ** 2 * dq
+```
+
+```text
+== Step 4. Reference peaks of the Panda move (largest joint 0.6 rad) ==
+ T (s)     shape  exact acc  2 ms acc  exact jerk  2 ms jerk
+  0.25     cubic      57.60     56.68         inf        inf
+  0.25   quintic      55.43     55.41     2304.00    2249.00
+  0.50     cubic      14.40     14.28         inf        inf
+  0.50   quintic      13.86     13.86      288.00     284.55
+  1.00     cubic       3.60      3.59         inf        inf
+  1.00   quintic       3.46      3.46       36.00      35.78
+  2.00     cubic       0.90      0.90         inf        inf
+  2.00   quintic       0.87      0.87        4.50       4.49
+  1.00 trapezoid       2.70      2.70
+```
+
+The "exact" columns are the formula table times 0.6 rad: $1/T^2$ for acceleration, $1/T^3$ for jerk. The Experiment's table holds the "2 ms" columns, because it samples the reference at the control rate and counts it as at rest at $t = 0$: the cubic's first sample is at 2 ms, where $s'' = 6 - 12 \cdot 0.002$, hence 3.59 instead of 3.60, and the quintic's jerk is a 2 ms finite difference, 35.78 instead of 36.00. At T = 0.25 s the gaps grow (56.68 vs 57.60, 2249.00 vs 2304.00) because 2 ms is then a larger share of the move.
+
+### Step 5 · Track it, with your own feedforward
+
+Feed `joint_reference` to the Experiment's controller and add $M(q)\ddot q_r$ with `mass_matrix` from lesson 11:
+
+```python
+q_ref, qd_ref, qdd_ref = joint_reference(quintic, d.time, 1.0, Q0, DQ)
+tau = d.qfrc_bias[:7] + KP * (q_ref - d.qpos[:7]) + KD * (qd_ref - d.qvel[:7])
+tau = tau + mass_matrix(tree, d.qpos)[:7, :7] @ qdd_ref - d.qfrc_passive[:7]   # feedforward
+```
+
+```text
+== Step 5. Track the quintic on the Panda (T = 1 s, the Experiment's PD + qfrc_bias) ==
+PD + gravity              tracking error 1.32 deg, robot peak jerk 35 rad/s^3
+PD + M qdd_ref - passive  tracking error 0.01 deg, robot peak jerk 48 rad/s^3
+```
+
+The Experiment's quintic rows, 1.32° and 0.01°, from your reference and your mass matrix.
+
+### What you keep
+
+`physai.trajectory` now has `poly_from_boundary`, `poly_eval`, `cubic`, `quintic`, `trapezoid` and `joint_reference`. Lesson 14 ramps its contact target with the same quintic. [`tests/test_13_trajectory_generation.py`](../tests/test_13_trajectory_generation.py) checks them against the closed forms; run `uv run pytest tests/test_13_trajectory_generation.py` after you change anything.
+
+## Use it
+
+MuJoCo has no trajectory generator: it simulates whatever reference you compute. For a point-to-point move, SciPy's splines give the same curves:
+
+```python
+from scipy.interpolate import CubicSpline, make_interp_spline
+
+cs = CubicSpline([0, T], [q0, q1], bc_type="clamped")              # zero speed at both ends: the cubic
+qs = make_interp_spline([0, T], [q0, q1], k=5,
+                        bc_type=([(1, 0.0), (2, 0.0)], [(1, 0.0), (2, 0.0)]))   # + zero acceleration: the quintic
+q, qd, qdd = qs(t), qs(t, 1), qs(t, 2)
+```
+
+```text
+== Use it. SciPy splines through the two end points (T = 1 s, 0 -> 0.6 rad) ==
+CubicSpline(bc_type='clamped') vs cubic: max diff 3.3e-16 rad
+make_interp_spline(k=5, zero speed and acceleration) vs quintic: max diff 1.5e-15 rad, peak jerk 36.00 rad/s^3
+```
+
+With more than two points the same calls give a smooth curve through all waypoints, which the single-move formulas cannot.
+
+| Tool | Call | Shape |
+|---|---|---|
+| physai | `joint_reference(quintic, t, T, q0, dq)` | $q$, $\dot q$, $\ddot q$ at time $t$ |
+| SciPy | `CubicSpline(t, q, bc_type="clamped")`, `make_interp_spline(t, q, k=5, bc_type=...)` | piecewise polynomials through waypoints; `spline(t, n)` gives the $n$-th derivative |
+| *Modern Robotics* code | `CubicTimeScaling(Tf, t)`, `QuinticTimeScaling(Tf, t)`, `JointTrajectory(thetastart, thetaend, Tf, N, method)` | $s(t)$ only, and $N$ sampled joint vectors ([`core.py`](https://github.com/NxRLab/ModernRobotics/blob/master/packages/Python/modern_robotics/core.py)) |
+| libfranka | `limitRate(...)` | clips commanded velocity, acceleration and jerk to the robot's limits ([`rate_limiting.h`](https://github.com/frankarobotics/libfranka/blob/main/include/franka/rate_limiting.h)) |
+
+Three traps:
+
+- **Normalised vs real time.** $s'(u)$ is per unit of $u$; the joint speed is $s'(u)\,\Delta q / T$. Forgetting one $1/T$ is the most common bug, and at T = 0.25 s it is a factor of 4.
+- **Sampled peaks are not peaks.** A reference checked against a limit at the control rate can miss a jump that happens between samples (Step 4: 3.59 vs 3.60).
+- **Clamping is not smoothing.** A rate limiter keeps each command legal but turns a jumpy reference into a different, unplanned motion; plan a smooth one instead.
 
 ## Experiment
 
@@ -152,7 +318,7 @@ Same endpoints, same timing: the joint-space path bows 5.38 cm off the line. Eno
 
 ## Break it
 
-Shorten the move. At T = 0.25 s the reference needs 55.41 rad/s² (quintic) on a 0.6 rad joint motion; even the smooth quintic now produces 2107 rad/s³ of robot jerk and 5.52° of tracking error; shorter moves raise the reference acceleration as $1/T^2$, the jerk as $1/T^3$ and the PD tracking error roughly as $1/T$. Go to the extreme, T → 0, and you get the step: torque saturation (5.5% of steps), 739.2 rad/s² acceleration and a 34.35° lag. The mechanism is the scaling law, not the controller: no gain setting can produce acceleration the actuators cannot supply, and when the torque clips, the PD's carefully tuned damping is gone.
+Shorten the move. At T = 0.25 s the reference needs 55.41 rad/s² (quintic) on a 0.6 rad joint motion; even the smooth quintic now produces 2107 rad/s³ of robot jerk and 5.52° of tracking error. Go to the extreme, T → 0, and you get the step: torque saturation (5.5% of steps), 739.2 rad/s² acceleration and a 34.35° lag. The mechanism is the scaling law, not the controller: no gain setting can produce acceleration the actuators cannot supply, and when the torque clips, the PD's carefully tuned damping is gone.
 
 ## On the real robot
 

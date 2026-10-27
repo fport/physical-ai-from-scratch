@@ -5,12 +5,12 @@
     en: The shoulder turns at the same speed with the arm folded and with it stretched out. When does the gripper move faster?
     tr: Omuz, kol katlıyken de gerginken de aynı hızla dönüyor. Gripper ne zaman daha hızlı hareket eder?
   options:
-    - en: Folded, because the motor carries less load.
-      tr: Katlıyken, çünkü motor daha az yük taşır.
-    - en: Stretched, because the gripper is farther from the shoulder axis.
-      tr: Gerginken, çünkü gripper omuz ekseninden daha uzaktadır.
-    - en: The same in both, because the joint speed is the same.
-      tr: İkisinde de aynı, çünkü joint hızı aynı.
+  - en: Folded, because the motor carries less load.
+    tr: Katlıyken, çünkü motor daha az yük taşır.
+  - en: Stretched, because the gripper is farther from the shoulder axis.
+    tr: Gerginken, çünkü gripper omuz ekseninden daha uzaktadır.
+  - en: The same in both, because the joint speed is the same.
+    tr: İkisinde de aynı, çünkü joint hızı aynı.
   answer: 1
   why:
     en: A hinge's column is $\hat a \times (p - o)$; its length grows with the distance from the axis to the tool, like a longer wrench (In plain words).
@@ -20,56 +20,56 @@
     en: You push straight down on the gripper. Which joint feels no torque from that push?
     tr: Gripper'a dümdüz aşağı bastırıyorsun. Hangi joint bu baskıdan hiç tork hissetmez?
   options:
-    - en: shoulder_pan, whose axis is vertical.
-      tr: Ekseni dikey olan shoulder_pan.
-    - en: shoulder_lift, the joint closest to the base.
-      tr: Tabana en yakın joint olan shoulder_lift.
-    - en: None; every joint feels part of it.
-      tr: Hiçbiri; her joint bir kısmını hisseder.
+  - en: shoulder_pan, whose axis is vertical.
+    tr: Ekseni dikey olan shoulder_pan.
+  - en: shoulder_lift, the joint closest to the base.
+    tr: Tabana en yakın joint olan shoulder_lift.
+  - en: None; every joint feels part of it.
+    tr: Hiçbiri; her joint bir kısmını hisseder.
   answer: 0
   why:
     en: A vertical force has no moment about a vertical axis. In the Experiment, Step 3, $J^\top F$ for $F = (0, 0, -2)$ N starts with 0.0000.
     tr: Dikey bir kuvvetin dikey bir eksen etrafında momenti yoktur. Deney, Adım 3'te $F = (0, 0, -2)$ N için $J^\top F$ 0,0000 ile başlıyor.
 - stage: check
   q:
-    en: In Build it, what does your code take from MuJoCo?
-    tr: Sıfırdan yaz bölümünde kodun MuJoCo'dan ne alıyor?
+    en: 'Build it, Step 1: the shoulder_lift column at q = (0, −0.6, 0.9, 0.4, 0.3) has a linear part of length 0.2202 m. What is that number?'
+    tr: 'Sıfırdan yaz, Adım 1: q = (0, −0,6, 0,9, 0,4, 0,3)''te shoulder_lift sütununun doğrusal kısmının uzunluğu 0,2202 m. Bu sayı ne?'
   options:
-    - en: The world positions of the joints at the current pose.
-      tr: Joint'lerin o anki pozdaki dünya konumlarını.
-    - en: Only the model's static numbers (body offsets, hinge axes, the tool point); the kinematics is yours.
-      tr: Yalnız modelin sabit sayılarını (gövde ofsetleri, hinge eksenleri, alet noktası); kinematik senin.
-    - en: The Jacobian, which your code then checks.
-      tr: Jacobian'ı; kodun sonra onu kontrol ediyor.
-  answer: 1
+  - en: 'The tool speed (m/s) per 1 rad/s of the lift: the lever from the lift axis to the tool.'
+    tr: 'Lift''in 1 rad/s''si başına alet hızı (m/s): lift ekseninden alete olan kaldıraç.'
+  - en: The length of the upper arm link in the MJCF file.
+    tr: MJCF dosyasındaki üst kol link'inin uzunluğu.
+  - en: The rounding error of the hand-written column.
+    tr: Elle yazılan sütunun yuvarlama hatası.
+  answer: 0
   why:
-    en: '`chain_from_mujoco` reads `body_pos`, `body_quat`, `jnt_axis`, `jnt_pos` and the site position; `fk` and `jacobian` compute the rest, and match MuJoCo to 2.2e-16 m and 1.0e-15.'
-    tr: '`chain_from_mujoco` yalnız `body_pos`, `body_quat`, `jnt_axis`, `jnt_pos` ve site konumunu okur; gerisini `fk` ve `jacobian` hesaplar ve MuJoCo ile 2,2e-16 m ve 1,0e-15 farkla örtüşür.'
+    en: $|\hat a \times (p - o)|$ is the distance from the axis to the tool point; the column matches MuJoCo's to 8.3e-17, and 2 N times its vertical entry 0.2193 gives the 0.4385 N m of Step 3.
+    tr: $|\hat a \times (p - o)|$ eksenden alet noktasına olan mesafedir; sütun MuJoCo'nunkiyle 8,3e-17 farkla örtüşür ve 2 N çarpı dikey girdisi 0,2193, Adım 3'teki 0,4385 N m'yi verir.
 - stage: check
   q:
-    en: Build it, Step 4 gives $J^\top F$ = 0.4385 N m at the lift for a 2 N downward push; the Experiment's servo held 0.4383 N m. Why the difference?
-    tr: Sıfırdan yaz, Adım 4 2 N aşağı baskı için lift'te $J^\top F$ = 0,4385 N m veriyor; Deney'deki servo 0,4383 N m tuttu. Fark neden?
+    en: Build it, Step 3 gives $J^\top F$ = 0.4385 N m at the lift for a 2 N downward push; the Experiment's servo held 0.4383 N m. Why the difference?
+    tr: Sıfırdan yaz, Adım 3 2 N aşağı baskı için lift'te $J^\top F$ = 0,4385 N m veriyor; Deney'deki servo 0,4383 N m tuttu. Fark neden?
   options:
-    - en: A bug in the hand-written Jacobian.
-      tr: Elle yazılan Jacobian'da bir hata.
-    - en: Float rounding in the transpose.
-      tr: Transpose'taki float yuvarlaması.
-    - en: The servos give a little under the load, so the arm settles at a slightly different pose, and $J$ depends on the pose.
-      tr: Servo'lar yük altında biraz esner, kol biraz farklı bir pozda oturur ve $J$ poza bağlıdır.
+  - en: A bug in the hand-written Jacobian.
+    tr: Elle yazılan Jacobian'da bir hata.
+  - en: Float rounding in the transpose.
+    tr: Transpose'taki float yuvarlaması.
+  - en: The servos give a little under the load, so the arm settles at a slightly different pose, and $J$ depends on the pose.
+    tr: Servo'lar yük altında biraz esner, kol biraz farklı bir pozda oturur ve $J$ poza bağlıdır.
   answer: 2
   why:
-    en: Step 4 evaluates $J$ at the commanded pose; the Experiment compares at the settled pose, where $J^\top F$ and the servo torque agree to 4.2e-14. The hand-written $J$ matches `mj_jacSite` to 1.0e-15 at any given pose (Step 3).
-    tr: Adım 4 $J$'yi komut verilen pozda hesaplar; Deney oturmuş pozda karşılaştırır ve orada $J^\top F$ ile servo torku 4,2e-14 farkla aynıdır. Elle yazılan $J$ verilen her pozda `mj_jacSite` ile 1,0e-15 farkla örtüşür (Adım 3).
+    en: Step 3 evaluates $J$ at the commanded pose; the Experiment compares at the settled pose, where $J^\top F$ and the servo torque agree to 4.2e-14. The hand-written $J$ matches `mj_jacSite` to 1.0e-15 at any given pose (Step 2).
+    tr: Adım 3 $J$'yi komut verilen pozda hesaplar; Deney oturmuş pozda karşılaştırır ve orada $J^\top F$ ile servo torku 4,2e-14 farkla aynıdır. Elle yazılan $J$ verilen her pozda `mj_jacSite` ile 1,0e-15 farkla örtüşür (Adım 2).
 - q:
     en: You compute the position Jacobian by finite differences. Is a smaller step ε always more accurate?
     tr: Konum Jacobian'ını finite difference ile hesaplıyorsun. Daha küçük ε adımı her zaman daha mı doğru?
   options:
-    - en: Yes; the truncation error falls with ε, so the smallest step a double allows is best.
-      tr: Evet; truncation hatası ε ile düşer, yani double'ın izin verdiği en küçük adım en iyisidir.
-    - en: Yes, but only for central differences.
-      tr: Evet, ama yalnızca merkezi farklar için.
-    - en: No; below the best step round-off takes over, so the error curve is V-shaped.
-      tr: Hayır; en iyi adımın altında yuvarlama hatası baskın çıkar, yani hata eğrisi V biçimindedir.
+  - en: Yes; the truncation error falls with ε, so the smallest step a double allows is best.
+    tr: Evet; truncation hatası ε ile düşer, yani double'ın izin verdiği en küçük adım en iyisidir.
+  - en: Yes, but only for central differences.
+    tr: Evet, ama yalnızca merkezi farklar için.
+  - en: No; below the best step round-off takes over, so the error curve is V-shaped.
+    tr: Hayır; en iyi adımın altında yuvarlama hatası baskın çıkar, yani hata eğrisi V biçimindedir.
   answer: 2
   why:
     en: Step 2 table, the best forward step is 1e-8 (error 9.8e-09) and the best central step 1e-5 (error 5.6e-12); at 1e-14 the central error is 4.5e-03.
@@ -79,12 +79,12 @@
     en: The model's servos hold 9.61 N of extra tip load in the mid pose but only 4.95 N in the stretched pose. Why?
     tr: Modelin servo'ları orta pozda 9,61 N ek uç yükü tutarken gergin pozda yalnızca 4,95 N tutuyor. Neden?
   options:
-    - en: The servo force limit is lower when the arm is stretched.
-      tr: Kol gerginken servo kuvvet limiti daha düşüktür.
-    - en: The lever from the lift axis to the tip grows from 0.220 to 0.411 m, and $\tau = J^\top F$ scales with that lever.
-      tr: Lift ekseninden uca kaldıraç 0,220'den 0,411 m'ye çıkıyor ve $\tau = J^\top F$ bu kaldıraçla ölçekleniyor.
-    - en: The Jacobian is singular in the stretched pose, so no torque reaches the tip.
-      tr: Gergin pozda Jacobian singular olduğu için uca hiç tork ulaşmaz.
+  - en: The servo force limit is lower when the arm is stretched.
+    tr: Kol gerginken servo kuvvet limiti daha düşüktür.
+  - en: The lever from the lift axis to the tip grows from 0.220 to 0.411 m, and $\tau = J^\top F$ scales with that lever.
+    tr: Lift ekseninden uca kaldıraç 0,220'den 0,411 m'ye çıkıyor ve $\tau = J^\top F$ bu kaldıraçla ölçekleniyor.
+  - en: The Jacobian is singular in the stretched pose, so no torque reaches the tip.
+    tr: Gergin pozda Jacobian singular olduğu için uca hiç tork ulaşmaz.
   answer: 1
   why:
     en: Break it, every joint has the same 2.94 N m limit; in the stretched pose gravity alone already takes −0.909 N m at the lift and shoulder_lift saturates first.

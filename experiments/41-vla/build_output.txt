@@ -1,0 +1,44 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Tokens per dimension, bins between the 1st and 99th percentile ==
+demonstration: 229 actions x 6 dims; arm-joint ranges (deg): 3.7 69.4 26.1 31.2 0.4
+ bins  same tokens as experiment.py  re-tokenized = same  max |err| / (Delta/2)
+    4                          True                 True                  1.000
+    8                          True                 True                  1.000
+   16                          True                 True                  1.000
+   64                          True                 True                  1.000
+  256                          True                 True                  1.000
+ 1024                          True                 True                  1.000
+
+== Step 2. RMS error of the arm joints vs Delta / sqrt(12) ==
+ bins  RMS err deg  Delta/sqrt(12) deg  max err deg  Delta/2 (widest) deg
+    4        3.161               2.598        8.672                 8.672
+    8        1.566               1.299        4.336                 4.336
+   16        0.745               0.650        2.168                 2.168
+   64        0.209               0.162        0.542                 0.542
+  256        0.048               0.041        0.136                 0.136
+ 1024        0.012               0.010        0.034                 0.034
+
+== Step 3. At the gripper: forward kinematics of the de-tokenized actions ==
+ bins  mean tip err mm  max tip err mm
+    4            15.69           40.36
+    8             8.83           19.75
+   16             3.51            9.54
+   64             1.24            2.00
+  256             0.26            0.60
+ 1024             0.07            0.17
+
+== Step 4. Network passes per second at a 30 Hz control loop ==
+tokens, one action per call, 6 dims: 30 x 6 = 180 decoder passes/s
+tokens for the 7-D OpenVLA action: 30 x 7 = 210 decoder passes/s
+chunk of 50, execute 50 before re-planning, 10 flow steps: 0.6 VLM passes/s, 6 expert passes/s, 1667 ms without reacting to new images
+chunk of 50, execute 10 before re-planning, 10 flow steps: 3.0 VLM passes/s, 30 expert passes/s, 333 ms without reacting to new images
+
+== Step 5. Flow head: Euler steps through the exact velocity of the demonstration's chunks ==
+training set: 180 chunks of 50 x 6 = 300 numbers; 20 samples from noise
+flow steps  RMS to nearest chunk rad  within 0.01 rad  RMS to the mean chunk rad
+         1                    0.2576             0/20                     0.0000
+         2                    0.0473             0/20                     0.2466
+         5                    0.0045            18/20                     0.2890
+        10                    0.0032            20/20                     0.2912
+        20                    0.0006            20/20                     0.2921

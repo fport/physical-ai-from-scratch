@@ -16,7 +16,7 @@
 
 ## The problem
 
-The Unitree Go2 has 12 leg joints. In Unitree's open training code every one of them is driven by the same PD rule (proportional–derivative: a spring plus a damper, explained below) with `stiffness = 20` (Kp, N·m/rad), `damping = 0.5` (Kd, N·m·s/rad), `control_type = 'P'` ([`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)):
+The Unitree Go2 has 12 leg joints. In Unitree's open training code each is driven by the same PD rule (proportional–derivative: a spring plus a damper) with `stiffness = 20` (Kp, N·m/rad), `damping = 0.5` (Kd, N·m·s/rad), `control_type = 'P'` ([`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)):
 
 ```python
 # legged_robot.py · _compute_torques
@@ -24,17 +24,17 @@ torques = self.p_gains*(actions_scaled + self.default_dof_pos - self.dof_pos) - 
 return torch.clip(torques, -self.torque_limits, self.torque_limits)
 ```
 
-([`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)). The policy updates the target every 20 ms (`sim.dt = 0.005`, `decimation = 4`, [`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py)); the PD rule turns it into torque every 5 ms. Unitree's low-level stand-up example for the real Go2 uses different numbers, Kp = 60 and Kd = 5 ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp)). Why do these numbers work, what do they get wrong, and what does an SO-101 servo do instead?
+([`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)). The policy updates the target every 20 ms (`sim.dt = 0.005`, `decimation = 4`, [`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py)); Unitree's stand-up example for the real Go2 uses Kp = 60, Kd = 5 ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp)). Why do these numbers work, what do they get wrong, and what does an SO-101 servo do instead?
 
 ## Core idea
 
 ### In plain words
 
-Picture the joint tied to its target angle by a **spring and a shock absorber**, like a car wheel tied to the body. The spring pulls harder the further the joint is from the target; its stiffness is **Kp**. The shock absorber resists speed, whatever the direction; its strength is **Kd**. A stiff spring with a weak absorber gets there fast and then bounces (**overshoot**). A strong absorber kills the bounce but makes the motion sluggish. There is a sweet spot in between, and it depends on how heavy the joint is: the absorber that calms a light wrist is too weak for a heavy shoulder.
+Picture the joint tied to its target by a **spring** (stiffness **Kp**, pulls harder the further away) and a **shock absorber** (strength **Kd**, resists speed). Stiff spring, weak absorber: fast, then it bounces (**overshoot**); strong absorber: no bounce, sluggish. The sweet spot depends on how heavy the joint is.
 
-A controller is a loop that never stops: measure the angle, compare it with the target, correct with a torque, repeat every millisecond. Gravity breaks the spring picture in one way: a spring only pushes when it is stretched, so to hold up a weight it has to stay stretched, and the joint settles a little **below** its target (**sag**). There are three ways out: a stiffer spring (less sag, never zero), an **integral** term that keeps a running tally of how long it has been wrong and pushes harder (removes sag, slowly, and can overshoot), or **feedforward**: compute the weight from the model and add exactly that torque before any error appears.
+The controller repeats every millisecond: measure, compare, correct. A spring only pushes when stretched, so to hold a weight the joint settles a little **below** its target (**sag**). Three ways out: a stiffer spring (less sag, never zero), an **integral** term that pushes harder the longer the error lasts (slow, can overshoot), or **feedforward**: add the weight's torque from the model before any error appears.
 
-A hobby servo like the SO-101's runs this same loop inside the motor. You send it a target angle, never a torque, and it pushes back with at most its **torque cap**.
+A hobby servo like the SO-101's runs this loop inside the motor: you send a target angle, and it pushes back with at most its **torque cap**.
 
 ```mermaid
 flowchart TD
@@ -66,31 +66,25 @@ while True:                               # every dt (1 ms here; inside the serv
 |---|---|
 | $\tau = K_p (q^* - q) - K_d \dot q$ | the PD law (spring + damper) |
 | $I\ddot q + K_d \dot q + K_p q = K_p q^*$ | the closed loop is a mass–spring–damper |
-| $\omega_n = \sqrt{K_p / I}$ | how fast it responds; settling time scales as $1/\omega_n$ |
-| $\zeta = \dfrac{K_d}{2\sqrt{K_p I}}$ | the shape: below 1 it overshoots, 1 is critical damping, above 1 it creeps |
-| $\text{overshoot} = e^{-\pi\zeta/\sqrt{1-\zeta^2}}$ for $\zeta<1$ | fraction of the step it swings past the target |
-| $K_p\, e = g(q^* - e)$ | the sag $e$ where the spring balances the gravity torque |
+| $\omega_n = \sqrt{K_p / I}$ | speed; settling time scales as $1/\omega_n$ |
+| $\zeta = \dfrac{K_d}{2\sqrt{K_p I}}$ | shape: below 1 overshoot, 1 critical, above 1 creep |
+| $\text{overshoot} = e^{-\pi\zeta/\sqrt{1-\zeta^2}}$ for $\zeta<1$ | fraction of the step swung past the target |
+| $K_p\, e = g(q^* - e)$ | the sag $e$: spring balances gravity |
 
-Here $q$ is the joint angle, $q^*$ the target, $\dot q$ the joint speed, $\tau$ the motor torque, $I$ the joint's inertia (from lesson 11, the diagonal of $M$), $K_p$ the stiffness in N·m/rad, $K_d$ the damping in N·m·s/rad, $\omega_n$ the natural frequency in rad/s, $\zeta$ the damping ratio (no unit), $e = q^* - q$ the error and $g(\cdot)$ the gravity torque at a given angle. Kp sets the speed, Kd sets the shape.
+$q$, $q^*$, $\dot q$: angle, target, speed; $\tau$: motor torque; $I$: the joint's inertia (lesson 11, the diagonal of $M$); $K_p$ in N·m/rad, $K_d$ in N·m·s/rad; $\omega_n$: natural frequency; $\zeta$: damping ratio; $e = q^* - q$; $g(\cdot)$: gravity torque. Kp sets the speed, Kd the shape.
 
-| Fix for the sag | Law | Price |
-|---|---|---|
-| Raise Kp | same | stiffer, more saturation (the torque hits its cap), less robust to contact |
-| PID | $+\,K_i \int e\,dt$ | slow, and the integral winds up (keeps growing) during large moves |
-| Gravity feedforward | $+\,g(q)$ from the model (`qfrc_bias` at rest) | needs a correct model (lesson 11) |
-
-**Servo.** In the MuJoCo Menagerie model each STS3215 is a `position` actuator, force $= k_p(\text{ctrl} - q) - k_v\dot q$ with $k_p = 998.22$, $k_v = 2.731$, clipped at ±2.94 N·m (`so101.xml`; the file notes these gains are not a 1-to-1 mapping of the servo gains LeRobot uses). It is a PD loop with a torque cap, running inside the motor.
+**Servo.** In the Menagerie model each STS3215 is a `position` actuator, force $= k_p(\text{ctrl} - q) - k_v\dot q$ with $k_p = 998.22$, $k_v = 2.731$, clipped at ±2.94 N·m (`so101.xml`): a PD loop with a torque cap.
 
 <details>
 <summary>Math details: the second-order system, overshoot and why gravity needs more than PD</summary>
 
-**Closed loop.** Insert $\tau = K_p(q^* - q) - K_d\dot q$ into one joint's equation of motion $I\ddot q = \tau$ (no gravity): $I\ddot q + K_d\dot q + K_p q = K_p q^*$. Divide by $I$: $\ddot q + 2\zeta\omega_n\dot q + \omega_n^2 q = \omega_n^2 q^*$ with $\omega_n$ and $\zeta$ as in the table. The characteristic roots are $-\zeta\omega_n \pm \omega_n\sqrt{\zeta^2 - 1}$: complex (oscillating) for $\zeta < 1$, a double real root at $\zeta = 1$, two real roots (one of them slow) for $\zeta > 1$, which is why overdamping settles more slowly again.
+**Closed loop.** The PD law in $I\ddot q = \tau$, divided by $I$: $\ddot q + 2\zeta\omega_n\dot q + \omega_n^2 q = \omega_n^2 q^*$. The roots $-\zeta\omega_n \pm \omega_n\sqrt{\zeta^2 - 1}$ oscillate for $\zeta < 1$ and include a slow real root for $\zeta > 1$, so overdamping settles slowly again.
 
-**Overshoot.** For $\zeta<1$ the step response is $q(t) = q^*\big(1 - e^{-\zeta\omega_n t}(\cos\omega_d t + \tfrac{\zeta}{\sqrt{1-\zeta^2}}\sin\omega_d t)\big)$ with $\omega_d = \omega_n\sqrt{1-\zeta^2}$. Its first peak is at $t = \pi/\omega_d$, which gives the overshoot formula. Every time constant in the response is a multiple of $1/\omega_n$ at fixed $\zeta$, so quadrupling Kp halves the settling time.
+**Overshoot.** For $\zeta<1$ the step response oscillates at $\omega_d = \omega_n\sqrt{1-\zeta^2}$ and first peaks at $t = \pi/\omega_d$, which gives the overshoot formula. At fixed $\zeta$ every time constant is a multiple of $1/\omega_n$, so quadrupling Kp halves the settling time.
 
-**Gravity sag.** With a load torque the equilibrium ($\dot q = \ddot q = 0$) requires $K_p e = g(q^* - e)$: a non-zero $e$ for any finite $K_p$. For the link of part B, $g = mgl\cos(\cdot)$ and the fixed point is solved numerically.
+**Gravity sag.** At rest $K_p e = g(q^* - e)$: a non-zero $e$ for any finite $K_p$ (Build it, Step 4 solves it).
 
-**Integral action.** With $+K_i\int e\,dt$, an equilibrium needs $\frac{d}{dt}\int e\,dt = e = 0$, so the steady error vanishes. The price: the loop becomes third order, and during a large move the integral accumulates error that must be "unwound" past the target (windup). Feedforward instead adds $g(q)$ so that the remaining error dynamics are the gravity-free ones above, as long as the model is right.
+**Integral action.** With $+K_i\int e\,dt$ an equilibrium needs $e = 0$; the price is a third-order loop and windup. Feedforward instead leaves the gravity-free error dynamics, if the model is right.
 
 Go deeper: [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), ch. 11 (Robot Control).
 
@@ -100,13 +94,13 @@ Go deeper: [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=pha
 
 ## Build it
 
-You will now write the joint controller yourself in about 50 lines of NumPy: the gravity torque, the simulator step, the PD law and a PID with the limits a real motor needs. Every step is checked against MuJoCo running the same joint. The joint is the one from the Experiment, parts A and B: a 1 kg point mass 30 cm from a hinge, torque applied every 1 ms. The only things your code takes from MuJoCo are static numbers you could read off the XML (mass, distance, timestep).
+You will now write the joint controller in about 50 lines of NumPy, each step checked against MuJoCo running the Experiment's joint: 1 kg at 30 cm from a hinge, 1 ms steps. From MuJoCo you take only static numbers.
 
-Type the steps into a file of your own (for example `scratch/my_joint.py`) instead of copying them, and run it after each step. The finished functions are in [`physai/control.py`](../physai/control.py); `uv run python experiments/12-joint-control/build.py` runs all six steps with the checks (output in [`build_output.txt`](../experiments/12-joint-control/build_output.txt)).
+Type the steps into a file of your own (for example `scratch/my_joint.py`) and run it after each step. The finished functions are in [`physai/control.py`](../physai/control.py); `uv run python experiments/12-joint-control/build.py` runs all six steps with the checks (output in [`build_output.txt`](../experiments/12-joint-control/build_output.txt)).
 
 ### Step 1 · The load: gravity on one link
 
-With $q = 0$ horizontal and $q > 0$ pointing down, the mass sits at height $-l\sin q$, so gravity turns the joint with $mgl\cos q$: largest when the link is horizontal, zero when it hangs straight down. The inertia about the axis is $ml^2$ plus the small $10^{-4}$ kg·m² of the mass itself.
+With $q = 0$ horizontal and $q > 0$ down, the mass sits at height $-l\sin q$, so gravity turns the joint with $mgl\cos q$. The inertia is $ml^2$ plus the mass's own $10^{-4}$ kg·m².
 
 ```python
 def gravity_torque(q, m, l, g=9.81):
@@ -114,7 +108,7 @@ def gravity_torque(q, m, l, g=9.81):
     return m * g * l * np.cos(q)
 ```
 
-MuJoCo calls the same quantity `qfrc_bias`, with the opposite sign: it is the force the joint must *supply* to stay put, not the force gravity applies.
+MuJoCo's `qfrc_bias` has the opposite sign: the force the joint must *supply* to stay put.
 
 ```text
 == Step 1. Gravity torque m g l cos(q) by hand vs MuJoCo ==
@@ -130,7 +124,7 @@ max difference: 4.7e-16 N m
 
 ### Step 2 · The simulator: one semi-implicit Euler step
 
-Newton for a hinge is $I\ddot q = \tau + \tau_{\text{load}}$. Integrate it in the order MuJoCo's default `Euler` integrator does: first the new speed from the acceleration, then the new angle from the **new** speed. That order (semi-implicit, or symplectic, Euler) keeps an undamped pendulum from slowly gaining energy, which the textbook order (angle from the old speed) does.
+Newton for a hinge is $I\ddot q = \tau + \tau_{\text{load}}$. Integrate it in the order of MuJoCo's default `Euler`: new speed first, then the new angle from the **new** speed (semi-implicit Euler, lesson 11).
 
 ```python
 def step_joint(q, qd, tau, inertia, dt, load=0.0):
@@ -158,11 +152,11 @@ angle after 1 s: ours 77.423 deg, MuJoCo 77.423 deg
 max |q_ours - q_mujoco| over 1000 steps: 4.4e-16 rad
 ```
 
-The free swing agrees with `mj_step` to one rounding step for 1000 steps: the integrator is MuJoCo's.
+
 
 ### Step 3 · The PD law
 
-The controller is one line, the spring and the damper from Core idea:
+The spring and the damper, one line:
 
 ```python
 def pd_torque(q, qd, q_target, kp, kd):
@@ -177,7 +171,7 @@ q = simulate_joint(lambda q, qd: pd_torque(q, qd, 0.5, 20, kd), 0.0, I, DT, 4000
 overshoot = (q.max() - 0.5) / 0.5 * 100
 ```
 
-On the MuJoCo side the same torque goes into `d.ctrl[0]` of a motor actuator (gear 1), or into `d.qfrc_applied[0]`; both are tried below.
+In MuJoCo the same torque goes into `d.ctrl[0]` of a motor actuator, or into `d.qfrc_applied[0]`; both are tried.
 
 ```text
 == Step 3. PD step 0 -> 0.5 rad, Kp = 20, no gravity: overshoot ==
@@ -191,11 +185,11 @@ max |q_ours - q_mujoco| over all runs: 3.3e-16 rad
 same loop through qfrc_applied instead of the motor: max diff 0.0e+00 rad
 ```
 
-These are the Experiment's part A numbers, digit for digit, because the Experiment runs exactly this loop. The formula column comes from the ideal continuous system; the simulated overshoot sits 0.01 to 0.15 points below it.
+The Experiment's part A numbers, digit for digit; the ideal continuous formula sits 0.01 to 0.15 points above.
 
 ### Step 4 · Sag under gravity
 
-Add the load from Step 1 (`load_fn=lambda q: gravity_torque(q, 1.0, 0.3)`) and step from hanging (90°) to horizontal (0°). At rest the spring must carry the weight, $K_p e = mgl\cos e$, which a few lines of fixed-point iteration solve:
+Add the load (`load_fn=lambda q: gravity_torque(q, 1.0, 0.3)`) and step from hanging (90°) to horizontal (0°). At rest the spring carries the weight, $K_p e = mgl\cos e$, a fixed point:
 
 ```python
 def pd_sag(kp, mgl, iters=200):
@@ -214,11 +208,11 @@ def pd_sag(kp, mgl, iters=200):
   80       2.106         2.106                   2.106
 ```
 
-Your simulator, MuJoCo and the formula agree to three decimals at every Kp: the sag of the Experiment's part B is a property of the PD law, not of the simulator.
+Simulator, MuJoCo and formula agree: the sag belongs to the PD law.
 
 ### Step 5 · Gravity feedforward
 
-Feedforward adds the torque the model says gravity needs, before any error appears: $\tau = K_p e - K_d\dot q - g(q)$ with your `gravity_torque` as $g$ (the minus sign is MuJoCo's `+qfrc_bias`).
+Add the model's gravity torque before any error appears: $\tau = K_p e - K_d\dot q - g(q)$ with your `gravity_torque` (the minus is MuJoCo's `+qfrc_bias`).
 
 ```python
 KD = 2 * 0.7 * np.sqrt(20 * I)                      # 1.879, zeta = 0.7
@@ -235,11 +229,11 @@ MuJoCo: qfrc_bias left by mj_step                3.994            0.000         
 max |q_ours - q_fresh|: 4.2e-17 rad
 ```
 
-The final error is gone, as in the Experiment. But the overshoot here is 4.009°, while the Experiment's table says 3.994°. The difference is a timing detail: the Experiment reads `d.qfrc_bias` right after `mj_step`, and at that moment it still holds the value computed at the *start* of the step, for the angle one millisecond ago. Recompute it (`mj_forward`) or compute $g(q)$ yourself and you get 4.009°; reuse the old value and you get 3.994°. A 1 ms lag in a feedforward term is harmless here, but on a real robot the same lag comes from the bus and the sensor, and it grows.
+The final error is gone, but the overshoot is 4.009° where the Experiment says 3.994°: it reads `d.qfrc_bias` right after `mj_step`, when it still holds the value for the angle 1 ms ago. Recompute it (`mj_forward`) or use your $g(q)$ and you get 4.009°. On a real robot the bus and sensor add more lag.
 
 ### Step 6 · Limits: anti-windup and the torque cap
 
-Two things a controller on real hardware must have: a limit on the integral (otherwise it winds up during a large move, the 46.016° overshoot of the Experiment) and the motor's torque cap. Both go into one small class:
+Real hardware needs a limit on the integral (else it winds up: the Experiment's 46.016°) and the motor's torque cap. One small class:
 
 ```python
 @dataclass
@@ -261,7 +255,7 @@ class PID:
         return min(max(tau, -self.tau_max), self.tau_max)
 ```
 
-The clamp limits the *sum*, not just the term's output: a clipped output over a growing sum would still have to unwind before it could move again. The value 3 N·m is chosen just above the most the integral ever needs to supply, the gravity torque at horizontal, $mgl$ = 2.943 N·m (Step 1).
+The clamp limits the *sum*, so nothing has to unwind; 3 N·m is just above the most the integral needs, $mgl$ = 2.943 N·m.
 
 ```text
 == Step 6. Limits: integrator clamp (anti-windup) and torque cap ==
@@ -274,15 +268,15 @@ PID Ki = 160, ours vs MuJoCo: max diff 7.5e-17 rad
 torque cap, ours (clip in PID) vs MuJoCo (unclipped torque, ctrlrange = +-3.5): max diff 2.2e-16 rad
 ```
 
-The clamp cuts the PID overshoot from 46.016° (the Experiment's Ki = 160 row) to 4.646° and the time into ±0.5° from 1.520 s to 0.685 s, with the same zero final error. Without a cap the first command is 31.42 N·m, more than ten times the load: $K_p$ times a 90° error. A 3.5 N·m cap makes the move slower (0.607 s) and, here, gentler (2.512°). A cap below 2.943 N·m could not hold the link at all; that is what the SO-101 runs into in part C.
+The clamp cuts the Ki = 160 overshoot from 46.016° to 4.646° and the time into ±0.5° from 1.520 s to 0.685 s. Uncapped, the first command is 31.42 N·m ($K_p$ times 90°); a 3.5 N·m cap makes the move slower (0.607 s) and gentler (2.512°). Below 2.943 N·m the link could not be held at all (part C).
 
 ### What you keep
 
-`physai.control` now has `gravity_torque`, `step_joint`, `simulate_joint`, `pd_torque`, `pd_sag` and `PID`. A trajectory (lesson 13) is the same controller with a moving `q_target`; later lessons import it instead of re-deriving it. [`tests/test_12_joint_control.py`](../tests/test_12_joint_control.py) pins them to MuJoCo and to the ζ and sag formulas; run `uv run pytest tests/test_12_joint_control.py` after you change anything.
+`physai.control` now has `gravity_torque`, `step_joint`, `simulate_joint`, `pd_torque`, `pd_sag` and `PID`. A trajectory (lesson 13) is the same controller with a moving `q_target`. [`tests/test_12_joint_control.py`](../tests/test_12_joint_control.py) pins them to MuJoCo and to the ζ and sag formulas; run `uv run pytest tests/test_12_joint_control.py` after you change anything.
 
 ## Use it
 
-In practice you rarely write the torque loop for a position-controlled joint: MuJoCo's `position` actuator is the same PD law, computed inside `mj_step`. You send the target, not the torque:
+MuJoCo's `position` actuator is the same PD law, computed inside `mj_step`; you send the target:
 
 ```xml
 <actuator>
@@ -295,7 +289,7 @@ d.ctrl[0] = q_target          # position actuator: force = kp (ctrl - q) - kv qd
 mujoco.mj_step(m, d)
 ```
 
-If you want your own torque loop (PID, feedforward, a learned policy), use a `motor` actuator (`ctrl` is the torque, times `gear`) or write `qfrc_applied` directly, and for the gravity term either recompute `qfrc_bias` with `mj_forward` or let MuJoCo cancel gravity with `gravcomp="1"` on the body:
+For your own torque loop use a `motor` actuator or `qfrc_applied`, and recompute `qfrc_bias` with `mj_forward` or set `gravcomp="1"` on the body:
 
 ```python
 mujoco.mj_forward(m, d)                                   # qfrc_bias for the current q
@@ -313,30 +307,30 @@ position actuator                                  0.000            8.342       
 + joint actuatorgravcomp="true"                    4.009            0.000         0.000         -2.943
 ```
 
-`dampratio` computes the same Kd you computed by hand, the position actuator reproduces your Step 3 loop to 1.1e-16 rad, and under gravity it sags the same 8.342° as Step 4. `gravcomp` removes the sag with your Step 5 overshoot (4.009°).
+`dampratio` gives your Kd; the actuator matches your Step 3 loop to 1.1e-16 rad and sags 8.342°; `gravcomp` removes the sag with your Step 5 overshoot (4.009°).
 
-The same two gains have different names elsewhere. Units differ too, so never copy a number from one row to another:
+The same two gains elsewhere (units differ: never copy a number across rows):
 
 | Where | P gain | D gain | Notes |
 |---|---|---|---|
-| physai | `PID.kp` | `PID.kd` | N·m/rad and N·m·s/rad; `ki`, `i_max`, `tau_max` as in Step 6 |
+| physai | `PID.kp` | `PID.kd` | N·m/rad, N·m·s/rad |
 | MuJoCo `position` actuator | `kp` | `kv`, or `dampratio` | the SO-101 model: `kp="998.22" kv="2.731" forcerange="-2.94 2.94"` ([`so101.xml`](https://github.com/google-deepmind/mujoco_menagerie/blob/f3b6013/robotstudio_so101/so101.xml)) |
 | `unitree_rl_gym` config | `stiffness` | `damping` | dicts per joint name, 20 and 0.5 for the Go2 ([`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)) |
-| `unitree_sdk2` low-level command | `motor_cmd()[i].kp()` | `motor_cmd()[i].kd()` | set in each command together with `q`, `dq` and `tau`; 60 and 5 in the stand example ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp)) |
-| Isaac Lab actuator config | `stiffness` ("p-gain") | `damping` ("d-gain") | implicit actuators hand them to the physics engine, explicit ones compute the effort themselves ([`isaaclab.actuators`](https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.actuators.html)) |
-| LeRobot SO-101 follower (Feetech STS3215) | `P_Coefficient` = 16 | `D_Coefficient` = 32 | servo register values, no physical unit; `I_Coefficient` = 0 ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py)) |
+| `unitree_sdk2` low-level command | `motor_cmd()[i].kp()` | `motor_cmd()[i].kd()` | per command, with `q`, `dq`, `tau`; 60 and 5 in the stand example ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp)) |
+| Isaac Lab actuator config | `stiffness` ("p-gain") | `damping` ("d-gain") | implicit actuators hand them to the physics engine, explicit ones compute the effort ([`isaaclab.actuators`](https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.actuators.html)) |
+| LeRobot SO-101 follower (Feetech STS3215) | `P_Coefficient` = 16 | `D_Coefficient` = 32 | servo register values, no unit; `I_Coefficient` = 0 ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py)) |
 
 Three traps:
 
-- **A gain is not a gain.** LeRobot's P coefficient 16 is a register value inside the servo; the Menagerie model's `kp = 998.22` N·m/rad was derived assuming that setting and is "not a 1-to-1 mapping" (the comment in `so101.xml`). Retune when you change tools.
-- **Stale `qfrc_bias`.** After `mj_step` it holds the value from the start of that step (Step 5: 3.994° instead of 4.009°). On a moving arm with several joints it is also more than gravity: it contains the Coriolis and centrifugal torques; only at rest is it $g(q)$ alone.
-- **Free gravity compensation.** With `gravcomp="1"` the link holds while the actuator reports 0.000 N·m, because MuJoCo books the 2.943 N·m as a passive force. A real motor has to supply it. `actuatorgravcomp="true"` on the joint books it under `qfrc_actuator`, so your torque budget sees it.
+- **A gain is not a gain.** LeRobot's P coefficient 16 is a servo register value; the Menagerie model's `kp = 998.22` N·m/rad was derived assuming it and is "not a 1-to-1 mapping" (`so101.xml`). Retune when you change tools.
+- **Stale `qfrc_bias`.** After `mj_step` it holds the value from the start of that step (Step 5: 3.994° instead of 4.009°). On a moving multi-joint arm it also contains Coriolis and centrifugal torques; only at rest is it $g(q)$.
+- **Free gravity compensation.** With `gravcomp="1"` the actuator reports 0.000 N·m: MuJoCo books the 2.943 N·m as passive, though a real motor must supply it. `actuatorgravcomp="true"` books it under `qfrc_actuator`.
 
 ## Experiment
 
-Full script: [`experiments/12-joint-control/experiment.py`](../experiments/12-joint-control/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministic, ~2 s. Four parts, each a sweep.
+Full script: [`experiments/12-joint-control/experiment.py`](../experiments/12-joint-control/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministic, ~2 s.
 
-**A. Damping ratio.** One joint, $I$ = 0.0901 kg·m² (1 kg at 30 cm), no gravity, Kp = 20, step 0 → 0.5 rad, torque applied every 1 ms. *Predict:* at which ζ does overshoot vanish, and which ζ settles fastest?
+**A. Damping ratio.** One joint, $I$ = 0.0901 kg·m², no gravity, Kp = 20, step 0 → 0.5 rad. *Predict:* at which ζ does overshoot vanish, and which ζ settles fastest?
 
 | ζ | Kd | overshoot % (sim) | formula % | settling 2% [s] |
 |---|---|---|---|---|
@@ -347,9 +341,9 @@ Full script: [`experiments/12-joint-control/experiment.py`](../experiments/12-jo
 | 1.0 | 2.685 | 0.00 | 0.00 | 0.393 |
 | 1.5 | 4.027 | 0.00 | 0.00 | 0.716 |
 
-The formula holds to a fraction of a percent. ζ ≈ 0.7–1 settles fastest; overdamping (1.5) is slower again. At fixed ζ = 0.7, settling time halves when Kp quadruples: Kp 5 / 20 / 80 → ωn 7.45 / 14.90 / 29.80 rad/s → 0.799 / 0.398 / 0.197 s.
+ζ ≈ 0.7–1 settles fastest; overdamping (1.5) is slower again. At ζ = 0.7, settling halves when Kp quadruples: Kp 5 / 20 / 80 → ωn 7.45 / 14.90 / 29.80 rad/s → 0.799 / 0.398 / 0.197 s.
 
-**B. Gravity.** Same joint with gravity ($mgl$ = 2.943 N·m), step from hanging (90°) to horizontal (0°), ζ = 0.7.
+**B. Gravity.** With gravity ($mgl$ = 2.943 N·m), hanging (90°) to horizontal (0°), ζ = 0.7.
 
 | Kp | sag (sim) | sag from $K_p e = mgl\cos e$ |
 |---|---|---|
@@ -374,11 +368,11 @@ tau += d.qfrc_bias[0]                       # or: gravity feedforward from the m
 | PID, Ki = 160 | 0.000° | 46.016° | 1.520 s |
 | PD + `qfrc_bias` | −0.000° | 3.994° | 0.463 s |
 
-The integral term removes the error but trades it for time or overshoot. Feedforward removes it immediately, with the overshoot of the ζ = 0.7 loop itself (lesson 11's $g(q)$ doing its job). The script reads `qfrc_bias` one step late; with the fresh value the overshoot is 4.009° (Build it, Step 5).
+The integral trades the error for time or overshoot; feedforward removes it at once, with the ζ = 0.7 loop's own overshoot (one step late: 4.009° with a fresh `qfrc_bias`, Build it, Step 5).
 
-![Left: step responses of the PD joint without gravity for damping ratios 0.1 to 1.5; low ratios ring around the target, 1.0 arrives without overshoot, 1.5 creeps. Right: the same joint under gravity; PD stops 8.342° short, PID with Ki 160 swings 46.016° past the target, PD with gravity feedforward settles on the target.](../experiments/12-joint-control/step_responses.png)
+![Left: PD step responses without gravity for damping ratios 0.1 to 1.5, from ringing to creeping. Right: under gravity PD stops 8.342° short, PID with Ki 160 swings 46.016° past, PD with gravity feedforward settles on the target.](../experiments/12-joint-control/step_responses.png)
 
-**C. SO-101 servo.** Arm stretched forward (all joints 0, gripper about 39 cm out), payload at the gripper frame, all servos told to hold 0, 3 s.
+**C. SO-101 servo.** Arm stretched forward (all joints 0, gripper about 39 cm out), payload at the gripper, servos hold 0 for 3 s.
 
 | payload | gravity torque, shoulder | shoulder sag | servo torque | gripper drop |
 |---|---|---|---|---|
@@ -389,9 +383,9 @@ The integral term removes the error but trades it for time or overshoot. Feedfor
 | 0.80 kg | −3.101 | 37.403° | −2.940 (cap) | 22.30 |
 | 1.00 kg | −3.733 | 37.403° | −2.940 (cap) | 22.30 |
 
-With $k_p$ near 1000 N·m/rad the sag is a fraction of a degree, until the gravity torque passes the 2.94 N·m cap. Then the position loop has nothing left and the arm falls until the gripper rests on the floor. A stiff servo hides gravity; its torque limit does not.
+With $k_p$ near 1000 N·m/rad the sag is a fraction of a degree, until gravity passes the 2.94 N·m cap; then the arm falls to the floor. A stiff servo hides gravity; its torque limit does not.
 
-**D. Go2 case study.** The Menagerie Go2 lies with folded legs (body at 10 cm); for 3 s all 12 joints get $\tau = K_p(q^* - q) - K_d\dot q$, clipped at the motor limits; $q^*$ = `default_joint_angles` from `go2_config.py`. Final = mean body height over 2.5–3 s; overshoot = (peak − final)/(final − start); "steps saturated" = share of control steps in which some joint hit its torque limit.
+**D. Go2 case study.** The Menagerie Go2 lies with folded legs (body at 10 cm); for 3 s all 12 joints get the clipped PD torque toward `default_joint_angles` from `go2_config.py`. Final = mean body height over 2.5–3 s; overshoot = (peak − final)/(final − start); "steps saturated" = share of steps with some joint at its torque limit.
 
 | Kp / Kd | peak | t peak | feet on floor at peak | final | overshoot | steps saturated |
 |---|---|---|---|---|---|---|
@@ -405,25 +399,25 @@ With $k_p$ near 1000 N·m/rad the sag is a fraction of a degree, until the gravi
 | 60 / 5 (real-robot example gains) | 29.9 | 1.11 | 4 | 29.8 | 0.2% | 0.9% |
 | 20 / 0.5 + 5 kg on the body | 22.7 | 0.38 | 4 | 21.8 | 7.4% | 0.0% |
 
-If the target angles were held exactly, the body would stand at 32.35 cm (front legs; rear 31.39 cm; geometry only). With 20 / 0.5 it stands at 25.2 cm, about 7 cm low: this is part B's gravity sag, on twelve joints at once. PD alone does not close it; in training, the policy closes it by shifting the target (`action_scale = 0.25` in `go2_config.py`).
+Held exactly, the targets would put the body at 32.35 cm (front legs; rear 31.39 cm). With 20 / 0.5 it stands at 25.2 cm, about 7 cm low: part B's sag on twelve joints. In training the policy closes it by shifting the target (`action_scale = 0.25`).
 
 ## Break it
 
-**Kp up, Kd fixed.** At 80 / 0.5 the body overshoots to 50.8 cm at t = 0.33 s with **all four feet off the floor**, and some joint is at its torque limit in 2.9% of the steps. In ζ terms: Kp quadrupled while Kd stayed put, so ζ halved; the joints swing far past the target and the stored energy throws the robot. Raising Kd with Kp (60 / 5) gives 0.2% overshoot and a 29.8 cm stance.
+**Kp up, Kd fixed.** At 80 / 0.5 the body overshoots to 50.8 cm at t = 0.33 s with **all four feet off the floor**, some joint saturated in 2.9% of the steps. Kp quadrupled at fixed Kd, so ζ halved, and the stored energy throws the robot. Raising Kd with Kp (60 / 5) gives 0.2% overshoot and a 29.8 cm stance.
 
-**Ki up.** In part B, Ki = 160 removes the steady (long-run) error but overshoots by 46.016°: during the 90° move the integral accumulates a large error that must be "unwound" past the target. Real controllers clamp or freeze the integrator during saturation and large errors (anti-windup), or use feedforward and keep Ki small. The 3 N·m clamp of Build it, Step 6 brings the same Ki = 160 down to 4.646° of overshoot.
+**Ki up.** In part B, Ki = 160 removes the steady error but overshoots by 46.016°: the integral winds up during the 90° move. Real controllers clamp or freeze the integrator (anti-windup) or use feedforward and keep Ki small; the 3 N·m clamp of Build it, Step 6 brings it to 4.646°.
 
 ## On the real robot
 
-- **Go2.** 20 / 0.5 are training-simulation gains under a policy that moves the target every 20 ms. Unitree's `unitree_rl_gym/deploy` has real-robot configs for G1, H1 and H1_2 only, none for the Go2 ([`deploy_real/configs`](https://github.com/unitreerobotics/unitree_rl_gym/tree/main/deploy/deploy_real/configs)). The SDK stand example uses Kp 60, Kd 5 and does not step the target: it interpolates linearly from the start pose through waypoints, each phase lasting 500 or more ticks of 2 ms ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp), [Python version](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py)). A ramped target is the trajectory idea of lesson 13. None of the Go2 numbers in this lesson are measured on hardware.
-- **Model differences.** The Menagerie Go2 adds passive joint damping 2 N·m·s/rad and friction loss 0.2 N·m; the training [`go2.urdf`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/resources/robots/go2/urdf/go2.urdf) has no joint damping entries and a knee effort limit of 35.55 N·m (Menagerie: 45.43 N·m). Our step is 2 ms (training: 5 ms). Even "Kd = 0" therefore has damping, and every oscillation here is softer than in training. Trust the qualitative results (Kp 5 cannot stand, Kp 80 leaves the floor, 20 / 0.5 stands about 7 cm low); treat exact overshoot percentages as specific to this model.
-- **SO-101.** The follower arm uses six STS3215 servos with 1/345 gearing; the leader arm mixes 1/191, 1/345 and 1/147 so it can hold itself up yet be moved by hand ([LeRobot SO-101 docs](https://huggingface.co/docs/lerobot/so101)). You send goal positions; the loop that turns position error into motor current runs in the servo. Part C's sag and drop numbers come from the Menagerie model and are not yet measured on the real arm. Procedure to measure: stretch the arm forward, hang known masses at the gripper, read `Present_Position` of shoulder_lift, and stop before the servo overheats.
+- **Go2.** 20 / 0.5 are training gains under a policy that moves the target every 20 ms; `unitree_rl_gym/deploy` has real-robot configs for G1, H1 and H1_2 only ([`deploy_real/configs`](https://github.com/unitreerobotics/unitree_rl_gym/tree/main/deploy/deploy_real/configs)). The SDK stand example (Kp 60, Kd 5) interpolates linearly through waypoints, phases of 500 or more 2 ms ticks ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp), [Python version](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py)), the trajectory idea of lesson 13. No Go2 number here is measured on hardware.
+- **Model differences.** Menagerie's Go2 adds joint damping 2 N·m·s/rad and friction loss 0.2 N·m; the training [`go2.urdf`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/resources/robots/go2/urdf/go2.urdf) has no damping and a 35.55 N·m knee limit (Menagerie: 45.43 N·m). Our step is 2 ms (training: 5 ms); even "Kd = 0" has damping. Trust the qualitative results (Kp 5 cannot stand, Kp 80 leaves the floor, 20 / 0.5 stands about 7 cm low), not the exact percentages.
+- **SO-101.** The follower's six STS3215 servos have 1/345 gearing ([LeRobot SO-101 docs](https://huggingface.co/docs/lerobot/so101)); you send goal positions, the position loop runs in the servo. Part C's numbers come from the Menagerie model, not yet measured on the real arm. Procedure: stretch the arm forward, hang known masses at the gripper, read `Present_Position` of shoulder_lift, stop before the servo overheats.
 
 ## Check yourself
 
 1. **Easy.** A wrist joint has $I$ = 0.01 kg·m² and Kp = 20 N·m/rad. Which Kd gives ζ = 0.7?
 2. **Medium.** In part B, what Kp would bring the PD sag of the 1 kg, 30 cm link under 1°? Use $K_p e \approx mgl$.
-3. **Hard.** Add an I term to the Go2 rule (`Ki * integral(q* - q)`) in `experiment.py`. Does the ~7 cm gap close within 3 s? What happens to overshoot and to the feet-at-peak count?
+3. **Hard.** Add an I term to the Go2 rule in `experiment.py`. Does the ~7 cm gap close within 3 s? What happens to overshoot and feet at peak?
 
 ### Answers
 
@@ -433,15 +427,15 @@ If the target angles were held exactly, the body would stand at 32.35 cm (front 
 
 ## Takeaways and sources
 
-- PD is a spring–damper: $\zeta = K_d / (2\sqrt{K_p I})$ predicts overshoot to within a fraction of a percent (72.91% vs 72.92% at ζ = 0.1); ζ ≈ 0.7–1 settles fastest.
-- Under gravity PD sags by $g/K_p$ (8.342° at Kp 20); PID removes it slowly and winds up (46.016° overshoot at Ki 160); gravity feedforward from `qfrc_bias` removes it at once.
+- PD is a spring–damper: $\zeta = K_d / (2\sqrt{K_p I})$ predicts overshoot (72.91% vs 72.92% at ζ = 0.1); ζ ≈ 0.7–1 settles fastest.
+- Under gravity PD sags by $g/K_p$ (8.342° at Kp 20); PID removes it slowly and winds up (46.016° at Ki 160); gravity feedforward removes it at once.
 - A position servo is a stiff PD with a torque cap; Go2's 20 / 0.5 stands 7 cm low without a policy, 80 / 0.5 throws it off the floor.
 
 Next: [lesson 13 · Trajectory generation](13-trajectory-generation.md).
 
 Sources:
 - [`unitree_rl_gym`](https://github.com/unitreerobotics/unitree_rl_gym): [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py), [`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py), [`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py) (BSD-3-Clause, © Unitree Robotics).
-- [`unitree_sdk2` · `go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp), [`unitree_sdk2_python` · `go2_stand_example.py`](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py): Kp 60, Kd 5, interpolated targets.
+- [`unitree_sdk2` · `go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp), [`unitree_sdk2_python` · `go2_stand_example.py`](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py).
 - [LeRobot SO-101 documentation](https://huggingface.co/docs/lerobot/so101) (read 2026-10-27).
 - [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie): `unitree_go2` (BSD-3-Clause, © Unitree Robotics), `robotstudio_so101` (Apache-2.0); [MuJoCo Modeling · actuators](https://mujoco.readthedocs.io/en/stable/modeling.html).
 - Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), ch. 11 (Robot Control).

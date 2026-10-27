@@ -1,6 +1,7 @@
 # Lesson 03 · Contact: soft constraints, solref and solimp. Every answer is supported by the lesson page or
-# experiments/03-contact/output.txt. answer = index of the correct option (0-based).
-- q:
+# experiments/03-contact/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: You double the `solref` timeconst of a resting contact. How much deeper does the body sink?
     tr: Duran bir contact'ın `solref` timeconst'unu iki katına çıkarıyorsun. Cisim ne kadar daha derine batar?
   options:
@@ -14,7 +15,8 @@
   why:
     en: $r = (1-d)\,a_u\,(d_w/d)^2\,\text{timeconst}^2\,\text{dampratio}^2$. In Sweep 1 the sphere goes from 1.2262 mm at 0.05 s to 4.9050 mm at 0.1 s, both at $d$ = 0.95.
     tr: $r = (1-d)\,a_u\,(d_w/d)^2\,\text{timeconst}^2\,\text{dampratio}^2$. Sweep 1'de sphere 0,05 s'de 1,2262 mm'den 0,1 s'de 4,9050 mm'ye çıkıyor, ikisi de $d$ = 0,95'te.
-- q:
+- stage: pre
+  q:
     en: A dropped cube bounces and you want it to stop bouncing. Which number do you change?
     tr: Bırakılan bir küp sekiyor ve sekmesini durdurmak istiyorsun. Hangi sayıyı değiştirirsin?
   options:
@@ -28,7 +30,38 @@
   why:
     en: dampratio is MuJoCo's restitution knob. In Sweep 3 the rebound falls from 56.504 mm at 0.1 to 0.000 mm at 1.0; a timeconst below 2·dt is replaced by `refsafe` anyway.
     tr: dampratio MuJoCo'nun restitution düğmesi. Sweep 3'te sekme 0,1'de 56,504 mm'den 1,0'da 0,000 mm'ye iniyor; 2·dt'nin altındaki bir timeconst'u zaten `refsafe` değiştiriyor.
-- q:
+- stage: check
+  q:
+    en: In Build it, Step 1, timeconst 0.001 s and 0.004 s give the same $K$ = 69252.1 and $B$ = 526.32 in `efc_KBIP`. Why?
+    tr: Sıfırdan yaz, Adım 1'de timeconst 0,001 s ve 0,004 s `efc_KBIP`'te aynı $K$ = 69252,1 ve $B$ = 526,32'yi veriyor. Neden?
+  options:
+    - en: The impedance $d$ saturates at 0.95 and hides the difference.
+      tr: Impedance $d$ 0,95'te doyuyor ve farkı gizliyor.
+    - en: '`refsafe` raises any timeconst below $2h$ = 0.004 s to 0.004 s before computing $K$ and $B$.'
+      tr: '`refsafe`, $K$ ve $B$''yi hesaplamadan önce $2h$ = 0,004 s''nin altındaki her timeconst''u 0,004 s''ye yükseltiyor.'
+    - en: MuJoCo stores $K$ and $B$ rounded to the timestep.
+      tr: MuJoCo $K$ ve $B$'yi timestep'e yuvarlayarak saklıyor.
+  answer: 1
+  why:
+    en: '`solref_kb` applies `max(timeconst, 2 * h)` and matches `efc_KBIP` in every row; the Experiment''s sweep 1 shows the same plateau, 0.0175 mm for 0.001, 0.002 and 0.004 s.'
+    tr: '`solref_kb` `max(timeconst, 2 * h)` uyguluyor ve her satırda `efc_KBIP` ile örtüşüyor; Deney''in 1. sweep''i de aynı düzlüğü gösteriyor: 0,001, 0,002 ve 0,004 s için 0,0175 mm.'
+- stage: check
+  q:
+    en: In Build it, Step 4, timeconst 0.002 s with `refsafe` off has $h\omega$ = 1.00, below lesson 02's limit of 2, yet its growth per step is 1.618 and the sphere is thrown to 1.786 m. Why?
+    tr: Sıfırdan yaz, Adım 4'te `refsafe` kapalıyken timeconst 0,002 s'nin $h\omega$'sı 1,00, ders 02'nin 2 limitinin altında; yine de adım başına büyümesi 1,618 ve küre 1,786 m'ye fırlıyor. Neden?
+  options:
+    - en: The contact's damping is integrated explicitly, which lowers the limit to $h^2\omega^2 < 4 - 2hc$, about $h\omega < 0.83$ at dampratio 1.
+      tr: Contact'ın damping'i explicit integre ediliyor; bu limiti $h^2\omega^2 < 4 - 2hc$'ye, dampratio 1'de yaklaşık $h\omega < 0{,}83$'e çekiyor.
+    - en: Lesson 02's limit applies only to RK4.
+      tr: Ders 02'nin limiti yalnızca RK4 için geçerli.
+    - en: The sphere hits the plane faster than 4.37 m/s.
+      tr: Küre düzleme 4,37 m/s'den hızlı çarpıyor.
+  answer: 0
+  why:
+    en: 'Near rest the contact is $a \approx -dBv - d^2Kr$; with dampratio 1 the damping term is as large as the spring term, and an explicit damper shrinks the stable region. 0.003 s ($h\omega$ = 0.67) survives, and `refsafe`''s $2h$ gives $h\omega$ = 0.50.'
+    tr: 'Durgunluğa yakın contact $a \approx -dBv - d^2Kr$; dampratio 1''de damping terimi yay terimi kadar büyük ve explicit bir damper kararlı bölgeyi daraltır. 0,003 s ($h\omega$ = 0,67) ayakta kalıyor, `refsafe`''in $2h$''si $h\omega$ = 0,50 veriyor.'
+- stage: post
+  q:
     en: With `refsafe` on, timeconst 0.02 and dampratio 0.05, a 10 cm drop launches the cube to 3.147 m. Why did the guard not stop it?
     tr: '`refsafe` açık, timeconst 0,02 ve dampratio 0,05 iken 10 cm''den bırakılan küp 3,147 m''ye fırlıyor. Koruma bunu neden durdurmadı?'
   options:
@@ -42,3 +75,18 @@
   why:
     en: Break it 2, the gap in the guard; outside `discrete`, keep timeconst·dampratio well above `dt`.
     tr: Boz 2, korumadaki boşluk; `discrete` dışında timeconst·dampratio çarpımını `dt`'nin rahatça üstünde tut.
+- stage: post
+  q:
+    en: In sweep 1, at timeconst 0.001–0.01 s, the 10 cm cube sinks about a quarter as deep as the sphere (for example 0.0068 vs 0.0273 mm at 0.005 s). Why a quarter?
+    tr: 1. sweep'te, timeconst 0,001–0,01 s'de, 10 cm'lik küp kürenin yaklaşık dörtte biri kadar batıyor (örneğin 0,005 s'de 0,0068'e karşı 0,0273 mm). Neden dörtte bir?
+  options:
+    - en: The cube is four times heavier per unit area.
+      tr: Küpün birim alan başına ağırlığı dört kat fazla.
+    - en: '`solref` is averaged over four geoms.'
+      tr: '`solref` dört geom üzerinden ortalanıyor.'
+    - en: The cube rests on four corner contacts, each carrying a quarter of the weight at the same impedance $d$, and penetration is proportional to the load $a_u$.
+      tr: Küp dört köşe contact'ı üzerinde duruyor, her biri aynı impedance $d$'de ağırlığın dörtte birini taşıyor ve penetration yük $a_u$ ile orantılı.
+  answer: 2
+  why:
+    en: The resting penetration $(1-d)\,a_u\,(d_w/d)^2\,\text{timeconst}^2\,\text{dampratio}^2$ is linear in the load. Where the cube's shallower contacts sit lower on the `solimp` curve (0.02 and 0.05 s), $d$ differs and the ratio breaks.
+    tr: Durağan penetration $(1-d)\,a_u\,(d_w/d)^2\,\text{timeconst}^2\,\text{dampratio}^2$ yükte lineer. Küpün daha sığ contact'larının `solimp` eğrisinde daha aşağıda kaldığı yerlerde (0,02 ve 0,05 s) $d$ farklılaşıyor ve oran bozuluyor.

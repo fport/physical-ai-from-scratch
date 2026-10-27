@@ -1,0 +1,30 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Transforms: inverse and composition (1000 random poses) ==
+transform_inv vs np.linalg.inv   1.6e-15
+transform_inv vs mju_negPose     4.4e-16
+T_a @ T_b vs mju_mulPose         1.1e-15
+
+== Step 2. Frame-tree walk vs MuJoCo's xpos / xmat (every body, 50 random arm poses) ==
+10 bodies (world, 8 SO-101 links, the free cube) · max |pos error| 2.2e-16 m · max |rotation error| 1.0e-15
+
+== Step 3. Frames hanging off bodies: site, camera, inertial frame ==
+site gripperframe    max error 4.4e-16
+camera wrist_cam     max error 6.4e-16
+base inertial frame  max error 3.5e-15
+
+== Step 4. The cube in each frame: our transforms vs the framepos sensors ==
+base B                0.2200  0.0000  0.0150 m · max |ours - sensor| 2.8e-17
+gripper G             0.0806 -0.0290 -0.0205 m · max |ours - sensor| 1.0e-16
+camera C             -0.0064 -0.0011 -0.1508 m · max |ours - sensor| 1.1e-16
+base INERTIAL frame  -0.0044  0.0397  0.2032 m · max |ours - sensor| 7.4e-16
+inertial frame vs regular frame of the base: 295.5 mm apart
+
+== Step 5. Use the transforms: pixels, and five ways to get the cube into the gripper frame ==
+f = 407.4 px · cube centre at u = 302.7, v = 242.8 px (camera looks along -z, image v grows downward)
+T_WG^-1 p (correct)              error    0.0 mm
+R (p - t): R instead of R^T      error  101.0 mm
+(T_BG T_WB)^-1 p: wrong order    error  103.2 mm
+R^T p: forgot the translation    error  274.3 mm
+T_WG p: transform, not inverse   error  424.4 mm
+chain: max |T_WB @ T_BG - T_WG| = 1.1e-16

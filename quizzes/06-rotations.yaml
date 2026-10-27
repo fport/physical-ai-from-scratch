@@ -1,6 +1,7 @@
 # Lesson 06 · Rotations. Every answer is supported by the lesson page or
-# experiments/06-rotations/output.txt. answer = index of the correct option (0-based).
-- q:
+# experiments/06-rotations/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: One free body in MuJoCo has `nq = 7` position numbers but only `nv = 6` velocity numbers. Why?
     tr: MuJoCo'da tek bir serbest body'nin `nq = 7` konum sayısı ama yalnızca `nv = 6` hız sayısı var. Neden?
   options:
@@ -14,7 +15,8 @@
   why:
     en: Position 3 + quaternion 4 = 7, linear 3 + angular 3 = 6 (Part A of the output, default quaternion `[1, 0, 0, 0]`).
     tr: Konum 3 + quaternion 4 = 7, doğrusal 3 + açısal 3 = 6 (çıktının A bölümü, default quaternion `[1, 0, 0, 0]`).
-- q:
+- stage: pre
+  q:
     en: Gimbal lock happens at pitch ±90°. Is a pitch of 80° safe for a controller that commands Euler-angle rates?
     tr: Gimbal lock pitch ±90°'de olur. Euler açısı hızlarını komut eden bir controller için 80° pitch güvenli mi?
   options:
@@ -28,7 +30,53 @@
   why:
     en: Step 2 table; the Euler rate needed for a 1 rad/s body rotation is 16.2 rad/s at 85° and 81.0 rad/s at 89° (Break it).
     tr: Adım 2 tablosu; 1 rad/s'lik gövde rotation'ı için gereken Euler hızı 85°'de 16,2 rad/s, 89°'de 81,0 rad/s (Boz).
-- q:
+- stage: check
+  q:
+    en: In Build it, Step 3, the same angles (yaw, pitch, roll) give $R_z R_y R_x$ with MuJoCo's `"zyx"` and with SciPy's `"ZYX"`, while SciPy's `"zyx"` gives a matrix up to 2.00 away. Why?
+    tr: Sıfırdan yaz, Adım 3'te aynı açılar (yaw, pitch, roll) MuJoCo'nun `"zyx"`'iyle de SciPy'ın `"ZYX"`'iyle de $R_z R_y R_x$ veriyor, SciPy'ın `"zyx"`'i ise 2,00'ye kadar uzak bir matris veriyor. Neden?
+  options:
+    - en: SciPy stores quaternions scalar last, so its matrices are transposed.
+      tr: SciPy quaternion'ları skaler sonda sakladığı için matrisleri transpoze çıkar.
+    - en: The two libraries use opposite letter cases for intrinsic sequences; SciPy's lowercase means extrinsic, a different rotation.
+      tr: İki kütüphane intrinsic diziler için zıt harf büyüklüğü kullanıyor; SciPy'ın küçük harfi extrinsic demek, yani farklı bir rotation.
+    - en: Random rounding in SciPy's Euler conversion.
+      tr: SciPy'ın Euler dönüşümündeki rastgele yuvarlama.
+  answer: 1
+  why:
+    en: '`mju_euler2Quat` treats lowercase as intrinsic, SciPy treats uppercase as intrinsic; both match `euler_zyx_to_mat` to below 1e-15. Nothing errors when you mix them up (Use it, Traps).'
+    tr: '`mju_euler2Quat` küçük harfi, SciPy büyük harfi intrinsic sayar; ikisi de `euler_zyx_to_mat` ile 1e-15''in altında örtüşüyor. Karıştırınca hiçbir şey hata vermez (Kütüphaneyle kullan, Tuzaklar).'
+- stage: check
+  q:
+    en: Why does `mat_to_quat` pick the largest of $w, x, y, z$ first (Shepperd's method) instead of always computing $w = \tfrac12\sqrt{1 + \operatorname{tr} R}$ and dividing by it?
+    tr: '`mat_to_quat` neden her zaman $w = \tfrac12\sqrt{1 + \operatorname{tr} R}$''yi hesaplayıp ona bölmek yerine önce $w, x, y, z$''nin en büyüğünü seçiyor (Shepperd yöntemi)?'
+  options:
+    - en: Near a 180° rotation $w \to 0$, and dividing by a tiny $w$ amplifies rounding errors; the largest component is always at least 1/2.
+      tr: 180°'lik bir rotation'a yakın $w \to 0$ olur ve küçücük bir $w$'ye bölmek yuvarlama hatalarını büyütür; en büyük bileşen her zaman en az 1/2'dir.
+    - en: To return $-q$ instead of $q$ for half of the inputs.
+      tr: Girdilerin yarısında $q$ yerine $-q$ döndürmek için.
+    - en: Because the trace of a rotation matrix can be larger than 3.
+      tr: Çünkü bir rotation matrisinin izi 3'ten büyük olabilir.
+  answer: 0
+  why:
+    en: For 180° about $x$ the trace is −1 and $w$ = 0; Build it, Step 2 takes the $x$ branch there and returns [0, 1, 0, 0]. Over 1000 random rotations it matches `mju_mat2Quat` to 5.6e-16.
+    tr: $x$ etrafında 180° için iz −1 ve $w$ = 0; Sıfırdan yaz, Adım 2 orada $x$ dalını seçip [0, 1, 0, 0] döndürüyor. 1000 rastgele rotation üzerinde `mju_mat2Quat` ile 5,6e-16 farkla örtüşüyor.
+- stage: post
+  q:
+    en: In Experiment Step 3, naive Euler-angle interpolation deviates from slerp by up to 179.83° when the start pitch is 85°. What causes such a jump?
+    tr: Deney Adım 3'te, başlangıç pitch'i 85° iken naif Euler açısı interpolasyonu slerp'ten 179,83°'ye kadar sapıyor. Böyle bir sıçramaya ne yol açıyor?
+  options:
+    - en: Slerp itself is unstable near 90°.
+      tr: Slerp'in kendisi 90° civarında kararsız.
+    - en: The goal's pitch crosses the ±90° boundary, so its extracted yaw and roll jump by about 180°, and the straight line in angles swings the long way round.
+      tr: Hedefin pitch'i ±90° sınırını geçiyor, çıkarılan yaw ve roll yaklaşık 180° sıçrıyor ve açılardaki düz çizgi uzun yoldan dolanıyor.
+    - en: Floating-point rounding grows like $1/\cos\theta$.
+      tr: Floating-point yuvarlaması $1/\cos\theta$ gibi büyüyor.
+  answer: 1
+  why:
+    en: The orientation itself is fine; the three-angle description jumps. The Euler path can travel up to 5.595 times the 60° it should, while slerp always travels 60.0°.
+    tr: Orientation'ın kendisi sorunsuz; sıçrayan üç açılı tarif. Euler yolu olması gereken 60°'nin 5,595 katına kadar dolaşabiliyor, slerp ise her zaman 60,0° gidiyor.
+- stage: post
+  q:
     en: Slerp between two orientations 60° apart travels 300.0° in the worst case when the sign check is removed. Why?
     tr: İşaret kontrolü kaldırılınca, 60° aralıklı iki orientation arasındaki slerp en kötü durumda 300,0° yol alıyor. Neden?
   options:

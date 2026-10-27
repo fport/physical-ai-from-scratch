@@ -1,0 +1,28 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. A scripted demonstration cut into 25 Hz frames vs demos.npz, episode 0 ==
+2284 physics steps -> 114 frames | demos.npz episode 0: 114 frames
+max |obs - saved| = 1.2e-07 | max |action - saved| = 1.2e-07
+
+== Step 2. Zero-order hold of the part-A recording (fixed 4.5 s timeline, cube at (22, 0) cm) ==
+2250 commands -> 112 frames -> 2240 held commands
+largest gap between held and original command: arm 3.72 deg, jaw 9.22 deg
+replay of the held frames at the recorded spot: held
+
+== Step 3. Open-loop replay of the held frames, cube shifted in 8 directions ==
+   shift   held  Wilson 95%    failures
+    1 cm    7/8  [0.53, 0.98]  pushed 1
+    2 cm    2/8  [0.07, 0.59]  one jaw 1, pushed 5
+    3 cm    1/8  [0.02, 0.47]  missed 2, pushed 5
+
+== Step 4. Re-target with the Jacobian: q' = q + pinv(J_p(q)) shift, error of the tool point ==
+shift 1 cm toward +y: tool point off by 0.28 mm
+shift 2 cm toward +y: tool point off by 1.10 mm
+shift 3 cm toward +y: tool point off by 2.48 mm
+shift 5 cm toward +y: tool point off by 6.89 mm
+
+== Step 5. Replay of the re-targeted frames (cube position read once), same 24 shifts ==
+   shift   held  Wilson 95%    failures
+    1 cm    8/8  [0.68, 1.00]
+    2 cm    8/8  [0.68, 1.00]
+    3 cm    8/8  [0.68, 1.00]

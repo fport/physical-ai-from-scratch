@@ -53,6 +53,154 @@ flowchart TD
 
 **Units.** With the default `use_degrees = True`, LeRobot reports the five arm joints in degrees relative to the middle of the range recorded at calibration, and the gripper from 0 to 100 ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py), [`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py)). The Menagerie model uses radians from its own zero. A sim check is only meaningful after you have measured the offset and sign between the two (lesson 38).
 
+## Build it
+
+Lesson 40's risks are bookkeeping, and bookkeeping has math you can check before the arm moves: how encoder ticks become the degrees a policy sees, how those degrees map to the model's radians, and how much torque gravity and a payload demand along a trajectory. The functions are in [`physai/sim2real.py`](../physai/sim2real.py); `uv run python experiments/40-real-so101/build.py` runs the steps (output in [`build_output.txt`](../experiments/40-real-so101/build_output.txt)). Every number below is from the Menagerie model or invented test values, not from a real arm.
+
+### Step 1 · Ticks and degrees
+
+LeRobot's degrees mode puts 0 at the middle of the calibrated range and spends 360° on `resolution - 1` ticks; going back it truncates with `int()` ([`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py), `_normalize` / `_unnormalize`). Its docstring gives 4096 steps per turn for a 12-bit encoder, which is the default here.
+
+```python
+def ticks_to_deg(raw, range_min, range_max, resolution=4096):
+    """LeRobot's degrees mode: 0 at the middle of the calibrated range, 360 deg per resolution - 1 ticks."""
+    return (raw - (range_min + range_max) / 2) * 360 / (resolution - 1)
+```
+
+```python
+def deg_to_ticks(deg, range_min, range_max, resolution=4096):
+    """Back to an encoder position; int() truncates toward zero, as LeRobot's _unnormalize does."""
+    return int(deg * (resolution - 1) / 360 + (range_min + range_max) / 2)
+```
+
+```text
+== Step 1. Encoder ticks <-> degrees (12-bit encoder, calibrated range 1000-3000) ==
+middle of the range 0.000 deg, ends -87.91 / 87.91 deg, one tick = 0.0879 deg
+ticks -> deg -> ticks: 2001 of 2001 positions come back exactly
+deg -> ticks -> deg for 16,001 goals: error from -0.0878 to 0.0000 deg (int() of a positive tick count rounds down: up to one tick, always low)
+```
+
+Readings survive the round trip exactly; commanded goals do not. Every goal is rounded *down* to a whole tick, by up to 0.088°: a systematic offset of half a tick on average, not a zero-mean noise.
+
+### Step 2 · Degrees to model radians
+
+The policy's degrees and the model's radians differ by a sign and an offset per joint (the Break it below shows what 10° of offset does). Two poses whose model angles you know fix both:
+
+```python
+def fit_calibration(deg, q_model):
+    """Sign / scale and offset with q_model = a * radians(deg) + b, least squares over poses where both are known."""
+    a, b = np.polyfit(np.radians(deg), q_model, 1)
+    return a, b
+```
+
+```text
+== Step 2. Degrees -> model radians: sign and offset from two known poses ==
+readings [ 24.176 -44.571] deg -> fitted a = -1.0001 (true -1.0), b = 6.990 deg (true 7.000)
+9 test poses: max error 0.067 deg (one tick is 0.088 deg)
+```
+
+With an invented mounting (reversed direction, 7° offset) and readings quantized to whole ticks, two poses recover the sign and the offset to 0.01°, and new poses map to within one tick.
+
+### Step 3 · Gravity torque by hand
+
+At rest, hinge $i$ carries $\tau_i = \sum_b (\hat a_i \times (c_b - o_i)) \cdot m_b g$ over the bodies beyond it, with body poses from lesson 07's `frame_tree`:
+
+```python
+def gravity_torques(m, qpos, frames, g=(0.0, 0.0, -9.81)):
+    """Joint torques gravity puts on a hinge chain at rest: for hinge i, the sum over the bodies it carries of
+    (a_i x (c_b - o_i)) . (m_b g). frames: world 4x4 pose of every body (lesson 07's frame_tree)."""
+    tau = np.zeros(m.njnt)
+    for j in range(m.njnt):
+        if m.jnt_type[j] != 3:                     # hinges only
+            continue
+        T = frames[m.jnt_bodyid[j]]
+        a, o = T[:3, :3] @ m.jnt_axis[j], T[:3, :3] @ m.jnt_pos[j] + T[:3, 3]   # axis and anchor in the world
+        for b in range(1, m.nbody):
+            p = b
+            while p not in (0, m.jnt_bodyid[j]):   # is body b on the far side of joint j?
+                p = m.body_parentid[p]
+            if p == m.jnt_bodyid[j]:
+                c = frames[b][:3, :3] @ m.body_ipos[b] + frames[b][:3, 3]          # centre of mass
+                tau[j] += np.cross(a, c - o) @ (m.body_mass[b] * np.asarray(g))
+    return tau
+```
+
+```text
+== Step 3. Gravity torque by hand along the 303 goals vs qfrc_bias ==
+goals 303, max |ours + qfrc_bias| = 6.7e-16 N m
+largest static gravity torque 0.446 N m at elbow_flex (Experiment: 0.446 N m)
+```
+
+The 0.446 N·m of the Experiment's gravity column, from your own sum, equal to MuJoCo's `qfrc_bias` at rest to round-off.
+
+### Step 4 · The payload budget
+
+A point mass $p$ at the gripper frame adds $p\,J_p^\top g$ (lesson 09's Jacobian), linear in $p$; the largest safe payload is where the first joint, at the first pose, reaches the limit:
+
+```python
+def max_payload(tau0, per_kg, limit):
+    """Smallest payload (kg) at which some |tau0 + p * per_kg| reaches `limit`; rows are poses, columns joints."""
+    p = np.inf
+    for t, k in zip(np.ravel(tau0), np.ravel(per_kg)):
+        if k != 0:
+            for target in (limit, -limit):
+                root = (target - t) / k
+                if root >= 0:
+                    p = min(p, root)
+    return p
+```
+
+```text
+== Step 4. The payload budget at the gripper frame ==
+payload kg  ours N m  MuJoCo model with payload N m
+       0.2     0.945                          0.945
+       0.4     1.445                          1.445
+       0.6     1.944                          1.944
+       0.8     2.443                          2.443
+largest payload with static torque <= 80% of 2.94 N m: 0.764 kg
+largest payload with static torque <= 100% of 2.94 N m: 0.999 kg
+```
+
+The Jacobian column and MuJoCo agree at every payload, and the budget is a number instead of a sweep: 0.764 kg under the 80% rule, 0.999 kg at the full 2.94 N·m. Writing this step found a bug in the first version of `experiment.py`: its payload body left the inertial position unset, so MuJoCo put the 0.2–0.8 kg mass 9.8 cm beyond the gripper frame, and table B overstated the torques (1.096 instead of 0.945 N·m at 0.2 kg). The script now sets `ipos`, and table B shows the corrected run.
+
+### Step 5 · The static checks
+
+```text
+== Step 5. Static preflight: range margin and goal step per 30 fps tick ==
+x0.5  goals 591, range margin 10.00 deg, largest step 0.026 rad/tick -> PASS
+x1    goals 303, range margin 10.00 deg, largest step 0.052 rad/tick -> PASS
+x2    goals 159, range margin 10.00 deg, largest step 0.103 rad/tick -> FAIL
+x4    goals  87, range margin 10.00 deg, largest step 0.207 rad/tick -> FAIL
+```
+
+The same verdicts as the Experiment's part A, without simulating a single servo step: the step check is pure arithmetic on the goal list.
+
+### What you keep
+
+`physai.sim2real` now has `ticks_to_deg`, `deg_to_ticks`, `fit_calibration`, `gravity_torques` and `max_payload`. The capstone (lesson 44) needs the same degree-to-radian mapping for its procedure. [`tests/test_40_real_so101.py`](../tests/test_40_real_so101.py) checks them against MuJoCo: `uv run pytest tests/test_40_real_so101.py`.
+
+## Use it
+
+On the arm the conversion happens inside LeRobot: `robot.get_observation()` returns the normalized values and `robot.send_action()` takes them, in the mode the follower config chose. In MuJoCo, gravity torque at rest is `-qfrc_bias` after `mj_forward` with `qvel = 0`, as the Experiment uses it.
+
+```python
+d.qpos[:6], d.qvel[:] = goal, 0
+mujoco.mj_forward(m, d)
+tau_gravity = -d.qfrc_bias[:5]          # equals gravity_torques(m, d.qpos, frame_tree(m, d.qpos))[:5]
+```
+
+| LeRobot `MotorNormMode` | Value | From raw ticks ([`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py)) |
+|---|---|---|
+| `DEGREES` (arm joints with `use_degrees = True`) | degrees from the middle of the calibrated range | `(val - mid) * 360 / max_res`, `max_res = resolution - 1` |
+| `RANGE_M100_100` | −100 … 100 over the calibrated range | `(val - min) / (max - min) * 200 - 100`, negated if `drive_mode` |
+| `RANGE_0_100` (gripper) | 0 … 100 | `(val - min) / (max - min) * 100`, or `100 - …` if `drive_mode` |
+
+Traps:
+
+- **Degrees scale with the encoder, ranges with the calibration.** A degree is the same angle on every arm; "50" in `RANGE_M100_100` depends on where you stopped moving the joint during calibration.
+- **`drive_mode` flips the sign** in the range modes; the degrees formula above has no such term, so the model-side sign must come from the fit (Step 2).
+- **Truncation is biased.** `int()` rounds every positive tick count down; keep it in mind when comparing commanded and measured angles at the 0.1° level.
+
 ## Experiment
 
 ### Part 1 · Hardware procedure (not yet measured on the real arm)
@@ -138,11 +286,11 @@ Full script: [`experiments/40-real-so101/experiment.py`](../experiments/40-real-
 
 | payload [kg] | 0.0 | 0.2 | 0.4 | 0.6 | 0.8 |
 |---|---|---|---|---|---|
-| gravity [N·m] | 0.446 | 1.096 | 1.747 | 2.397 | 3.047 |
-| track [°] | 0.62 | 0.67 | 0.70 | 0.72 | 2.11 |
-| verdict | PASS | PASS | PASS | FAIL: gravity | FAIL: gravity |
+| gravity [N·m] | 0.446 | 0.945 | 1.445 | 1.944 | 2.443 |
+| track [°] | 0.62 | 0.65 | 0.68 | 0.70 | 0.71 |
+| verdict | PASS | PASS | PASS | PASS | FAIL: gravity |
 
-**Observe.** The step check trips at ×2, long before tracking fails (×4): a cheap, conservative proxy you can also enforce on the robot. The model servo sits at its torque limit for 37.2–74.8% of the steps at every speed; with $k_p$ = 998 N·m/rad its linear band is only 2.94/998 ≈ 2.9 mrad, so saturation alone says little here. At 0.6 kg the static torque (2.397 N·m) passes 80% of the limit while the arm still tracks to 0.72°: the gravity check flags a missing margin before the arm has to prove it (lesson 12 saw the stretched arm drop at 0.8 kg).
+**Observe.** The step check trips at ×2, long before tracking fails (×4): a cheap, conservative proxy you can also enforce on the robot. The model servo sits at its torque limit for 37.2–74.8% of the steps at every speed; with $k_p$ = 998 N·m/rad its linear band is only 2.94/998 ≈ 2.9 mrad, so saturation alone says little here. At 0.8 kg the static torque (2.443 N·m) passes 80% of the limit while the arm still tracks to 0.71°: the gravity check flags a missing margin before the arm has to prove it (Build it, Step 4, puts the 80% line at 0.764 kg).
 
 ## Break it
 
@@ -186,7 +334,7 @@ The range check passes in every row (the 10.00° margin is the gripper's closed 
 ## Takeaways and sources
 
 - The deployment is a pipeline with invariants: same port, `id`, calibration, cameras and fps from teleoperation to rollout.
-- A cheap preflight catches unsafe commands: steps above 0.10 rad/tick from ×2, static torque past 80% of the limit from 0.6 kg.
+- A cheap preflight catches unsafe commands: steps above 0.10 rad/tick from ×2, static torque past 80% of the limit from 0.8 kg (budget 0.764 kg).
 - Joint-range checks do not catch a calibration offset; a 10° shoulder offset drives the gripper into the floor in simulation.
 
 Next: [lesson 41 · Vision-language-action models](../part-10-foundation-models-and-agents/41-vla.md).

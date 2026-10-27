@@ -111,33 +111,194 @@ The environment of lessons 33–35, in [`reach_env.py`](../experiments/32-rl-env
 
 Sampling targets in joint space and passing them through forward kinematics ([lesson 08](../part-3-kinematics/08-forward-kinematics.md)) is a cheap way to guarantee that a 0% success rate is the policy's fault, not the task's.
 
-## Experiment
+## Build it
 
-The two methods that matter:
+You will now write the reach environment yourself, about 70 lines on top of MuJoCo, and check it against the lesson's [`reach_env.py`](../experiments/32-rl-environment/reach_env.py) step by step: same seeds, same targets, same observations, same rewards. Gymnasium appears only at the end, as a referee.
+
+The class is in [`physai/rl.py`](../physai/rl.py); `uv run python experiments/32-rl-environment/build.py` runs the five steps (output in [`build_output.txt`](../experiments/32-rl-environment/build_output.txt)).
+
+### Step 1 · The class and its timing
+
+The constructor reads everything from the model: joint and actuator indices, the servo ranges, the gripper site, and the two times that define the task, the physics step $h$ and the policy period $k h$.
 
 ```python
-def reset(self, seed=None, options=None):
-    super().reset(seed=seed)                      # seeds self.np_random
-    mujoco.mj_resetData(self.model, self.data)
-    self.target = self._sample_target()           # FK of a random reachable joint vector
-    q0 = Q_HOME + self.np_random.uniform(-0.1, 0.1, size=4)
-    self.data.qpos[self.qadr] = q0
-    self.data.ctrl[self.act] = q0                 # servos hold the start pose
-    mujoco.mj_forward(self.model, self.data)
-    ...
-    return self._obs(), {"dist": self.dist}
+class ReachTask:
+    """SO-101 reach with the Gymnasium API: position actions around a home pose, frame skip, time limit.
 
-def step(self, action):
-    a = np.clip(action, -1.0, 1.0)
-    self.data.ctrl[self.act] = np.clip(Q_HOME + self.scale * a, self.lo, self.hi)
-    mujoco.mj_step(self.model, self.data, nstep=self.frame_skip)
-    self.t += 1
-    self.dist = float(np.linalg.norm(self.target - self._ee()))
-    reward = self.reward_fn({"dist": self.dist, ...})
-    terminated = bool(self.terminate_on_success and self.dist < self.radius)
-    truncated = (not terminated) and self.t >= self.max_steps
-    return self._obs(), reward, terminated, truncated, info
+    Observation (15): q - q_home, 0.1 * qdot, target - gripper, previous action. Reward: -distance [m].
+    """
+    JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex")
+    Q_HOME = np.array([0.0, -1.0, 1.0, 0.5])
+    SPREAD = np.array([1.0, 0.6, 0.6, 0.6])        # targets = FK(q_home + U(-spread, spread)), always reachable
+
+    def __init__(self, model_path, frame_skip=4, episode_seconds=1.6, scale=1.0, radius=0.02,
+                 terminate_on_success=False):
+        self.model = mujoco.MjModel.from_xml_path(model_path)
+        self.data, self._fk = mujoco.MjData(self.model), mujoco.MjData(self.model)
+        self.frame_skip, self.scale, self.radius = frame_skip, scale, radius
+        self.terminate_on_success = terminate_on_success
+        self.dt = self.model.opt.timestep * frame_skip                 # policy period
+        self.max_steps = int(round(episode_seconds / self.dt))
+        self.qadr = np.array([self.model.joint(j).qposadr[0] for j in self.JOINTS])
+        self.vadr = np.array([self.model.joint(j).dofadr[0] for j in self.JOINTS])
+        self.act = np.array([self.model.actuator(j).id for j in self.JOINTS])
+        self.site = self.model.site("gripperframe").id
+        self.lo, self.hi = self.model.actuator_ctrlrange[self.act].T.copy()
+        self.np_random = None
+
+    def _sample_target(self):
+        while True:                                                    # rejection sampling in joint space
+            q = np.clip(self.Q_HOME + self.np_random.uniform(-self.SPREAD, self.SPREAD), self.lo * 0.95, self.hi * 0.95)
+            self._fk.qpos[:] = 0.0
+            self._fk.qpos[self.qadr] = q
+            mujoco.mj_forward(self.model, self._fk)
+            p = self._fk.site_xpos[self.site].copy()
+            if p[2] > 0.04 and self._fk.ncon == 0:                     # above the floor, nothing in contact
+                return p
+
+    def _obs(self):
+        q = self.data.qpos[self.qadr] - self.Q_HOME
+        qd = self.data.qvel[self.vadr]
+        ee = self.data.site_xpos[self.site]
+        return np.concatenate([q, 0.1 * qd, self.target - ee, self.prev_a]).astype(np.float32)
+
+    def reset(self, seed=None, options=None):
+        if seed is not None or self.np_random is None:
+            self.np_random = np.random.default_rng(seed)               # all randomness comes from this generator
+        mujoco.mj_resetData(self.model, self.data)
+        self.target = self._sample_target()
+        q0 = self.Q_HOME + self.np_random.uniform(-0.1, 0.1, size=4)
+        self.data.qpos[self.qadr] = q0
+        self.data.ctrl[:] = 0.0
+        self.data.ctrl[self.act] = q0                                  # the servos hold the start pose
+        mujoco.mj_forward(self.model, self.data)
+        self.t, self.prev_a = 0, np.zeros(4)
+        self.dist = float(np.linalg.norm(self.target - self.data.site_xpos[self.site]))
+        return self._obs(), {"dist": self.dist}
+
+    def step(self, action):
+        a = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
+        self.data.ctrl[self.act] = np.clip(self.Q_HOME + self.scale * a, self.lo, self.hi)
+        mujoco.mj_step(self.model, self.data, nstep=self.frame_skip)  # hold the action for frame_skip steps
+        self.t += 1
+        self.dist = float(np.linalg.norm(self.target - self.data.site_xpos[self.site]))
+        self.prev_a = a
+        success = self.dist < self.radius
+        terminated = bool(self.terminate_on_success and success)       # the task itself is over
+        truncated = (not terminated) and self.t >= self.max_steps      # we stopped watching
+        info = {"dist": self.dist}
+        if terminated or truncated:
+            info["is_success"] = success
+        return self._obs(), -self.dist, terminated, truncated, info
 ```
+
+The check: four single `mj_step` calls and one `mj_step(nstep=4)` give the same state, and the period is the 20 ms of Core idea.
+
+```text
+== Step 1. Timing ==
+physics step h = 5 ms, frame_skip 4 -> policy period 20 ms (50 Hz), 80 steps = 1.6 s
+4 x mj_step vs mj_step(nstep=4): max |qpos diff| = 0.0e+00, time 0.020 s vs 0.020 s
+```
+
+### Step 2 · `reset(seed)`
+
+All randomness, the target and the start pose, comes from one generator, created from the seed. `np.random.default_rng(seed)` builds the same generator as Gymnasium's `super().reset(seed=seed)`, so your targets can be compared with `ReachEnv`'s number for number:
+
+```text
+== Step 2. reset(seed) vs the lesson's ReachEnv, seeds 0-199 ==
+max |target ours - ReachEnv| = 0.0e+00 m, max |first observation diff| = 0.0e+00
+reset(seed=7), reset(seed=8), reset(seed=7): same target True, target [0.273 0.098 0.153] m, start distance 0.113 m
+reset() without a seed continues the generator: new target [0.238 0.105 0.143] m
+```
+
+Identical for all 200 seeds. `reset()` without a seed continues the same generator, so a training run sees a new target every episode while evaluation can replay a fixed list of seeds.
+
+### Step 3 · `step(action)`
+
+```text
+== Step 3. step(action) vs ReachEnv, and the zero-action baseline ==
+5 episodes of random actions: max |obs or reward diff| = 0.0e+00
+zero action, 200 episodes: return -12.87 +- 4.92, median final distance 170.8 mm, success 1/200
+```
+
+The same random actions give the same observations and rewards (difference 0.0e+00), and the zero-action baseline reproduces the Experiment's row: −12.87 ± 4.92, 170.8 mm, 1/200.
+
+### Step 4 · terminated, truncated and the value target
+
+```python
+def value_target(r, v_next, terminated, gamma):
+    """One-step value target: bootstrap from the next state unless the episode terminated (truncation bootstraps)."""
+    return r + gamma * (1.0 - terminated) * v_next
+```
+
+Run the scripted IK controller of the Experiment through your class, once with `terminate_on_success=True` and once without:
+
+```text
+== Step 4. terminated vs truncated ==
+scripted IK, terminate_on_success=True, 50 episodes: terminated 50, truncated 0, mean length 11.4 steps
+last episode with terminate_on_success=False: terminated False, truncated True, t = 80
+V(s) = r / (1 - gamma) = -0.200; target at the time limit: bootstrap -0.200, treated as terminal -0.010
+```
+
+With termination every episode ends `terminated` after 11.4 steps on average, the Experiment's 50/0; without it the episode runs to step 80 and ends `truncated`. The last line is the Math details argument in numbers. A state that pays −1 cm per step forever is worth $-0.01/(1-0.95) = -0.200$. At the time limit, bootstrapping gives the target −0.200, the state's true value; treating the limit as terminal gives −0.010, as if the world ended.
+
+### Step 5 · Gymnasium's checker
+
+Gymnasium only asks for two more attributes, the spaces, and for the class to inherit `gymnasium.Env`:
+
+```python
+from gymnasium import spaces
+
+class GymReach(ReachTask, gym.Env):                     # physai's reset/step, Gymnasium's base class
+    def __init__(self, **kw):
+        super().__init__(SO101, **kw)
+        self.action_space = spaces.Box(-1.0, 1.0, shape=(4,), dtype=np.float32)
+        self.observation_space = spaces.Box(-np.inf, np.inf, shape=(15,), dtype=np.float32)
+```
+
+```text
+== Step 5. Gymnasium's env_checker ==
+check_env passed, 2 warnings
+  warning: WARN: A Box observation space minimum value is -infinity. This is probably too low.
+  warning: WARN: A Box observation space maximum value is infinity. This is probably too high.
+```
+
+The checker passes: seeding, return types and spaces are as Gymnasium expects. Its two warnings are about the unbounded observation box, which the lesson's `ReachEnv` declares the same way; the observation has no hard limits, so we leave it.
+
+### What you keep
+
+`physai.rl` now has `ReachTask` and `value_target`. [Lesson 33](33-ppo.md) adds the PPO pieces to the same module and trains on this task; lessons 34 and 35 change its actions and rewards. [`tests/test_32_rl_environment.py`](../tests/test_32_rl_environment.py) checks seeding, the two flags, frame skip and the equality with `ReachEnv`; run `uv run pytest tests/test_32_rl_environment.py`.
+
+## Use it
+
+Gymnasium has a base class for MuJoCo tasks, `gymnasium.envs.mujoco.MujocoEnv`. You give it the model file and `frame_skip`; it loads the model, defines `dt = model.opt.timestep * frame_skip` and gives you `do_simulation(ctrl, n_frames)`, which sets the controls and steps the physics `n_frames` times. You still write `reset_model`, `step` and the observation. The time limit is usually not in the environment at all but in a wrapper, which sets `truncated` when the step count reaches `max_episode_steps`:
+
+```python
+from gymnasium.wrappers import TimeLimit
+from gymnasium.utils.env_checker import check_env
+
+env = TimeLimit(GymReach(episode_seconds=1e9), max_episode_steps=80)   # the wrapper owns truncation
+check_env(env.unwrapped)                                                # check the raw env, not the wrapper
+```
+
+| Piece | This lesson / physai | Gymnasium | Go2 training (`legged_gym`) |
+|---|---|---|---|
+| physics steps per decision | `frame_skip = 4` | `frame_skip` (`MujocoEnv`) | `decimation = 4` |
+| policy period | `dt = h * frame_skip` | `dt` property, same formula | `sim.dt * decimation` = 0.02 s |
+| step the physics | `mj_step(..., nstep=k)` | `do_simulation(ctrl, n_frames)` | PD torque recomputed each substep |
+| time limit | `max_steps` inside the env | `TimeLimit(max_episode_steps=...)` | `send_timeouts = True` |
+
+Sources: Gymnasium 1.4.0's [`mujoco_env.py`](https://github.com/Farama-Foundation/Gymnasium/blob/main/gymnasium/envs/mujoco/mujoco_env.py) and [`TimeLimit`](https://github.com/Farama-Foundation/Gymnasium/blob/main/gymnasium/wrappers/common.py) (the snippet above runs: the wrapped env truncates at step 80); the Go2 config links in The problem and Math details.
+
+Three traps:
+
+- **The learner must see the flag.** Stable-Baselines3's PPO bootstraps a time-limit step only when the info dict says `TimeLimit.truncated` and carries the `terminal_observation` ([`on_policy_algorithm.py`](https://github.com/DLR-RM/stable-baselines3/blob/master/stable_baselines3/common/on_policy_algorithm.py), "Handle timeout by bootstrapping with value function"); a custom loop that merges the flags into `done` loses the distinction silently.
+- **Randomness outside `np_random`.** One call to `np.random.uniform` or Python's `random` in `reset` breaks reproducibility, and Step 2's equality test is the cheapest way to catch it.
+- **Changing `frame_skip` changes the task.** The policy period, the episode length in steps and the meaning of $\gamma$ all move with it (lesson 34 measures the effect).
+
+## Experiment
+
+`ReachEnv`'s `reset` and `step` are the ones you wrote in Build it, plus the action modes and pluggable rewards of lessons 34–35.
 
 [`experiment.py`](../experiments/32-rl-environment/experiment.py) checks the API, runs three **baselines** (fixed reference policies to compare against) for 200 episodes each (seeds 0–199) and sweeps `frame_skip`. The scripted controller does one damped least-squares IK step per policy step ([lesson 10](../part-3-kinematics/10-inverse-kinematics.md)): $\Delta q = J^\top (J J^\top + 0.05^2 I)^{-1} e$, sent as $q^* = q + \Delta q$. It reads the Jacobian from the model, which a policy cannot.
 

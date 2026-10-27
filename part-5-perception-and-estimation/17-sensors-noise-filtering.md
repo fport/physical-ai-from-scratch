@@ -45,24 +45,17 @@ flowchart TD
 
 ### The two filters, as code
 
-If you have written a rolling average over a stream of numbers, you already know the first filter. Readings arrive every `dt` seconds (here `dt = 0.002`, i.e. 500 per second).
+If you have written a rolling average over a stream of numbers, you already know the first filter. Readings arrive every `dt` seconds (here `dt = 0.002`, i.e. 500 per second); Build it writes both filters in full.
 
 ```python
-# Moving average: mean of the last n readings
-def moving_average(z, n):
-    return [mean(z[max(0, k - n + 1):k + 1]) for k in range(len(z))]
-
+# Moving average: the mean of the last n readings
+y[k] = mean(z[k - n + 1 : k + 1])
 # First-order low-pass: move a fraction alpha toward each new reading
-def low_pass(z, fc, dt):
-    tau = 1 / (2 * pi * fc)          # time constant of the filter (s)
-    alpha = dt / (tau + dt)          # small alpha = heavy smoothing
-    y = [z[0]]
-    for zk in z[1:]:
-        y.append(y[-1] + alpha * (zk - y[-1]))
-    return y
+alpha = dt / (tau + dt)                      # tau = 1 / (2 pi fc); small alpha = heavy smoothing
+y[k] = y[k - 1] + alpha * (z[k] - y[k - 1])
 ```
 
-How late is each one? A moving average over `n` readings reports, on average, the value from the middle of its window: $(n-1)/2$ samples ago. The low-pass filter lags by about its time constant `tau`.
+A moving average over `n` readings reports the value from the middle of its window, $(n-1)/2$ samples ago; the low-pass filter lags by about its time constant `tau`.
 
 | Filter | Knob | Delay | Noise left (std) |
 |---|---|---|---|
@@ -103,6 +96,175 @@ Go deeper (random variables, variance, noise processes): [Probability and Distri
 
 MuJoCo sensors (`jointpos`, `jointvel`, `gyro`, `accelerometer`, …) write exact values into `mjData.sensordata`. Their `noise` attribute is only stored metadata: the docs state it does not affect the simulation ([MuJoCo Modeling · sensors](https://mujoco.readthedocs.io/en/stable/modeling.html#sensor-noise)). You add noise yourself.
 
+## Build it
+
+You will now write the sensor model and both filters yourself, in about 40 lines of NumPy, and check each against SciPy or a formula from Core idea. Only the true joint motion comes from MuJoCo (the Experiment's `simulate`), so Build it and the Experiment score the same 5000 readings.
+
+Type the steps into a file of your own and run it after each one. The finished functions are in [`physai/estimation.py`](../physai/estimation.py); `uv run python experiments/17-sensors-noise-filtering/build.py` runs all five steps (output in [`build_output.txt`](../experiments/17-sensors-noise-filtering/build_output.txt)).
+
+### Step 1 · The encoder
+
+An encoder rounds the angle to whole counts; the electronics add noise on top:
+
+```python
+def encoder_reading(q, counts, sigma, rng):
+    """What an encoder reports for true angles q: rounded to steps of 2 pi / counts, plus white noise."""
+    step = 2 * np.pi / counts                       # one count, in rad
+    return np.round(q / step) * step + rng.normal(0, sigma, np.shape(q))
+```
+
+Rounding to steps of $\Delta$ leaves an error between $-\Delta/2$ and $\Delta/2$, spread evenly, so its standard deviation is $\Delta/\sqrt{12}$. Check that on a million random angles, then on the lesson's signal:
+
+```text
+== Step 1. The encoder: 4096 counts/rev, sigma 10 mrad ==
+step = 1.534 mrad, max |rounding error| = 0.767 mrad (step / 2 = 0.767)
+rounding error std 0.4427 mrad vs step / sqrt(12) = 0.4428 mrad
+lesson signal: max |ours - Exp. encoder| = 0.0e+00 rad
+expected reading error sqrt(sigma^2 + step^2/12) = 10.01 mrad, measured 9.95 mrad
+```
+
+The rounding part (0.44 mrad) is small next to the 10 mrad noise, so the expected reading error is 10.01 mrad. This seed's noise draw comes out 0.6 % low, which is why the Experiment measures 9.95 mrad.
+
+### Step 2 · The moving average
+
+The running sum turns each window mean into one subtraction, so the cost does not grow with $n$:
+
+```python
+def moving_average(x, n):
+    """Causal moving average: the mean of the last n samples (fewer at the start), as in lesson 17."""
+    c = np.cumsum(np.insert(x, 0, 0.0))
+    i = np.arange(len(x))
+    lo = np.maximum(0, i + 1 - n)
+    return (c[i + 1] - c[lo]) / (i + 1 - lo)
+```
+
+Three checks: the same numbers as a plain loop over windows, the noise left on pure white noise against $1/\sqrt n$, and the delay. A ramp makes the delay exact: the mean of the last $n$ samples of a straight line is its value $(n-1)/2$ samples ago.
+
+```text
+== Step 2. Moving average: window mean, noise left, delay on a ramp ==
+n = 5: max |ours - loop over windows| = 2.2e-16
+    n  noise std left  1/sqrt(n)  ramp lag samples  (n-1)/2
+    5          0.4459     0.4472               2.0      2.0
+   17          0.2415     0.2425               8.0      8.0
+   65          0.1226     0.1240              32.0     32.0
+```
+
+### Step 3 · The first-order low-pass
+
+```python
+def low_pass(x, fc, dt):
+    """First-order low-pass with cutoff fc (Hz): move a fraction alpha toward each new sample."""
+    tau = 1.0 / (2 * np.pi * fc)                    # time constant (s)
+    alpha = dt / (tau + dt)                         # small alpha = heavy smoothing
+    y = np.empty(len(x))
+    y[0] = x[0]                                     # start at the first reading
+    for k in range(1, len(x)):
+        y[k] = y[k - 1] + alpha * (x[k] - y[k - 1])
+    return y
+```
+
+This is a recursive filter, $y_k = \alpha z_k + (1-\alpha) y_{k-1}$, which `scipy.signal.lfilter` runs with coefficients `b = [alpha]`, `a = [1, alpha - 1]`. Starting SciPy from `lfilter_zi(b, a) * z[0]` makes it begin at the first reading, as yours does. Two formulas to check: white noise of unit variance leaves $\alpha/(2-\alpha)$ of its variance, and on a ramp the output trails by $(1-\alpha)/\alpha$ samples, which with $\alpha = \Delta t/(\tau + \Delta t)$ is exactly $\tau/\Delta t$.
+
+```text
+== Step 3. First-order low-pass: vs scipy.signal.lfilter, noise left, delay on a ramp ==
+fc Hz   alpha  max |ours - lfilter|  noise std left  sqrt(a/(2-a))  ramp lag samples  tau/dt
+   50  0.3859               2.2e-16          0.4878         0.4889              1.59    1.59
+   10  0.1116               3.3e-16          0.2423         0.2431              7.96    7.96
+    2  0.0245               1.8e-15          0.1103         0.1114             39.79   39.79
+```
+
+The ramp lag is $\tau$ to two decimals at every cutoff. The noise left is within about 1 % of the formula (the gap is the finite noise sample).
+
+### Step 4 · Velocity from differences
+
+```python
+def central_difference(y, dt):
+    """Velocity from samples: (y[k+1] - y[k-1]) / 2 dt inside, one-sided at the two ends."""
+    v = np.empty(len(y))
+    v[1:-1] = (y[2:] - y[:-2]) / (2 * dt)
+    v[0], v[-1] = (y[1] - y[0]) / dt, (y[-1] - y[-2]) / dt
+    return v
+```
+
+This is what `np.gradient(y, dt)` does, and the check confirms it to the last bit. Two readings with independent errors of 10.01 mrad, divided by $2\Delta t$ = 4 ms, predict the raw velocity noise:
+
+```text
+== Step 4. Velocity by central differences ==
+max |ours - np.gradient| = 0.0e+00 rad/s
+raw velocity error: predicted sqrt(2) * 10.01 mrad / (2 dt) = 3.54 rad/s, measured 3.50 rad/s (true velocity RMS 0.63)
+```
+
+Predicted 3.54, measured 3.50 rad/s: the same 0.6 % low draw as Step 1. The noise is more than five times the true velocity, which is why velocity needs much heavier filtering than position.
+
+### Step 5 · Measure the delay and the errors
+
+The Experiment defines a filter's delay as the shift that best lines the filtered signal up with the truth:
+
+```python
+def delay_samples(y, ref, max_lag=400, skip=500):
+    """The shift (in samples) that best aligns a filtered signal y with the true signal ref."""
+    errs = [np.mean((y[skip + lag:] - ref[skip:len(ref) - lag]) ** 2) for lag in range(max_lag)]
+    return int(np.argmin(errs))
+```
+
+Run every filter of the Experiment through your functions and compare with its numbers:
+
+```text
+== Step 5. Every filter on the lesson's signal vs the Experiment ==
+      filter  delay ms  theory ms  pos RMS mrad  vel RMS rad/s  max |ours - Exp.|
+      MA n=1       0.0        0.0          9.95           3.50            0.0e+00
+      MA n=3       2.0        2.0          5.91           1.65            0.0e+00
+      MA n=5       4.0        4.0          5.17           1.01            0.0e+00
+      MA n=9       8.0        8.0          6.03           0.55            0.0e+00
+     MA n=17      16.0       16.0         10.22           0.29            0.0e+00
+     MA n=33      32.0       32.0         19.76           0.16            0.0e+00
+     MA n=65      64.0       64.0         39.01           0.12            0.0e+00
+    MA n=129     128.0      128.0         76.52           0.19            0.0e+00
+   LPF 50 Hz       4.0        3.2          5.30           1.35            0.0e+00
+   LPF 20 Hz       8.0        8.0          6.02           0.71            0.0e+00
+   LPF 10 Hz      16.0       15.9         10.16           0.39            0.0e+00
+    LPF 2 Hz      78.0       79.6         47.33           0.14            0.0e+00
+  LPF 0.5 Hz     274.0      318.3        152.59           0.35            0.0e+00
+lag error of MA n=17: speed x delay = 0.61 rad/s x 16 ms = 9.8 mrad
+```
+
+Every row equals the Experiment table, to the last digit. The measured delays match $(n-1)\Delta t/2$ for every window. For the low-pass they match $\tau$ only while $f_c$ is well above the motion (delays are whole 2 ms samples, so the 50 Hz row shows 3.2 ms as 4.0; the 0.5 Hz row is 274 ms, not 318.3 ms). The last line is the lag error from Core idea for MA n=17: 9.8 mrad of the 10.22 measured.
+
+### What you keep
+
+`physai.estimation` now has `encoder_reading`, `moving_average`, `low_pass`, `central_difference` and `delay_samples`. [Lesson 18](18-kalman-filter.md) uses the same encoder model and `moving_average` as its baseline and replaces both filters with one that predicts; [lesson 37](../part-9-sim-to-real/37-latency.md) comes back to delay inside a feedback loop. [`tests/test_17_sensors_noise_filtering.py`](../tests/test_17_sensors_noise_filtering.py) pins them to SciPy; run `uv run pytest tests/test_17_sensors_noise_filtering.py` after you change anything.
+
+## Use it
+
+SciPy runs both filters as one call, `scipy.signal.lfilter(b, a, x)`, the difference equation $a_0 y_k = \sum b_i x_{k-i} - \sum_{j\ge1} a_j y_{k-j}$:
+
+```python
+from scipy.signal import group_delay, lfilter, lfilter_zi
+
+y_ma = lfilter(np.ones(n) / n, 1.0, z)                    # moving average (first n-1 outputs differ)
+alpha = dt / (1 / (2 * np.pi * fc) + dt)
+b, a = [alpha], [1.0, alpha - 1.0]
+y_lp, _ = lfilter(b, a, z, zi=lfilter_zi(b, a) * z[0])   # low-pass, starting at the first reading
+_, gd = group_delay((b, a), w=[0.2], fs=1 / dt)          # delay in samples at 0.2 Hz
+```
+
+`group_delay` gives the delay from the coefficients alone, without a signal: $(n-1)/2$ samples for the moving average and $\tau/\Delta t$ at low frequency for the low-pass, both checked in the tests. Other tools order and place the same window differently:
+
+| Call | Window | Start-up |
+|---|---|---|
+| physai `moving_average(x, n)` | last $n$ samples (causal) | mean of the samples seen so far |
+| `scipy.signal.lfilter(np.ones(n)/n, 1, x)` | last $n$ samples (causal) | samples before the start count as 0 ("initial rest") |
+| `scipy.ndimage.uniform_filter1d(x, n)` | centred on the sample (`origin=0`), uses the future | `mode='reflect'` at the edges; `origin=(n-1)//2` makes it causal (checked in the tests) |
+| `np.gradient(y, dt)` | one sample before and after (central) | one-sided differences at both ends |
+
+Sources: [`lfilter`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.lfilter.html), [`group_delay`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.group_delay.html), [`uniform_filter1d`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.uniform_filter1d.html), [`np.gradient`](https://numpy.org/doc/stable/reference/generated/numpy.gradient.html).
+
+Three traps:
+
+- **A centred filter looks free.** `uniform_filter1d` and `np.gradient` use samples from the future: offline they show zero delay, in a running controller those samples do not exist yet. The Experiment's velocity uses `np.gradient` and so peeks one sample ahead.
+- **"First-order low-pass at $f_c$" is not one filter.** `scipy.signal.butter(1, 10, fs=500)` returns `b = [0.0592, 0.0592]`, `a = [1, -0.8816]` (bilinear transform); this lesson's $\alpha$ gives `a = [1, -0.8884]`. Both are called a 10 Hz first-order low-pass.
+- **The `noise` attribute adds nothing.** MuJoCo stores it as metadata; the noise in this lesson is the one you add in Step 1.
+
 ## Experiment
 
 **Setup.** SO-101 from MuJoCo Menagerie, timestep 2 ms (500 Hz sampling). `shoulder_pan` follows $0.5\sin(2\pi\,0.2t) + 0.2\sin(2\pi\,0.5t)$ rad through its position actuator for 10 s. We model a 12-bit encoder (4096 counts/rev, step 1.534 mrad) plus white noise $\sigma = 10$ mrad. These are teaching values, not datasheet values. Velocity is computed with `np.gradient` (central difference) of the filtered signal. Delay is the shift that best aligns the filtered and true signals.
@@ -142,7 +304,7 @@ First checks: the `jointpos` sensor declared with `noise=0.01` differs from `qpo
 
 **Observe.**
 
-1. The measured moving-average delay equals $(n-1)\Delta t/2$ in every row. The low-pass delay matches $\tau$ (15.9 → 16.0 ms at 10 Hz) until $f_c$ approaches the signal frequencies: at 0.5 Hz it is 274 ms, not 318.3 ms, because $\tau$ is only the low-frequency limit.
+1. The moving-average delay equals $(n-1)\Delta t/2$ in every row. The low-pass delay matches $\tau$ (15.9 → 16.0 ms at 10 Hz) until $f_c$ approaches the signal frequencies: at 0.5 Hz it is 274 ms, not 318.3 ms, because $\tau$ is only the low-frequency limit.
 2. Position error is lowest at about 4 ms of delay (MA n=5, 5.17 mrad) and grows almost linearly beyond it: from 17 samples on, the filter is worse than no filter at all.
 3. Velocity needs 16 times the delay (MA n=65, 64 ms, 0.12 rad/s). One filter cannot serve both. This is the gap the Kalman filter of lesson 18 closes.
 4. At equal delay, the two filter types perform almost the same (MA n=9: 6.03 mrad; LPF 20 Hz: 6.02 mrad at 8 ms). The delay you accept matters more than the filter's shape.

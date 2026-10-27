@@ -1,0 +1,34 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | OpenCV 5.0.0
+
+== Step 1. RGB -> HSV (OpenCV 8-bit units) vs cv2.cvtColor ==
+1,000,000 random colours: H differs on 1.65 % (max 1), S on 0.75 % (max 1), V on 0.00 %
+rendered frame (position 1, light scale 1.0, 640 x 480): 49817 pixels off by 1, median OpenCV hue of those 106, 0 of them with a red hue
+ scale  top HSV ours  top HSV OpenCV
+   0.1    (0,110,72)      (0,110,72)
+   1.0   (0,177,255)     (0,177,255)
+   3.0    (0,95,255)      (0,95,255)
+
+== Step 2. The red threshold vs cv2.inRange ==
+same HSV input: our mask differs from inRange on 0 pixels
+our HSV input:  742 red pixels, differs on 0 pixels
+red pixels in the hue box near 0: 712, near 179: 30
+
+== Step 3. Opening and the largest blob vs OpenCV and SciPy ==
+opening: 745 -> 740 pixels, differs from cv2.morphologyEx on 0
+blobs before opening: ours 3, OpenCV 3, scipy.ndimage.label 3
+largest blob: 740 pixels, differs from the Experiment's detect() on 0
+
+== Step 4. Centroid and table position ==
+centroid (u, v) = (326.092, 268.359) px, max |ours - cv2.moments| = 0.0e+00
+30 positions, light scale 1.0              median mm  max mm
+  centroid pixel, back-projected            0.57    1.09
+  mean of all blob points                   0.32    0.47
+  mean of top-face points (z > 20 mm)       0.29    0.45
+max |ours - Experiment's locate()| = 0.0e+00 m
+one pixel at the top face (0.57 m from the camera) spans 1.11 mm
+
+== Step 5. Close the loop: our detector + the Experiment's pick ==
+ scale  detected  median err mm  max err mm  picks ok
+   0.1      0/30              -           -      0/30
+   1.0     30/30            0.3         0.4     30/30
+   3.0      1/30           14.9        14.9      0/30

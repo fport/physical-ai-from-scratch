@@ -1,0 +1,26 @@
+NumPy 2.5.4
+
+== Step 1. Chunk targets ==
+k =  1: targets (750, 1, 2), max |ours - Experiment| = 0.0e+00
+k =  4: targets (750, 4, 2), max |ours - Experiment| = 0.0e+00
+k = 32: targets (750, 32, 2), max |ours - Experiment| = 0.0e+00
+last step's chunk repeats the last action: True
+
+== Step 2. An idealized pause: 25 hold commands, then a move, all seen from the same resting observation ==
+entry i          0      4      8     12     13     16     24     31
+moving %        4     19     35     50     54     65     96    100
+median      0.000  0.000  0.000  0.060  0.180  0.540  1.500  2.340
+mean        0.005  0.069  0.208  0.420  0.485  0.706  1.500  2.340
+single-step policy (entry 0): median 0.000 rad = hold forever, mean 0.0046 rad = a creep
+first entry whose median departs: 12; chunks of k <= 12 are all 'hold'
+
+== Step 3. Temporal ensembling, k = 32, m = 0.01, 60 steps of random chunks ==
+max |running average - list formula| = 2.8e-16
+max |Experiment's accumulators - list formula| = 2.8e-16
+full window: oldest weight 0.0363, newest 0.0266, ratio 1.363
+
+== Step 4. A chunk that departs at entry i0, queried again and again at rest ==
+(i0 = the Experiment's median first departure index; same chunk at every query; 0.12 rad per step after i0)
+   k  i0  weight on departing entries  open-loop, entries i0 .. k-1  ensembled, at rest  [rad from the goal]
+  16   9                         0.46          0.12 .. 0.84               0.222
+  32   8                         0.78          0.12 .. 2.88               1.213

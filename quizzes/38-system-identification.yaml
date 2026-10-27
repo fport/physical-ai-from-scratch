@@ -1,22 +1,84 @@
-# Lesson 38 · System identification. Every answer is supported by the lesson page or
-# experiments/38-system-identification/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 38 · System identification. Every answer is supported by the lesson page,
+# experiments/38-system-identification/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: You want to identify a servo's damping from logged motion. Which test motion is most useful?
+    tr: Bir servo'nun damping'ini log'lanmış hareketten identify etmek istiyorsun. Hangi test hareketi en faydalı?
+  options:
+    - en: Holding the arm perfectly still, so the noise is as small as possible.
+      tr: Kolu tamamen hareketsiz tutmak, böylece noise olabildiğince küçük olur.
+    - en: The largest, fastest moves the servo can make, always at its torque limit.
+      tr: Servo'nun yapabildiği en büyük, en hızlı hareketler, hep tork limitinde.
+    - en: Moves rich in frequency and large enough that damping changes the signal more than the noise does, but below saturation.
+      tr: Frekansça zengin ve damping'in sinyali noise'tan fazla değiştireceği kadar büyük ama saturation'ın altında hareketler.
+  answer: 2
+  why:
+    en: Excitation has a window. Part A, 0.005 rad drowns in noise (validation 7.33 mrad), 0.4 rad saturates every step (6.67 mrad), 0.1 rad reaches 0.09 mrad.
+    tr: Excitation'ın bir penceresi var. A bölümü, 0,005 rad noise'ta boğuluyor (validation 7,33 mrad), 0,4 rad her adımda saturation'a giriyor (6,67 mrad), 0,1 rad 0,09 mrad'a iniyor.
+- stage: pre
+  q:
+    en: Your simulator has no delay, but the real arm has 15 ms. You fit the other parameters to logs. What happens?
+    tr: Simülatörde gecikme yok ama gerçek kolda 15 ms var. Diğer parametreleri log'lara fit ediyorsun. Ne olur?
+  options:
+    - en: The fit raises an error because the model cannot match.
+      tr: Model uyuşamadığı için fit hata verir.
+    - en: The fit bends the other parameters to imitate the missing delay, like omitted-variable bias.
+      tr: Fit eksik gecikmeyi taklit etmek için diğer parametreleri büker, omitted-variable bias gibi.
+    - en: Only the delay-related parameter comes out wrong; the others stay correct.
+      tr: Yalnızca gecikmeyle ilgili parametre yanlış çıkar, diğerleri doğru kalır.
+  answer: 1
+  why:
+    en: 'Break it, no delay term: kp scale 0.226 (real 0.700), damping 1.268 (real 0.900), mass scale 0.591 (real 1.200), validation 6.23 mrad.'
+    tr: Boz, gecikme terimi yok, kp ölçeği 0,226 (gerçek 0,700), damping 1,268 (gerçek 0,900), kütle ölçeği 0,591 (gerçek 1,200), validation 6,23 mrad.
+- stage: check
+  q:
+    en: In Build it, Step 1, a 10% damping change moves the 0.02 rad log by about 0.6 mrad in total, while the 2 mrad noise vector has a length of 89.4 mrad. What follows?
+    tr: Sıfırdan yaz, Adım 1'de damping'deki %10'luk değişim 0,02 rad'lık log'u toplamda yaklaşık 0,6 mrad oynatıyor; 2 mrad'lık noise vektörünün uzunluğu ise 89,4 mrad. Bundan ne çıkar?
+  options:
+    - en: Damping cannot be identified from this log; at 0.1 rad the same change moves it by 92 mrad and becomes visible.
+      tr: Damping bu log'dan identify edilemez; 0,1 rad'da aynı değişim 92 mrad oynatıyor ve görünür oluyor.
+    - en: The finite-difference step is too small.
+      tr: Finite-difference adımı fazla küçük.
+    - en: Damping does not affect the SO-101 at all.
+      tr: Damping SO-101'i hiç etkilemiyor.
+  answer: 0
+  why:
+    en: 'Step 1 table: damping column 6.3 mrad per unit at 0.02 rad, 920.3 at 0.1 rad. Part A agrees: damping error −41.2% at 0.02 rad, +0.1% at 0.1 rad.'
+    tr: 'Adım 1 tablosu: damping sütunu 0,02 rad''da birim başına 6,3 mrad, 0,1 rad''da 920,3. A bölümü de uyuşuyor: damping hatası 0,02 rad''da −%41,2, 0,1 rad''da +%0,1.'
+- stage: check
+  q:
+    en: Build it, Step 4 finds singular values from 685.6 down to 3.9 and a weakest direction that is almost pure friction. What does that predict?
+    tr: Sıfırdan yaz, Adım 4 685,6'dan 3,9'a inen singular value'lar ve neredeyse saf sürtünmeden oluşan en zayıf bir yön buluyor. Bu neyi öngörür?
+  options:
+    - en: Friction is the best-identified parameter.
+      tr: Sürtünme en iyi identify edilen parametredir.
+    - en: Friction will wander from one noise draw or solver to the next (predicted 1σ spread 51.2%), while armature stays within about 0.4%.
+      tr: Sürtünme bir noise çekilişinden ya da solver'dan diğerine savrulur (tahmin edilen 1σ yayılımı %51,2), armature ise yaklaşık %0,4 içinde kalır.
+    - en: The solver has a bug and must be restarted.
+      tr: Solver'da bir hata var ve yeniden başlatılmalı.
+  answer: 1
+  why:
+    en: Our fit gives friction −20.7%, SciPy −12.9% on the same data, part B up to +131.3%; the validation predictions differ by only 0.03 mrad (0.28 vs 0.25).
+    tr: Bizim fit sürtünmeyi −%20,7, aynı veride SciPy −%12,9 veriyor, B bölümünde +%131,3'e kadar; validation tahminleri yalnızca 0,03 mrad farklı (0,28 ve 0,25).
+- stage: post
+  q:
     en: In part A, a 0.1 rad multisine brings the validation error from 9.54 to 0.09 mrad, but a 0.4 rad multisine only to 6.67 mrad. Why does the larger excitation fit worse?
     tr: A bölümünde 0,1 rad'lık bir multisine validation hatasını 9,54'ten 0,09 mrad'a indiriyor, 0,4 rad'lık multisine ise yalnızca 6,67 mrad'a. Daha büyük excitation neden daha kötü fit veriyor?
   options:
     - en: Larger motions have relatively more measurement noise.
-      tr: Daha büyük hareketlerde ölçüm gürültüsü oransal olarak daha fazladır.
-    - en: Some servo is at its torque limit in every step, so its torque no longer depends on the servo gain or the damping and the data cannot pin them.
-      tr: Her adımda bir servo torque sınırında; torque'u artık servo gain'ine ya da damping'e bağlı değil ve veri bunları sabitleyemiyor.
+      tr: Daha büyük hareketlerde ölçüm noise'u oransal olarak daha fazladır.
     - en: The optimizer runs out of function evaluations on longer trajectories.
       tr: Optimizer daha uzun trajectory'lerde fonksiyon değerlendirmelerini tüketir.
-  answer: 1
+    - en: Some servo is at its torque limit in every step, so its torque no longer depends on the servo gain or the damping and the data cannot pin them.
+      tr: Her adımda bir servo tork sınırında; torku artık servo gain'ine ya da damping'e bağlı değil ve veri bunları sabitleyemiyor.
+  answer: 2
   why:
     en: Part A table, `sat` 4.6% at 0.1 rad and 100.0% at 0.4 rad. Excitation has a window between noise (0.005 rad) and saturation.
-    tr: A bölümü tablosu, `sat` 0,1 rad'da %4,6, 0,4 rad'da %100,0. Excitation'ın gürültü (0,005 rad) ile saturation arasında bir penceresi var.
-- q:
+    tr: A bölümü tablosu, `sat` 0,1 rad'da %4,6, 0,4 rad'da %100,0. Excitation'ın noise (0,005 rad) ile saturation arasında bir penceresi var.
+- stage: post
+  q:
     en: With 30 mrad of noise the fitted mass is off by −81.4%, yet the validation error is only 1.49 mrad. How can both be true?
-    tr: 30 mrad gürültüyle fit edilen kütle −%81,4 hatalı, ama validation hatası yalnızca 1,49 mrad. İkisi nasıl birlikte doğru olabilir?
+    tr: 30 mrad noise'la fit edilen kütle −%81,4 hatalı, ama validation hatası yalnızca 1,49 mrad. İkisi nasıl birlikte doğru olabilir?
   options:
     - en: Some parameter combinations barely change the output; the data cannot pin them, and for prediction they hardly matter.
       tr: Bazı parametre kombinasyonları çıktıyı neredeyse değiştirmez; veri onları sabitleyemez ve tahmin için pek önemli değillerdir.
@@ -28,17 +90,3 @@
   why:
     en: Part B. Parameter error and prediction error are different things (a "sloppy" direction); the nominal model's validation error is 9.54 mrad, six times worse.
     tr: B bölümü. Parametre hatası ile tahmin hatası farklı şeylerdir ("sloppy" bir yön); nominal modelin validation hatası 9,54 mrad, altı kat daha kötü.
-- q:
-    en: The fit without a delay parameter returns kp scale 0.226 (real 0.700), damping 1.268 (real 0.900) and mass scale 0.591 (real 1.200). What happened?
-    tr: Delay parametresi olmayan fit kp scale 0,226 (gerçek 0,700), damping 1,268 (gerçek 0,900) ve mass scale 0,591 (gerçek 1,200) döndürüyor. Ne oldu?
-  options:
-    - en: Only the kp scale is wrong; the other parameters are close enough.
-      tr: Yalnızca kp scale yanlış; diğer parametreler yeterince yakın.
-    - en: The noise was too large for the fit to converge.
-      tr: Gürültü, fit'in yakınsaması için fazla büyüktü.
-    - en: The model cannot represent the 15 ms delay, so it fakes the lag with a soft, overdamped, light servo and every parameter is biased.
-      tr: Model 15 ms'lik gecikmeyi temsil edemiyor; gecikmeyi yumuşak, aşırı sönümlü, hafif bir servoyla taklit ediyor ve her parametre sapıyor.
-  answer: 2
-  why:
-    en: Break it, no noise. Validation error 6.23 mrad, worse than the full model at 30 mrad of noise (1.49 mrad). Always include delay and check on data you did not fit.
-    tr: Boz bölümü, gürültüsüz. Validation hatası 6,23 mrad; 30 mrad gürültüdeki tam modelden (1,49 mrad) daha kötü. Gecikmeyi her zaman ekleyin ve fit etmediğiniz veride kontrol edin.

@@ -16,19 +16,17 @@
 
 ## The problem
 
-Diffusion Policy ([Chi et al. 2023](https://arxiv.org/abs/2303.04137)) starts from multimodal action distributions: in the same state there can be several correct motions, each one a separate "mode". In their Push-T task the policy "learns to approach the contact point equally likely from left or right", while LSTM-GMM and IBC show a bias toward one side and BET "cannot commit to one mode" (Sec. 5.3).
+Diffusion Policy ([Chi et al. 2023](https://arxiv.org/abs/2303.04137)) starts from multimodal actions: in one state there can be several correct motions, each a "mode". In their Push-T task the policy "learns to approach the contact point equally likely from left or right", while LSTM-GMM and IBC show a bias toward one side and BET "cannot commit to one mode" (Sec. 5.3).
 
-The smallest version of that failure: a point must go from $(0,-1)$ to $(0,+1)$ past a round obstacle of radius 0.30 at the origin. Of 200 demonstrations, 100 pass on the left and 100 on the right, and the side does not depend on the start. A behavior-cloning MLP (lesson 28) trained with MSE on these demonstrations collides in **200 of 200** trials in simulation. This lesson shows why and what replaces it.
+The smallest version of that failure: a point must go from $(0,-1)$ to $(0,+1)$ past a round obstacle of radius 0.30 at the origin. Of 200 demonstrations, 100 pass on the left and 100 on the right, whatever the start. A behavior-cloning MLP (lesson 28) trained with MSE on them collides in **200 of 200** trials in simulation. Why, and what replaces it?
 
 ## Core idea
 
 ### In plain words
 
-Two equally good roads go around a field, one on the left and one on the right. Half of the drivers you learn from take the left road, half the right. Now train a navigator to give *one* answer that is as close as possible, on average, to what the drivers did. The answer that minimizes the average squared distance is the midpoint of the two roads: straight through the field. That is exactly what regression with an MSE loss does. It returns the average of the demonstrations for the situation, which is fine when they agree and wrong when they split.
+Two equally good roads go around a field, left and right, and half of the drivers you learn from take each. Train a navigator to give *one* answer as close as possible, on average, to what the drivers did, and it answers with the midpoint: straight through the field. That is what regression with an MSE loss does: it returns the average of the demonstrations, fine when they agree, wrong when they split.
 
-The fix is to stop asking for one answer and learn to *sample* one: each query returns one plausible road, left or right, about as often as the drivers chose each. A **mixture model** does this by predicting a fixed number of candidates plus their probabilities and picking one. **Generative models** (diffusion, flow matching) need no fixed number: they start from random noise and push it, step by step, until it looks like a demonstration. Flow matching learns the push directly, as a velocity field that carries noise to data. Where the random start lies decides which road you end on.
-
-The number of pushes is a knob. Many small pushes follow the curving flow to one road. One big push from pure noise lands on the average, and you are back in the field.
+The fix is to learn to *sample* an answer: each query returns one plausible road, about as often as the drivers chose each. A **mixture model** predicts a fixed number of candidates plus their probabilities and picks one. **Generative models** (diffusion, flow matching) need no fixed number: they start from random noise and push it, step by step, until it looks like a demonstration; flow matching learns the push as a velocity field, and the random start decides the road. The number of pushes is a knob: many small pushes follow the flow to one road, one big push lands on the average, back in the field.
 
 ```mermaid
 flowchart TD
@@ -76,9 +74,7 @@ $o$ is the observation (here the start point), $a$ the action (here the whole pa
 
 **MSE learns the conditional mean.** For any $f$, $\mathbb{E}\,\lVert a - f(o)\rVert^2 = \mathbb{E}\,\lVert a - \mathbb{E}[a\mid o]\rVert^2 + \mathbb{E}\,\lVert \mathbb{E}[a\mid o] - f(o)\rVert^2$; the first term does not depend on $f$, so the minimizer is $f^*(o) = \mathbb{E}[a \mid o]$ (see AIEFS: [Loss Functions](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/05-loss-functions)). With two equally likely modes this is the middle of the obstacle. An L1 loss gives the per-dimension median instead; with exactly 50/50 modes any point between them is a median, so it is no better (L1 returns in [lesson 31](31-act.md)).
 
-**Mixture model.** Train by negative log-likelihood; at run time first sample $k$ from $\pi_k(o)$, then output $\mu_k$. It works if you know $K$ and the components do not collapse onto each other.
-
-**Generative action models** learn to *sample* from $p(a \mid o)$ without fixing $K$. The action $a$ is usually a whole chunk of future actions, and the observation $o$ is a condition, not something the model generates. The version we implement is flow matching with straight paths ($\sigma_{\min} = 0$).
+**Mixture model.** Train by negative log-likelihood; at run time sample $k$ from $\pi_k(o)$, then output $\mu_k$. It works if you know $K$ and the components do not collapse. **Generative action models** sample from $p(a \mid o)$ without fixing $K$; $a$ is usually a whole chunk of future actions and $o$ a condition. We implement flow matching with straight paths ($\sigma_{\min} = 0$).
 
 **One step is regression.** At $t = 0$, $a_t = a_0$ carries no information about $a_1$, so the best velocity is $v^*(a_0, 0, o) = \mathbb{E}[a_1 \mid o] - a_0$. A single Euler step lands on $a_0 + v^* = \mathbb{E}[a_1 \mid o]$, the MSE answer. Later steps see an $a_t$ that already leans to one side, and the learned velocity bends toward that side's mode. The integration steps are what turn regression into sampling.
 
@@ -98,6 +94,135 @@ Go deeper (AIEFS): [Diffusion Models — DDPM from Scratch](https://aiengineerin
 | Flow matching ([Lipman et al. 2023](https://arxiv.org/abs/2210.02747)) | a velocity field $v_{\theta}(a_t, t, o)$ | integrate an ODE from noise in $N$ steps | $N$ calls |
 
 DDPM ("denoising diffusion") and flow matching are close relatives: both start from noise and need $N$ network calls per sample; flow matching regresses a velocity, DDPM the noise to remove.
+
+## Build it
+
+You will now write the three pieces of a flow policy, the training pair, the velocity field and the Euler sampler, and check each on the Experiment's 200 demonstrations and 200 trials. Instead of training a network, you derive the field a perfect network would learn on these demonstrations: no PyTorch, about 2 s, and it separates what flow matching does from what a learned network adds.
+
+The functions are in [`physai/imitation.py`](../physai/imitation.py); `uv run python experiments/30-diffusion-and-flow-policies/build.py` runs the four steps (output in [`build_output.txt`](../experiments/30-diffusion-and-flow-policies/build_output.txt)).
+
+### Step 1 · The least-squares answer is the mean
+
+Fit the paths by least squares, linear in the start $x_0$, which is the best MSE predictor for this data:
+
+```python
+F = np.c_[np.ones(len(X)), X[:, 0]]                 # 1 and the start x0 of each demonstration
+coef = np.linalg.lstsq(F, Y, rcond=None)[0]         # 80 path numbers, linear in x0
+```
+
+```text
+== Step 1. 200 demonstrations, half left, half right: the least-squares answer ==
+demos pass the obstacle (y = 0) at x = -0.551 / +0.552
+least-squares path from x0 = 0 passes at x = +0.000; max |intercept - mean of the 200 demos| = 7.5e-15
+200 trials: collided 200/200, left 0, right 0
+```
+
+The intercept is the mean of the 200 demonstrations (difference 7.5e-15); the path passes the obstacle at $x = +0.000$, dead centre: 200/200 collisions. The Experiment's MSE network approximates this mean (200/200, path at $+0.030$).
+
+### Step 2 · The training pair and what it regresses
+
+```python
+def flow_matching_pair(a0, a1, t):
+    """Training input and target of flow matching with straight paths: a_t on the line noise -> data, and its velocity."""
+    t = np.reshape(t, (-1,) + (1,) * (np.ndim(a1) - 1))
+    return (1 - t) * a0 + t * a1, a1 - a0
+```
+
+A network sees only $a_t$, not which $a_0$ and $a_1$ produced it, so the best it can learn is the average target over all pairs passing through $a_t$. For a finite dataset that average has a closed form: given demonstration $j$, $a_t$ is Gaussian around $t\,a^{(j)}$ with standard deviation $1 - t$, so the posterior over $j$ is a softmax, and each demonstration pulls with velocity $(a^{(j)} - a)/(1 - t)$:
+
+```python
+def empirical_velocity(a, t, data):
+    """The velocity field that minimizes the flow-matching loss on a finite dataset: E[a1 - a0 | a_t = a].
+
+    Given a1 = data[j], a_t is Gaussian around t * data[j] with std (1 - t), so the posterior over j is a softmax.
+    a: (n, D) points at time t (0 <= t < 1); data: (m, D) demonstrations.
+    """
+    a = np.atleast_2d(a)
+    d2 = ((a[:, None, :] - t * data[None, :, :]) ** 2).sum(-1)      # (n, m) squared distances
+    logw = -d2 / (2 * (1 - t) ** 2)
+    w = np.exp(logw - logw.max(1, keepdims=True))
+    w /= w.sum(1, keepdims=True)
+    return (w @ data - a) / (1 - t)                                 # sum_j w_j (data_j - a) / (1 - t)
+```
+
+The check draws 4 million pairs from two 1-D modes at $\pm 1.1$ (the obstacle offsets $\pm 0.55$ times the Experiment's scaling of 2) and averages the target near five points at $t = 0.5$:
+
+```text
+== Step 2. The flow-matching pair and the field it regresses ==
+t = 0.0: a_t = [0.3 0.3], target a1 - a0 = [ 0.8 -1.4]
+t = 0.5: a_t = [ 0.7 -0.4], target a1 - a0 = [ 0.8 -1.4]
+t = 1.0: a_t = [ 1.1 -1.1], target a1 - a0 = [ 0.8 -1.4]
+t = 0.5     a    mean target near a (Monte Carlo)   empirical_velocity
+         -0.8                          -0.467               -0.474
+         -0.2                          -0.501               -0.510
+         +0.0                          -0.001               +0.000
+         +0.2                          +0.524               +0.510
+         +0.8                          +0.478               +0.474
+```
+
+Monte Carlo agrees within about 0.015, its sampling noise. At $a = 0$ the two modes pull equally; a little to either side the field already points to that side's mode.
+
+### Step 3 · Euler sampling
+
+```python
+def euler_sample(velocity, a0, n_steps):
+    """Integrate da/dt = velocity(a, t) from t = 0 (noise a0) to t = 1 in n_steps equal Euler steps."""
+    a = np.array(a0, dtype=float)
+    for i in range(n_steps):
+        a = a + velocity(a, i / n_steps) / n_steps
+    return a
+```
+
+Integrate the exact field of the 200 demonstrations from noise, with the Experiment's trials, and compare with the Experiment's learned network:
+
+```text
+== Step 3. Euler sampling along the exact field of the 200 demonstrations ==
+steps  collided  left  right  mean |x| at y=0   (Experiment's network: collided, mean |x|)
+    1   200/200     0      0            0.026   (200/200, 0.161)
+    2    34/200    84     82            0.403   (95/200, 0.372)
+    4     0/200    98    102            0.487   (17/200, 0.494)
+    8     0/200    97    103            0.515   (7/200, 0.533)
+   16     0/200    97    103            0.528   (5/200, 0.546)
+   32     0/200    97    103            0.536   (3/200, 0.554)
+1 step: max |sample - mean of the demos| = 3.0e-14
+```
+
+One step lands exactly on the mean of the demonstrations (3.0e-14) and collides 200/200: "one step is regression" (Math details), measured. With 2 steps 34 samples still end between the modes (the network: 95); from 4 steps on the exact field never collides, while the network still does (17, 7, 5, 3). The gap is the network's error.
+
+### Step 4 · What a perfect fit does
+
+```text
+== Step 4. Many steps: the exact field returns the training demonstrations ==
+   8 steps: RMS distance of a sample to its nearest demonstration, median 0.0018, max 0.0158
+  32 steps: RMS distance of a sample to its nearest demonstration, median 0.0009, max 0.0029
+ 128 steps: RMS distance of a sample to its nearest demonstration, median 0.0000, max 0.0010
+demonstrations differ from each other by (median RMS, nearest pair) 0.0024
+```
+
+After 128 steps every sample sits on one of the 200 demonstrations (median RMS distance 0.0000; neighbouring demonstrations differ by 0.0024): the exact minimizer of the training loss memorizes the data. A network smooths this field and produces new paths between nearby demonstrations, which is why it generalizes and why it leaves a few samples between the modes.
+
+### What you keep
+
+`physai.imitation` now also has `flow_matching_pair`, `empirical_velocity` and `euler_sample`; `euler_sample` takes any velocity function, so the same sampler runs a trained network. [Lesson 31](31-act.md) keeps the chunked action and drops the sampler; [lesson 41](../part-10-foundation-models-and-agents/41-vla.md) meets flow-matching action heads again in vision-language-action models. [`tests/test_30_diffusion_and_flow_policies.py`](../tests/test_30_diffusion_and_flow_policies.py) checks the one-step mean, that a single demonstration is reached exactly in any number of steps, and that many steps land on a mode; run `uv run pytest tests/test_30_diffusion_and_flow_policies.py`.
+
+## Use it
+
+For a real arm, LeRobot's Diffusion Policy is ready-made: `lerobot-train --policy.type=diffusion`. It is DDPM, not flow matching, but the knobs are the ones you built ([`configuration_diffusion.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/diffusion/configuration_diffusion.py)):
+
+| Knob | This lesson | LeRobot `DiffusionConfig` default |
+|---|---|---|
+| what the network predicts | velocity $a_1 - a_0$ | `prediction_type = "epsilon"` (the added noise) |
+| steps per sample (network calls) | `n_steps`, 1 to 32 | `num_inference_steps`, defaults to `num_train_timesteps = 100` |
+| sampler | Euler, $t$: 0 → 1 | `noise_scheduler_type = "DDPM"` |
+| action chunk | the whole path, 40 waypoints | `horizon = 64` predicted, `n_action_steps = 32` executed |
+| observation | the start point | `n_obs_steps = 2` (current and previous step) |
+| action normalization | divide by `SCALE = 2` | `MIN_MAX` for state and action, then `clip_sample_range = 1.0` |
+
+Three traps:
+
+- **Noise and data must have comparable scale.** The sampler starts from $\mathcal N(0, I)$; the Experiment multiplies paths by 2 so that offsets of about 0.5 become about 1. Unnormalized actions in radians or millimetres make the first steps meaningless.
+- **Time runs in opposite directions.** Here (and in Lipman et al.) $t = 0$ is noise and $t = 1$ is data; DDPM counts its timesteps down from noise at $T$ to data at 0. Mixing the conventions integrates the wrong way.
+- **Steps cost latency.** Every step is one network call: 100 by default in LeRobot's diffusion config, against the 0.04–0.77 ms per query of the Experiment's small MLP at 1–32 steps. Check the budget against your control rate before you choose a step count.
 
 ## Experiment
 
@@ -126,7 +251,7 @@ for i in range(n_steps):
 | MSE, all demos on the left | 0/200 | 0–1.9% | 200 | 0 |
 | Mixture (MDN, $K=2$) | **0/200** | 0–1.9% | 96 | 104 |
 
-At the obstacle's height ($y = 0$) the demonstrations pass at $x = -0.55$ and $+0.55$; the MSE path passes at $x = +0.030$, inside the radius of 0.30. With three other seeds the MSE model collided 193, 184 and 200 times out of 200, the mixture 0 times in each.
+At $y = 0$ the demonstrations pass at $x = \pm 0.55$, the MSE path at $x = +0.030$, inside the radius of 0.30. With three other seeds the MSE model collided 193, 184 and 200 times out of 200, the mixture 0 times in each.
 
 **Part B: more data does not help.** Same MSE model, demonstrations half/half:
 
@@ -134,7 +259,7 @@ At the obstacle's height ($y = 0$) the demonstrations pass at $x = -0.55$ and $+
 |---|---|---|---|---|---|---|
 | MSE collisions | 8.0% | 46.0% | 85.0% | 91.5% | 100% | 100% |
 
-A likely reason (not instrumented): with 10 demonstrations the network ties tiny differences in $x_0$ to the side of the nearest demonstration and usually veers to one side; as data grows it approaches the true conditional mean, and the collision rate goes up.
+A likely reason (not instrumented): with 10 demonstrations the network ties tiny differences in $x_0$ to the nearest demonstration's side; with more data it approaches the conditional mean.
 
 **Part C: flow-matching policy** on the same 200 demonstrations: MLP 3×256 SiLU, input = noisy chunk + sinusoidal time embedding + observation, 4,000 Adam steps, batch 256. Sweep the number of Euler steps.
 
@@ -149,13 +274,11 @@ A likely reason (not instrumented): with 10 demonstrations the network ties tiny
 
 ![Two panels against the number of Euler steps on a log scale from 1 to 32. Left: collisions fall from 100 percent at 1 step, the same as MSE regression, to 47.5 percent at 2 steps and 1.5 percent at 32 steps. Right: the mean lateral distance at the obstacle rises from 0.161, inside the obstacle radius of 0.30, toward the demonstrations' 0.55.](../experiments/30-diffusion-and-flow-policies/flow_steps.png)
 
-Times are the fastest of 30 single-trajectory queries on a machine heavily loaded by other jobs; treat them as approximate. The network-evaluation count (= steps) is the machine-independent cost.
-
-Observations: the flow policy splits left/right like the mixture model without being told there are two modes; the lateral offset at the obstacle approaches the demonstrations' 0.55 as steps increase; inference cost (network evaluations) grows linearly with the step count.
+Times are the fastest of 30 single-trajectory queries on a heavily loaded machine (approximate); the step count is the machine-independent cost. The flow policy splits left/right like the mixture model without being told there are two modes, and the lateral offset approaches the demonstrations' 0.55 as steps increase.
 
 ## Break it
 
-Cut the integration steps. With 1 step the flow policy collides **200/200**, like MSE: the path's mean distance from the centre line at the obstacle is 0.161, inside the obstacle. That is the $t = 0$ argument above, measured; the paths are not exactly the MSE path ($x = +0.030$) because the learned field still depends a little on $a_0$. With 2 steps, about half the samples still end between the modes (95/200). Even at 32 steps 3/200 samples touch the obstacle: the exact flow would carry no probability mass between the modes, but the learned velocity field is approximate and Euler integration adds error, so a little remains.
+Cut the integration steps. With 1 step the flow policy collides **200/200**, like MSE: mean distance from the centre line 0.161, inside the obstacle. That is the $t = 0$ argument, measured; the paths are not exactly the mean (the exact field of Build it, Step 3 gives 0.026, the spread of the starts) because the learned field still depends a little on $a_0$. With 2 steps 95/200 still end between the modes, and even at 32 steps 3/200 touch the obstacle: the exact field reaches 0/200 from 4 steps on, so what remains is the learned field's error.
 
 The second break is the data, for the MSE model (200 demos, Part B sweep):
 
@@ -163,13 +286,13 @@ The second break is the data, for the MSE model (200 demos, Part B sweep):
 |---|---|---|---|---|---|---|
 | MSE collisions | 100% | 91.5% | 63.0% | 36.5% | 0% | 0% |
 
-MSE is safe only when the data is nearly unimodal (one dominant mode): the mean lateral offset $0.55\,\lvert 2p_{\text{left}} - 1\rvert$ must clear the radius 0.30 plus a margin.
+MSE is safe only for nearly unimodal data: the mean lateral offset $0.55\,\lvert 2p_{\text{left}} - 1\rvert$ must clear the radius 0.30 plus a margin.
 
 ## On the real robot
 
 - **Diffusion Policy** uses a DDPM to model $p(A \mid O)$, the action sequence conditioned on observations, not their joint distribution; the CNN variant conditions through FiLM (a learned per-channel scale and shift computed from the observation). With DDIM (a faster DDPM sampler), 100 training iterations and 10 inference iterations give about 0.1 s inference on an Nvidia 3080 in their real-world setup; an action horizon of 8 steps worked best for most tasks; reported average improvement 46.9% over prior methods across 15 tasks from 4 benchmarks ([Chi et al. 2023](https://arxiv.org/abs/2303.04137)).
 - **π0** uses conditional flow matching for actions, a 300M-parameter "action expert" on a 3B vision-language model (3.3B total), chunks of $H = 50$ actions, 10 integration steps; on an RTX 4090 the 10 action passes take 27 ms of a 73 ms on-board inference ([Black et al. 2024](https://arxiv.org/abs/2410.24164)). Same trade-off as Part C, at real scale.
-- **SO-101 procedure.** LeRobot's diffusion policy config defaults to `horizon=64`, `n_action_steps=32`, a DDPM scheduler with 100 training timesteps ([`configuration_diffusion.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/diffusion/configuration_diffusion.py)). Record teleop demos of a task with two valid strategies (grasp a cube from either side), train an MSE behavior-cloning baseline and a diffusion policy on the same episodes, and count grasps that end between the two strategies over at least 50 trials each. Not yet measured on the real arm.
+- **SO-101 procedure** (LeRobot's defaults are in Use it). Record teleop demos of a task with two valid strategies (grasp a cube from either side), train an MSE behavior-cloning baseline and a diffusion policy on the same episodes, and count grasps that end between the two strategies over at least 50 trials each. Not yet measured on the real arm.
 
 ## Check yourself
 

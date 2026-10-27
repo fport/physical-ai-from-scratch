@@ -1,6 +1,7 @@
 # Lesson 07 · Rigid transforms and frame trees. Every answer is supported by the lesson page or
-# experiments/07-rigid-transforms/output.txt. answer = index of the correct option (0-based).
-- q:
+# experiments/07-rigid-transforms/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: The cube does not move. You rotate `shoulder_pan` ±30°. In which frames do the cube's coordinates change?
     tr: Küp hareket etmiyor. `shoulder_pan`'i ±30° döndürüyorsun. Küpün koordinatları hangi frame'lerde değişir?
   options:
@@ -14,7 +15,53 @@
   why:
     en: A joint changes coordinates only in frames downstream of it. Part C, 0.00 mm in W and B, 93.77 mm in G and C; $T_{GC}$ is constant.
     tr: Bir joint koordinatları yalnızca ağaçta kendisinden sonraki frame'lerde değiştirir. C bölümü, W ve B'de 0,00 mm, G ve C'de 93,77 mm; $T_{GC}$ sabit.
-- q:
+- stage: pre
+  q:
+    en: You know the gripper's pose in the base frame, $T_{BG}$, and the camera's pose in the gripper frame, $T_{GC}$. How do you get the camera in the base frame?
+    tr: Gripper'ın taban frame'indeki pose'unu, $T_{BG}$, ve kameranın gripper frame'indeki pose'unu, $T_{GC}$, biliyorsun. Kamerayı taban frame'inde nasıl bulursun?
+  options:
+    - en: $T_{GC}\,T_{BG}$, because the camera is applied first.
+      tr: $T_{GC}\,T_{BG}$, çünkü önce kamera uygulanır.
+    - en: $T_{BC} = T_{BG}\,T_{GC}$; the inner letters cancel, like units.
+      tr: $T_{BC} = T_{BG}\,T_{GC}$; içteki harfler birimler gibi sadeleşir.
+    - en: $T_{BG} + T_{GC}$, adding the two offsets.
+      tr: $T_{BG} + T_{GC}$, iki ofseti toplayarak.
+  answer: 1
+  why:
+    en: Composition is multiplication in "A from B" order (Core idea table). Build it, Step 5 checks the chain $T_{WB}\,T_{BG} = T_{WG}$ to 1.1e-16; the Break it row with the wrong order is 103.2 mm off.
+    tr: Bileşke, "A from B" sırasında çarpımdır (Ana fikir tablosu). Sıfırdan yaz, Adım 5 $T_{WB}\,T_{BG} = T_{WG}$ zincirini 1,1e-16 farkla doğruluyor; Boz'daki yanlış sıralı satır 103,2 mm sapıyor.
+- stage: check
+  q:
+    en: In `frame_tree`, a hinge's turn is written as `anchor @ move @ transform_inv(anchor)` instead of just `move`. Why?
+    tr: '`frame_tree`''de bir hinge''in dönüşü yalnızca `move` değil `anchor @ move @ transform_inv(anchor)` olarak yazılıyor. Neden?'
+  options:
+    - en: A hinge turns about its axis through the joint's anchor `jnt_pos`, not through the body origin; the sandwich moves there, turns, and moves back.
+      tr: Hinge, body orijininden değil joint'in anchor'ı `jnt_pos`'tan geçen ekseni etrafında döner; sandviç oraya gider, döner ve geri gelir.
+    - en: To normalize the rotation matrix after each joint.
+      tr: Her joint'ten sonra rotation matrisini normalize etmek için.
+    - en: Because MuJoCo stores rotations transposed.
+      tr: Çünkü MuJoCo rotation'ları transpoze saklar.
+  answer: 0
+  why:
+    en: Same idea as lesson 09's $o + T(p - o)$. With it, the walk reproduces `xpos` and `xmat` for all ten bodies to 2.2e-16 m and 1.0e-15 (Build it, Step 2).
+    tr: Ders 09'un $o + T(p - o)$'su ile aynı fikir. Bununla yürüyüş on body'nin hepsi için `xpos` ve `xmat`'i 2,2e-16 m ve 1,0e-15 farkla yeniden üretiyor (Sıfırdan yaz, Adım 2).
+- stage: check
+  q:
+    en: For the free cube, `frame_tree` replaces the body's pose with `qpos` instead of multiplying it onto the parent's pose. Why is that right?
+    tr: Serbest küp için `frame_tree` body'nin pose'unu parent'ın pose'una çarpmak yerine `qpos` ile değiştiriyor. Bu neden doğru?
+  options:
+    - en: Because the cube has no mass.
+      tr: Çünkü küpün kütlesi yok.
+    - en: A free joint's seven `qpos` numbers are the body's world position and scalar-first quaternion themselves.
+      tr: Bir free joint'in yedi `qpos` sayısı, body'nin dünyadaki konumu ve skaler önde quaternion'ının ta kendisidir.
+    - en: Because free joints are evaluated after all other bodies.
+      tr: Çünkü free joint'ler diğer bütün body'lerden sonra hesaplanır.
+  answer: 1
+  why:
+    en: That is why a free body has `nq = 7` but `nv = 6` (lesson 06). The walk matches MuJoCo for the cube as for every arm link, and the cube's position feeds Step 4's comparison with the sensors.
+    tr: Bir free body'nin `nq = 7` ama `nv = 6` olmasının sebebi de bu (ders 06). Yürüyüş küp için de her kol linki gibi MuJoCo ile örtüşüyor; küpün konumu Adım 4'ün sensörlerle karşılaştırmasına giriyor.
+- stage: post
+  q:
     en: To get the cube in the gripper frame, someone writes $R\,(p - t)$ instead of $R^\top (p - t)$. What happens?
     tr: Küpü gripper frame'inde bulmak için biri $R^\top (p - t)$ yerine $R\,(p - t)$ yazıyor. Ne olur?
   options:
@@ -28,7 +75,8 @@
   why:
     en: Orthogonal means $R^{-1} = R^\top$, not $R = R^\top$. In the Break it table this active/passive mix-up is 101.0 mm off, and none of the mistakes throws an exception.
     tr: Ortogonal, $R = R^\top$ değil $R^{-1} = R^\top$ demektir. Boz tablosunda bu active/passive karışıklığı 101,0 mm sapıyor ve hataların hiçbiri exception fırlatmıyor.
-- q:
+- stage: post
+  q:
     en: A `framepos` sensor with `reftype="body"` reads a point 295.5 mm away from its true base-frame value. Why?
     tr: '`reftype="body"` olan bir `framepos` sensor''ü bir noktayı gerçek base frame değerinden 295,5 mm uzakta okuyor. Neden?'
   options:

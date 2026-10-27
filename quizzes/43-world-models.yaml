@@ -1,44 +1,92 @@
-# Lesson 43 · World models. Every answer is supported by the lesson page or
-# experiments/43-world-models/output.txt. answer = index of the correct option (0-based).
-- q:
-    en: Linearized, the rollout error obeys $e_{h+1} \approx (I + \partial f/\partial s)\, e_h + \epsilon_h$. Where does it grow geometrically?
-    tr: Doğrusallaştırılınca rollout hatası $e_{h+1} \approx (I + \partial f/\partial s)\, e_h + \epsilon_h$ kuralına uyar. Nerede geometrik olarak büyür?
+# Lesson 43 · World models. Every answer is supported by the lesson page,
+# experiments/43-world-models/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: A learned simulator predicts one step very accurately. You run it on its own outputs for 100 steps. What happens to the error?
+    tr: Öğrenilmiş bir simülatör tek adımı çok isabetli tahmin ediyor. Onu 100 adım boyunca kendi çıktılarıyla çalıştırıyorsun. Hataya ne olur?
   options:
-    - en: Near the hanging state, because the pendulum moves fastest there.
-      tr: Asılı duruma yakın, çünkü sarkaç orada en hızlı hareket eder.
-    - en: Everywhere equally; the growth depends only on the one-step error.
-      tr: Her yerde eşit; büyüme yalnızca tek adım hatasına bağlıdır.
-    - en: Near upright, where nearby states diverge and the bracket has an eigenvalue larger than 1 in magnitude.
-      tr: Dik konuma yakın, komşu durumların birbirinden ayrıldığı ve parantezin mutlak değeri 1'den büyük bir özdeğeri olduğu yerde.
+    - en: It stays at the one-step value, because the model is accurate.
+      tr: Model isabetli olduğu için tek adım değerinde kalır.
+    - en: It grows, because every prediction starts from the previous, slightly wrong one; like dead reckoning without a fix.
+      tr: Büyür, çünkü her tahmin bir öncekinin biraz yanlış sonucundan başlar; konum düzeltmesi almayan dead reckoning gibi.
+    - en: It shrinks, because errors average out.
+      tr: Küçülür, çünkü hatalar birbirini götürür.
+  answer: 1
+  why:
+    en: 'Part A: 0.0004 rad after one step, 0.0966 rad (mean) after 100 steps, about 240 times more.'
+    tr: 'A bölümü: tek adımdan sonra 0,0004 rad, 100 adımdan sonra 0,0966 rad (ortalama), yaklaşık 240 kat.'
+- stage: pre
+  q:
+    en: Why can a planner get good results from a model that is useless for long open-loop predictions?
+    tr: Bir planner, uzun open-loop tahminler için işe yaramayan bir modelden neden iyi sonuç alabilir?
+  options:
+    - en: It applies only the first action, measures the real state and plans again, so the drift is reset every step.
+      tr: Yalnızca ilk action'ı uygular, gerçek state'i ölçer ve yeniden planlar; böylece kayma her adımda sıfırlanır.
+    - en: It averages many models.
+      tr: Birçok modelin ortalamasını alır.
+    - en: It never uses the model's predictions.
+      tr: Modelin tahminlerini hiç kullanmaz.
+  answer: 0
+  why:
+    en: 'Break it: a low-energy model 90× worse for one step still swung up 2 of 3 starts; replanning less often (k = 5) exposes the model error.'
+    tr: 'Boz: tek adımda 90× kötü düşük enerjili bir model bile 3 başlangıçtan 2''sinde kaldırdı; daha seyrek yeniden planlamak (k = 5) model hatasını açığa çıkarıyor.'
+- stage: check
+  q:
+    en: In Build it, Step 4, degree 4 predicts one step about 500 times better than degree 2, yet its error grows 2959× over 100 steps (degree 2 1528×). What does that show?
+    tr: Sıfırdan yaz, Adım 4'te derece 4 tek adımı derece 2'den yaklaşık 500 kat iyi tahmin ediyor, ama hatası 100 adımda 2959× büyüyor (derece 2 1528×). Bu neyi gösterir?
+  options:
+    - en: Higher-degree models are always worse.
+      tr: Yüksek dereceli modeller her zaman daha kötüdür.
+    - en: The rollout code has a bug at degree 4.
+      tr: Rollout kodunda derece 4'te bir hata var.
+    - en: A more accurate model does not compound more slowly; the growth comes from the dynamics, so the H-step table, not the one-step error, is the yardstick.
+      tr: Daha doğru bir model daha yavaş birikmez; büyüme dinamikten gelir, bu yüzden ölçüt tek adım hatası değil H adımlık tablodur.
   answer: 2
   why:
-    en: Math details, compounding error. Where the dynamics are stable the errors roughly add up; a test set with a few unstable trajectories gets a mean dominated by them (part A, mean 0.0966 vs median 0.0072 rad at 100 steps).
-    tr: Math details, birikimli hata. Dinamik kararlıysa hatalar kabaca toplanır; birkaç kararsız trajectory içeren bir test setinde ortalamaya onlar hâkim olur (A bölümü, 100 adımda ortalama 0,0966, medyan 0,0072 rad).
-- q:
+    en: 'Step 4 table: degree 4 still ends far lower (3.2e-04 rad at H = 100 vs 8.6e-02), but the ratio H100/H1 does not fall with accuracy.'
+    tr: 'Adım 4 tablosu: derece 4 yine çok daha düşük bitiyor (H = 100''de 3,2e-04''e karşı 8,6e-02 rad), ama H100/H1 oranı doğrulukla düşmüyor.'
+- stage: check
+  q:
+    en: In Build it, Step 5, MPC with our NumPy pendulum as the planner's model reproduces the Experiment's "true" rows exactly. Why is that possible?
+    tr: Sıfırdan yaz, Adım 5'te planner'ın modeli olarak NumPy pendulum'umuzla MPC, Deney'in "true" satırlarını birebir üretiyor. Bu neden mümkün?
+  options:
+    - en: Our step equals MuJoCo's to 1.8e-15, and the same seeds draw the same candidate sequences, so every argmin picks the same action.
+      tr: Adımımız MuJoCo'nunkine 1,8e-15 kadar eşit ve aynı seed'ler aynı aday dizileri çekiyor; her argmin aynı action'ı seçiyor.
+    - en: MPC results do not depend on the model.
+      tr: MPC sonuçları modele bağlı değil.
+    - en: The Experiment's numbers are rounded to whole steps.
+      tr: Deney'in sayıları tam adımlara yuvarlanmış.
+  answer: 0
+  why:
+    en: 'Step 1 checks the step against MuJoCo; Step 5 then prints 0/3 at H = 10 and 3/3, 0.023 rad, first upright at step 66 at H = 30, as in part B.'
+    tr: 'Adım 1 adımı MuJoCo ile kontrol ediyor; Adım 5 de B bölümündeki gibi H = 10''da 0/3, H = 30''da 3/3, 0,023 rad ve 66. adımda ilk dik konum yazdırıyor.'
+- stage: post
+  q:
     en: In part B both planners fail at H = 10 (0/3) and both succeed at H = 30 (3/3). What decides success here?
     tr: B bölümünde iki planner da H = 10'da başarısız (0/3), H = 30'da başarılı (3/3). Burada başarıyı ne belirliyor?
   options:
-    - en: The planning horizon; 0.5 s is too short to see that pumping pays off, 1.5 s works for the learned and the true model alike.
-      tr: Planlama ufku; 0,5 s pompalamanın işe yaradığını görmek için fazla kısa, 1,5 s hem öğrenilmiş hem gerçek model için çalışıyor.
     - en: The model; the learned one is too inaccurate for short horizons.
       tr: Model; öğrenilmiş olan kısa ufuklar için fazla isabetsiz.
+    - en: The planning horizon; 0.5 s is too short to see that pumping pays off, 1.5 s works for the learned and the true model alike.
+      tr: Planlama ufku; 0,5 s pompalamanın işe yaradığını görmek için fazla kısa, 1,5 s hem öğrenilmiş hem gerçek model için çalışıyor.
     - en: The number of candidate sequences, which grows with H.
       tr: H ile birlikte büyüyen aday dizi sayısı.
-  answer: 0
+  answer: 1
   why:
     en: Part B table. The learned model matches the true one within a step on the time to reach upright (67 vs 66 at H = 30); K = 100 in every row.
     tr: B tablosu. Öğrenilmiş model dik konuma ulaşma zamanında gerçeğiyle bir adım içinde eşleşiyor (H = 30'da 66'ya karşı 67); her satırda K = 100.
-- q:
+- stage: post
+  q:
     en: A model trained only on low-energy data is about 90× worse for one step, yet MPC with it still swings up in 2 of 3 starts. Executing 5 actions open loop instead, the learned model drops to 2/3 while the true one keeps 3/3. What makes the imperfect model usable?
     tr: Yalnızca düşük enerjili veriyle eğitilmiş bir model tek adımda yaklaşık 90× daha kötü, ama onunla MPC yine de 3 başlangıçtan 2'sinde sarkacı kaldırıyor. Bunun yerine 5 action open loop çalıştırılınca öğrenilmiş model 2/3'e düşüyor, gerçek model 3/3'te kalıyor. Kusurlu modeli kullanılabilir yapan ne?
   options:
     - en: Training for more gradient steps.
       tr: Daha fazla gradient adımıyla eğitmek.
-    - en: Replanning every 0.05 s from the measured state, which resets the drift before it matters.
-      tr: Her 0,05 s'de ölçülen durumdan yeniden planlamak; bu, kayma önemli hâle gelmeden onu sıfırlar.
     - en: A longer open-loop execution, so the model sees more of its own predictions.
       tr: Modelin kendi tahminlerini daha çok görmesi için daha uzun open-loop yürütme.
-  answer: 1
+    - en: Replanning every 0.05 s from the measured state, which resets the drift before it matters.
+      tr: Her 0,05 s'de ölçülen durumdan yeniden planlamak; bu, kayma önemli hâle gelmeden onu sıfırlar.
+  answer: 2
   why:
     en: Break it (parts C–E). One-step error 0.0371 vs 0.0004 rad; from k = 10 even the perfect model fails, so the replanning rate is the knob.
     tr: Boz bölümü (C–E). Tek adım hatası 0,0004'e karşı 0,0371 rad; k = 10'dan itibaren kusursuz model bile başarısız, yani ayar düğmesi yeniden planlama hızı.

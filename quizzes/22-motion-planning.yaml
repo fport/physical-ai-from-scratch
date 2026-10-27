@@ -1,5 +1,65 @@
 # Lesson 22 · Configuration space and sampling-based planning. Every answer is supported by the lesson page or
 # experiments/22-motion-planning/output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: Start and goal poses of the arm are both collision-free. Is the straight line between them in joint space free too?
+    tr: Kolun başlangıç ve hedef pozlarının ikisi de çarpışmasız. Joint uzayında aralarındaki düz çizgi de boş mudur?
+  options:
+  - en: Yes, a segment between two free poses is always free.
+    tr: Evet, iki boş poz arasındaki doğru parçası her zaman boştur.
+  - en: Not necessarily; here the straight line pushes the arm 139.0 mm into the box.
+    tr: Şart değil; burada düz çizgi kolu kutunun 139,0 mm içine sokuyor.
+  - en: Only if both poses have the same joint-limit margin.
+    tr: Yalnız iki pozun joint limit payı aynıysa.
+  answer: 1
+  why:
+    en: The free space of C-space is not convex, so two free points do not imply a free segment. The Problem measures 139.0 mm of penetration on the straight line.
+    tr: C-space'in boş kısmı convex değil; iki boş nokta boş bir doğru parçası garanti etmez. Problem bölümü düz çizgide 139,0 mm penetrasyon ölçüyor.
+- stage: pre
+  q:
+    en: A planner tests one pose every res radians along each step. What can go wrong if res is coarse?
+    tr: Bir planner her adım boyunca res radyanda bir poz test ediyor. res kaba olursa ne ters gidebilir?
+  options:
+  - en: The planner always fails, because it rejects too many steps.
+    tr: Planner her zaman başarısız olur, çünkü çok fazla adımı reddeder.
+  - en: Nothing; the tested poses are enough to see any obstacle.
+    tr: Hiçbir şey; test edilen pozlar her engeli görmeye yeter.
+  - en: A step can jump across a thin part of an obstacle and the planner still reports success.
+    tr: Bir adım engelin ince bir kısmının üzerinden atlayabilir ve planner yine başarı raporlar.
+  answer: 2
+  why:
+    en: Whatever happens between two tested poses is assumed free (In plain words); at 1.0 rad every run reports success but 80/100 paths go through the box.
+    tr: İki test edilen poz arasında olan her şey boş kabul edilir (Sade anlatımla); 1,0 rad'da her koşu başarı raporluyor ama 100 path'in 80'i kutunun içinden geçiyor.
+- stage: check
+  q:
+    en: Build it, Step 3 reproduces the Experiment's res 0.05 row exactly (100/100, 33 iterations, 431 checks). Why exactly and not just approximately?
+    tr: Sıfırdan yaz, Adım 3 Deney'in res 0,05 satırını birebir üretiyor (100/100, 33 iterasyon, 431 kontrol). Neden yaklaşık değil de birebir?
+  options:
+  - en: The same algorithm with the same seeds draws the same darts in the same order.
+    tr: Aynı algoritma aynı seed'lerle aynı dartları aynı sırayla atıyor.
+  - en: MuJoCo caches the collision results of the Experiment.
+    tr: MuJoCo, Deney'in çarpışma sonuçlarını önbellekte tutuyor.
+  - en: Medians over 100 seeds hide any difference between the two planners.
+    tr: 100 seed üzerindeki medyanlar iki planner arasındaki her farkı gizliyor.
+  answer: 0
+  why:
+    en: '`rrt_connect` consumes the generator exactly like the Experiment''s planner, and the shortcut continues with the same generator, so Step 4 also matches 5.57 → 3.59 rad.'
+    tr: '`rrt_connect` generator''ı Deney''in planner''ıyla aynı şekilde tüketiyor ve shortcut aynı generator''la devam ediyor; bu yüzden Adım 4 de 5,57 → 3,59 rad ile örtüşüyor.'
+- stage: check
+  q:
+    en: You give some geoms a non-zero contact margin. What does `d.ncon > 0` after `mj_collision` mean now?
+    tr: Bazı geom'lara sıfırdan büyük bir contact margin veriyorsun. `mj_collision` sonrası `d.ncon > 0` artık ne demek?
+  options:
+  - en: Exactly the same as before, a penetration.
+    tr: Öncekiyle tamamen aynı, bir penetrasyon.
+  - en: Contacts with positive distance are reported too, so test `contact.dist < 0` instead.
+    tr: Pozitif mesafeli contact'lar da raporlanır; bu yüzden onun yerine `contact.dist < 0`'ı test et.
+  - en: Only self-collisions are counted.
+    tr: Yalnız self-collision'lar sayılır.
+  answer: 1
+  why:
+    en: 'Use it, traps: with a non-zero margin, contacts with positive `dist` appear as well, so test `dist < 0`, not `ncon > 0`.'
+    tr: 'Kütüphaneyle kullan, tuzaklar: sıfırdan büyük bir margin''de pozitif `dist`''li contact''lar da çıkar; bu yüzden `ncon > 0`''ı değil `dist < 0`''ı test et.'
 - q:
     en: At res 1.0 rad, RRT-Connect reports success in 100 of 100 runs. What does the dense re-check at 0.005 rad show?
     tr: res 1,0 rad'da RRT-Connect 100 koşunun 100'ünde başarı raporluyor. 0,005 rad'daki yoğun yeniden kontrol ne gösteriyor?
@@ -16,20 +76,7 @@
   why:
     en: 'Part A table: success is 100/100 in every row; at 1.0 rad 80/100 paths collide, worst penetration 156.4 mm, deeper than the straight line (139.0 mm).'
     tr: 'A kısmının tablosu: her satırda başarı 100/100; 1,0 rad''da 80/100 path çarpışıyor, en kötü penetrasyon 156,4 mm, düz çizgiden (139,0 mm) bile derin.'
-- q:
-    en: From res 0.01 to 1.0 rad the shortcut path gets shorter (3.61 → 3.00 rad). Why?
-    tr: res 0,01'den 1,0 rad'a giderken shortcut'lı path kısalıyor (3,61 → 3,00 rad). Neden?
-  options:
-  - en: Fewer iterations (33 → 25) grow a straighter tree.
-    tr: Daha az iterasyon (33 → 25) daha düz bir ağaç büyütür.
-  - en: Shortcutting works better when it has fewer collision checks to run.
-    tr: Shortcutting, yapacak daha az collision check olunca daha iyi çalışır.
-  - en: Coarse checks let the shortcuts cut straight through the obstacle.
-    tr: Kaba kontroller shortcut'ların engelin içinden düz geçmesine izin verir.
-  answer: 2
-  why:
-    en: 'What the data says, point 2: checks fall from 2070 to 48 while paths in collision rise from 0/100 to 80/100; the shorter path is partly a path through the box.'
-    tr: 'Verinin söyledikleri, 2. madde: check sayısı 2070''ten 48''e düşerken çarpışan path''ler 0/100''den 80/100''e çıkıyor; daha kısa path kısmen kutunun içinden geçen bir path.'
+  stage: post
 - q:
     en: In Break it the slot shrinks from 0.40 m to 0.20 m and the median iteration count rises from 9 to 1487. Why?
     tr: Boz bölümünde yarık 0,40 m'den 0,20 m'ye daralıyor ve medyan iterasyon 9'dan 1487'ye çıkıyor. Neden?
@@ -44,3 +91,4 @@
   why:
     en: 'Break it: start and goal are free and the 25 successful paths at 0.20 m pass the dense re-check, so the 5 failures of 30 are the budget running out (the narrow-passage problem).'
     tr: 'Boz: başlangıç ve hedef boş, 0,20 m''deki 25 başarılı path yoğun yeniden kontrolden geçiyor; yani 30''daki 5 başarısızlık bütçenin bitmesi (narrow-passage problemi).'
+  stage: post

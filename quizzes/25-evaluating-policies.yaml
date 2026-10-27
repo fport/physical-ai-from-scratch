@@ -14,6 +14,52 @@
   why:
     en: 'Part C: Wilson for 9/10 is [0.596, 0.982]; for policy A (p = 0.737), P(≥ 9/10) = 0.215 (binomial).'
     tr: 'C kısmı: 9/10 için Wilson [0,596, 0,982]; policy A (p = 0,737) için P(≥ 9/10) = 0,215 (binom).'
+  stage: pre
+- stage: pre
+  q:
+    en: To halve the margin of error of a success rate, how many more trials do you need?
+    tr: Bir başarı oranının hata payını yarıya indirmek için kaç kat daha fazla deneme gerekir?
+  options:
+  - en: Four times as many, because the half-width shrinks like 1/√n.
+    tr: Dört kat, çünkü yarı genişlik 1/√n gibi küçülür.
+  - en: Twice as many.
+    tr: İki kat.
+  - en: Ten more, whatever the starting number.
+    tr: Başlangıç sayısı ne olursa olsun on tane daha.
+  answer: 0
+  why:
+    en: In plain words and Math details; table D shows it at an observed rate of 0.70, 78 trials for ±0.10 and 320 for ±0.05.
+    tr: Sade anlatımla ve Matematik ayrıntısı; D tablosu bunu 0,70'lik gözlenen oranda gösteriyor, ±0,10 için 78, ±0,05 için 320 deneme.
+- stage: check
+  q:
+    en: Build it, Step 5 computes the exact power of Fisher's test at n = 100 as 0.656; table E found 0.673. Which is wrong?
+    tr: Sıfırdan yaz, Adım 5 Fisher testinin n = 100'deki kesin gücünü 0,656 buluyor; E tablosu 0,673 bulmuştu. Hangisi yanlış?
+  options:
+  - en: The exact value, because a binomial sum ignores the pools.
+    tr: Kesin değer, çünkü binom toplamı havuzları yok sayar.
+  - en: Neither; table E resampled 1000 pairs, whose standard error near 0.66 is about 0.015.
+    tr: Hiçbiri; E tablosu 1000 çift yeniden örnekledi, 0,66 civarında standart hatası yaklaşık 0,015.
+  - en: Table E, because Fisher's test in SciPy differs from the hand-written one.
+    tr: E tablosu, çünkü SciPy'daki Fisher testi elle yazılandan farklı.
+  answer: 1
+  why:
+    en: Step 4 shows `fisher_p` equals `scipy.stats.fisher_exact` to 3.3e-16 on all 441 tables; the other rows (0.028 vs 0.037, 0.119 vs 0.113, 0.337 vs 0.335) differ by similar amounts.
+    tr: Adım 4, `fisher_p`'nin 441 tablonun hepsinde `scipy.stats.fisher_exact` ile 3,3e-16 farkla aynı olduğunu gösteriyor; diğer satırlar (0,028'e karşı 0,037, 0,119'a karşı 0,113, 0,337'ye karşı 0,335) benzer miktarlarda farklı.
+- stage: check
+  q:
+    en: You call `scipy.stats.binomtest(k, n).proportion_ci()` without a `method`. Which interval do you get?
+    tr: '`scipy.stats.binomtest(k, n).proportion_ci()`''ı `method` vermeden çağırıyorsun. Hangi aralığı alırsın?'
+  options:
+  - en: Wilson.
+    tr: Wilson.
+  - en: Wald.
+    tr: Wald.
+  - en: Clopper–Pearson ("exact"), wider than Wilson.
+    tr: Clopper–Pearson ("exact"), Wilson'dan geniş.
+  answer: 2
+  why:
+    en: Use it, traps. Pass `method="wilson"`; statsmodels' `proportion_confint` defaults to `"normal"`, the Wald interval.
+    tr: Kütüphaneyle kullan, tuzaklar. `method="wilson"` ver; statsmodels'in `proportion_confint`'i varsayılan olarak `"normal"`, yani Wald aralığını kullanır.
 - q:
     en: Why does the Wald interval break at 10/10?
     tr: Wald aralığı 10/10'da neden bozulur?
@@ -28,6 +74,7 @@
   why:
     en: 'Break it: Wald gives [1.000, 1.000] for 10/10, Wilson [0.722, 1.000]; at n = 5 Wald covers p in 0.764 of evaluations instead of about 0.95 (Part B).'
     tr: 'Boz: 10/10 için Wald [1,000, 1,000], Wilson [0,722, 1,000] veriyor; n = 5''te Wald p''yi evaluation''ların 0,95 yerine 0,764''ünde kapsıyor (B kısmı).'
+  stage: post
 - q:
     en: Policies A (p = 0.737) and B (p = 0.877) get 20 trials each. What does part E show?
     tr: Policy A (p = 0,737) ve B (p = 0,877) her biri 20 deneme alıyor. E kısmı ne gösteriyor?
@@ -42,3 +89,4 @@
   why:
     en: 'Part E, n = 20: Fisher p < 0.05 in 0.113, disjoint Wilson intervals in 0.025, B ≤ A in 0.170; even with 100 trials each Fisher detects the gap in 0.673.'
     tr: 'E kısmı, n = 20: Fisher p < 0,05 oranı 0,113, ayrık Wilson aralıkları 0,025, B ≤ A 0,170; her biri 100 denemeyle bile Fisher farkı 0,673 oranında yakalıyor.'
+  stage: post

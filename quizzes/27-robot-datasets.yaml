@@ -1,5 +1,65 @@
 # Lesson 27 · Robot datasets. Every answer is supported by the lesson page or
 # experiments/27-robot-datasets/output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: You shuffle all frames of a robot dataset and put a random 20% into validation. Why is the validation error then too optimistic?
+    tr: Bir robot dataset'inin bütün frame'lerini karıştırıp rastgele %20'sini validation'a koyuyorsun. Validation hatası neden fazla iyimser çıkar?
+  options:
+  - en: Because 20% is too small a validation set.
+    tr: Çünkü %20 çok küçük bir validation kümesidir.
+  - en: Because shuffling destroys the time order the model needs.
+    tr: Çünkü karıştırmak modelin ihtiyaç duyduğu zaman sırasını bozar.
+  - en: Because almost every validation frame has a near-identical neighbour 40 ms away in the training set.
+    tr: Çünkü neredeyse her validation frame'inin training kümesinde 40 ms ötede neredeyse aynı bir komşusu vardır.
+  answer: 2
+  why:
+    en: In plain words, the click-log analogy; Build it, Step 3 measures 96.5% of validation frames with a training neighbour 40 ms away in the same episode.
+    tr: Sade anlatımla, tıklama log'u benzetmesi; Sıfırdan yaz, Adım 3 validation frame'lerinin %96,5'inin aynı episode'da 40 ms ötede bir training komşusu olduğunu ölçüyor.
+- stage: pre
+  q:
+    en: A policy's inputs are normalized with the mean and standard deviation of the training frames. What happens to those numbers after training?
+    tr: Bir policy'nin girdileri training frame'lerinin ortalaması ve standart sapmasıyla normalize ediliyor. Eğitimden sonra bu sayılara ne olur?
+  options:
+  - en: They ship with the policy and normalize every new observation the same way.
+    tr: Policy ile birlikte gider ve her yeni observation'ı aynı şekilde normalize eder.
+  - en: They are thrown away; the network has learned the scale.
+    tr: Atılır; network ölçeği öğrenmiştir.
+  - en: They are recomputed on each new batch of observations at deployment.
+    tr: Kullanım sırasında her yeni observation grubunda yeniden hesaplanır.
+  answer: 0
+  why:
+    en: In plain words and Math details, "Statistics belong to the model"; with different statistics the same raw observation becomes a different network input.
+    tr: Sade anlatımla ve Matematik ayrıntısı, "İstatistikler modele aittir"; farklı istatistiklerle aynı ham observation farklı bir network girdisi olur.
+- stage: check
+  q:
+    en: In Build it, Step 2, 120 per-episode statistics are merged and compared with statistics over all frames. Which ones can be merged exactly?
+    tr: Sıfırdan yaz, Adım 2'de 120 episode başına istatistik birleştirilip bütün frame'ler üzerindeki istatistikle karşılaştırılıyor. Hangileri tam olarak birleştirilebilir?
+  options:
+  - en: Mean, standard deviation (pooled variance), min and max; quantiles cannot.
+    tr: Ortalama, standart sapma (havuzlanmış varyans), min ve max; quantile'lar birleştirilemez.
+  - en: All of them, quantiles included.
+    tr: Hepsi, quantile'lar dahil.
+  - en: Only min and max.
+    tr: Yalnız min ve max.
+  answer: 0
+  why:
+    en: '`merge_stats` combines mean, std, min, max and count; the merged values agree with the all-frames statistics to 1.1e-15 (mean) and 6.4e-15 (std).'
+    tr: '`merge_stats` ortalama, std, min, max ve sayıyı birleştiriyor; birleşik değerler bütün frame''lerin istatistiğiyle 1,1e-15 (ortalama) ve 6,4e-15 (std) farkla örtüşüyor.'
+- stage: check
+  q:
+    en: The 1-nearest-neighbour probe of Step 5 gives a test/validation ratio of 3.95 for the frame split at 10 episodes, the Experiment's MLP 6.33. What does that mean?
+    tr: Adım 5'teki 1-nearest-neighbour yoklaması 10 episode'da frame split için test/validation oranını 3,95 veriyor, Deney'in MLP'si 6,33. Bu ne demek?
+  options:
+  - en: One of the two runs has a bug, since the ratios should match.
+    tr: İki koşudan birinde hata var, çünkü oranlar aynı olmalı.
+  - en: The leak shows up without any training; the size depends on the model, which copies or interpolates neighbouring frames differently.
+    tr: Sızıntı hiç eğitim olmadan da görünüyor; büyüklüğü modele bağlı, model komşu frame'leri farklı biçimde kopyalıyor ya da interpolate ediyor.
+  - en: The nearest neighbour does not leak.
+    tr: Nearest neighbour sızdırmaz.
+  answer: 1
+  why:
+    en: Step 5 uses the same splits as part C; the frame-split validation error stays flat at 1.27–1.54° while the test error falls from 6.06° to 1.71°.
+    tr: Adım 5 C kısmıyla aynı split'leri kullanıyor; frame split validation hatası 1,27–1,54°'de sabit kalırken test hatası 6,06°'den 1,71°'ye düşüyor.
 - q:
     en: With 10 episodes the frame split reports a validation RMSE of 0.252°, but the error on 20 unseen test episodes is 1.595°. Why?
     tr: 10 episode'la frame bölmesi 0,252° validation RMSE raporluyor, ama görülmemiş 20 test episode'undaki hata 1,595°. Neden?
@@ -14,6 +74,7 @@
   why:
     en: 'Part C: test/val is 6.33 for the frame split and 2.82 for the episode split at 10 episodes; the frame-level validation error stays at 0.25–0.28° for every dataset size.'
     tr: 'C kısmı: 10 episode''da test/val frame bölmesinde 6,33, episode bölmesinde 2,82; frame düzeyindeki validation hatası her dataset boyunda 0,25–0,28°''de kalıyor.'
+  stage: post
 - q:
     en: Someone logs the cube in millimetres instead of metres. What does part B measure?
     tr: Biri küpü metre yerine milimetre ile log'luyor. B kısmı ne ölçüyor?
@@ -28,17 +89,4 @@
   why:
     en: 'Part B table: statistics from the training episodes make the model independent of the units chosen when logging.'
     tr: 'B kısmı tablosu: training episode''larından hesaplanan istatistikler modeli log''larken seçilen birimlerden bağımsız kılıyor.'
-- q:
-    en: When does a frame-level split do the most damage?
-    tr: Frame düzeyinde bölme en çok ne zaman zarar verir?
-  options:
-  - en: 'With few episodes: test/val is 6.33 at 10 episodes but 1.03 at 90.'
-    tr: 'Az episode''la: test/val 10 episode''da 6,33, 90''da ise 1,03.'
-  - en: With many episodes, because there are more near-duplicate frames.
-    tr: Çok episode'la, çünkü neredeyse aynı frame sayısı artar.
-  - en: Only when the inputs are normalized with MIN_MAX.
-    tr: Yalnızca girdiler MIN_MAX ile normalize edildiğinde.
-  answer: 0
-  why:
-    en: 'Break it: with 90 episodes the training data already covers the cube area densely, so new episodes have close neighbours anyway; robot datasets are usually small.'
-    tr: 'Boz: 90 episode''la training verisi küp alanını zaten yoğun kapsıyor, yeni episode''ların da yakın komşuları oluyor; robot dataset''leri ise genellikle küçük.'
+  stage: post

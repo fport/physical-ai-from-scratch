@@ -1,0 +1,53 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. A delay line of 3 ticks ==
+pushed  [1, 2, 3, 4, 5, 6, 7, 8]
+read    [0, 0, 0, 1, 2, 3, 4, 5]
+equals the history shifted by 3 (first value until filled): True
+
+== Step 2. The delay budget of PD on an inertia ==
+Kd = 1.879: w_c = 22.99 rad/s, PM = 65.2 deg, d_max = PM / w_c = 49.5 ms
+|L(j w_c)| = 1.000000000000, phase of L = -114.8 deg = -180 + PM
+np.roots of the crossover quartic: w = 22.9855 rad/s (ours 22.9855)
+|characteristic equation| at s = j w_c, d = d_max: 7.3e-15 (a pole sits on the imaginary axis)
+oscillation period at the boundary 2 pi / w_c = 273 ms
+
+== Step 3. Delayed PD by hand vs the Experiment's MuJoCo loop ==
+delay ms    ours %  stable  max |q_ours - q_mujoco|
+       0      4.45     yes                  1.1e-16
+      10      4.51     yes                  2.1e-17
+      20      5.02     yes                  1.1e-16
+      30     11.51     yes                  5.6e-17
+      40     31.23     yes                  5.6e-17
+      50    215.84      NO                  7.3e-15
+      60  diverges      NO                  5.7e-14
+stability boundary: stable at 48 ms, unstable at 49 ms (predicted d_max 49.5 ms)
+
+== Step 4. Control rate: sample and hold, and one tick of compute ==
+rate Hz   T ms    hold %  +1 tick %  delay T/2 %  delay 3T/2 %
+   1000    1.0      4.45       4.46         4.45          4.46
+    100   10.0      4.48       4.61         4.47          4.62
+     50   20.0      4.55      10.31         4.51         11.51
+     30   33.3      4.75      78.07         4.72        215.84
+     20   50.0      5.34   diverges         6.66      diverges
+     10  100.0  diverges   diverges       215.84      diverges
+30 Hz hold, ours vs the Experiment's MuJoCo loop: max diff 1.1e-16 rad
+
+== Step 5. Predict the present state over a 40 ms delay ==
+controller                         overshoot %
+no delay                                  4.45
+delay, no prediction                     31.23
+prediction, exact model                   4.45
+prediction, inertia +50%                  0.00
+prediction, inertia -30%                  9.44
+prediction, assumed delay 20 ms           4.70
+exact prediction vs no delay: max |q difference| = 0.0e+00 rad
+inertia +50%, ours vs the Experiment's MuJoCo loop: max diff 5.6e-17 rad
+
+== Use it. MuJoCo's own delay buffer, SciPy's frequency response ==
+MuJoCo model                                 overshoot %  ours, delay  ours %
+no delay attribute                                  4.46         1 ms    4.46
+sensors delay="0.039" nsample="39"                 31.23        40 ms   31.23
+motor delay="0.039" nsample="39"                   31.23        40 ms   31.23
+sensor delay 39 ms + reading sensordata after mj_step vs ours at 40 ms: max diff 5.6e-17 rad
+SciPy freqresp + brentq: w_c = 22.9855 rad/s, PM = 65.16 deg, d_max = 49.47 ms (ours 22.9855, 65.16, 49.47)

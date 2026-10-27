@@ -1,6 +1,7 @@
-# Lesson 32 · A MuJoCo RL environment. Every answer is supported by the lesson page or
-# experiments/32-rl-environment/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 32 · A MuJoCo RL environment. Every answer is supported by the lesson page,
+# experiments/32-rl-environment/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: An episode hits the 1.6 s time limit while the arm is in an ordinary pose. What value target should the last step get?
     tr: Bir episode, kol sıradan bir pozdayken 1,6 s'lik zaman sınırına ulaşıyor. Son adım hangi value hedefini almalı?
   options:
@@ -14,7 +15,53 @@
   why:
     en: Only `terminated` removes the future. The clock is not in the 15-number observation, so cutting the target at the time limit would give the same pose two different targets (Math details).
     tr: Geleceği yalnızca `terminated` siler. Saat 15 sayılık observation'da yok; zaman sınırında hedefi kesmek aynı poza iki farklı hedef verirdi (Math details).
-- q:
+- stage: pre
+  q:
+    en: The physics runs in 5 ms steps and the policy decides every 4 physics steps. How many decisions per second is that?
+    tr: Fizik 5 ms'lik adımlarla çalışıyor ve policy her 4 fizik adımında bir karar veriyor. Bu saniyede kaç karar eder?
+  options:
+    - en: 50; the action is held for 4 steps of 5 ms, a 20 ms policy period.
+      tr: 50; action 5 ms'lik 4 adım boyunca tutulur, 20 ms'lik bir policy periyodu.
+    - en: 200, one per physics step.
+      tr: 200, her fizik adımında bir.
+    - en: 800, because the four steps run in parallel.
+      tr: 800, çünkü dört adım paralel çalışır.
+  answer: 0
+  why:
+    en: Policy period $\Delta t = k h = 4 \cdot 5$ ms = 20 ms (Build it, Step 1); Unitree calls the ratio `decimation`, Gymnasium's `MujocoEnv` calls it `frame_skip`.
+    tr: Policy periyodu $\Delta t = k h = 4 \cdot 5$ ms = 20 ms (Sıfırdan yaz, Adım 1); Unitree bu orana `decimation`, Gymnasium'un `MujocoEnv`'i `frame_skip` diyor.
+- stage: check
+  q:
+    en: In Build it, Step 2, your `reset(seed)` creates `np.random.default_rng(seed)`, and its targets equal `ReachEnv`'s for all 200 seeds. Why can they be equal at all?
+    tr: Sıfırdan yaz, Adım 2'de `reset(seed)`'in `np.random.default_rng(seed)` oluşturuyor ve hedefleri 200 seed'in hepsinde `ReachEnv`'inkilerle aynı. Bunlar nasıl aynı olabiliyor?
+  options:
+    - en: Because MuJoCo seeds both environments.
+      tr: Çünkü iki ortamı da MuJoCo seed'liyor.
+    - en: By chance; with other seeds they would differ.
+      tr: Tesadüfen; başka seed'lerle farklı olurlardı.
+    - en: Because `default_rng(seed)` builds the same generator as Gymnasium's `super().reset(seed=seed)`, and all randomness (target, start pose) comes from that one generator.
+      tr: Çünkü `default_rng(seed)`, Gymnasium'un `super().reset(seed=seed)`'iyle aynı üreteci kurar ve tüm rastgelelik (hedef, başlangıç pozu) o tek üreteçten gelir.
+  answer: 2
+  why:
+    en: 'max |target ours - ReachEnv| = 0.0e+00 m. One call to another random source in `reset` would break this, which makes the equality test a cheap reproducibility check (Use it, traps).'
+    tr: 'max |target ours - ReachEnv| = 0,0e+00 m. `reset` içinde başka bir rastgelelik kaynağına tek bir çağrı bunu bozar; bu yüzden eşitlik testi ucuz bir tekrarlanabilirlik kontrolüdür (Kütüphaneyle kullan, tuzaklar).'
+- stage: check
+  q:
+    en: You train with Stable-Baselines3's PPO on an environment whose own `step` merges the time limit into `terminated=True`. What happens at the 1.6 s limit?
+    tr: Kendi `step`'i zaman sınırını `terminated=True` içine katan bir ortamda Stable-Baselines3'ün PPO'suyla eğitiyorsun. 1,6 s sınırında ne olur?
+  options:
+    - en: SB3 detects the clock and bootstraps anyway.
+      tr: SB3 saati fark eder ve yine de bootstrap yapar.
+    - en: The step is treated as terminal and gets no bootstrap; SB3 bootstraps only when the info says `TimeLimit.truncated`.
+      tr: Adım terminal sayılır ve bootstrap almaz; SB3 yalnızca info `TimeLimit.truncated` dediğinde bootstrap yapar.
+    - en: Training stops with an error.
+      tr: Eğitim bir hatayla durur.
+  answer: 1
+  why:
+    en: Use it, traps. Build it, Step 4 shows the cost on a state worth −0.200; treated as terminal its target is −0.010.
+    tr: Kütüphaneyle kullan, tuzaklar. Sıfırdan yaz, Adım 4 bedeli −0,200 değerindeki bir state'te gösteriyor; terminal sayılınca hedefi −0,010 oluyor.
+- stage: post
+  q:
     en: In Break it, the scripted IK controller reaches only 81/200 targets with a 0.24 s time limit. A learner trained with that limit scores low. What is the right reading?
     tr: Boz bölümünde scripted IK controller, 0,24 s'lik zaman sınırıyla hedeflerin yalnızca 81/200'üne ulaşıyor. Bu sınırla eğitilen bir learner düşük skor alıyor. Doğru yorum hangisi?
   options:
@@ -28,7 +75,8 @@
   why:
     en: The scripted IK needs between 0.32 and 0.48 s for almost every reach (160/200 at 0.32 s, 199/200 at 0.48 s); at 1.6 s it reaches 200/200 (Break it table).
     tr: Scripted IK neredeyse her uzanma için 0,32 ile 0,48 s arası zamana ihtiyaç duyuyor (0,32 s'de 160/200, 0,48 s'de 199/200); 1,6 s'de 200/200 (Boz tablosu).
-- q:
+- stage: post
+  q:
     en: From frame_skip 1 to 4, env steps per CPU second fall (22595 → 14809) while simulated seconds per CPU second rise (113.0 → 296.2). Why?
     tr: frame_skip 1'den 4'e çıkınca CPU saniyesi başına env adımı düşüyor (22595 → 14809), CPU saniyesi başına simüle edilen saniye ise artıyor (113,0 → 296,2). Neden?
   options:

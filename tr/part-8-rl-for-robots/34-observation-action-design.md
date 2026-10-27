@@ -28,9 +28,9 @@ torques = self.p_gains*(actions_scaled + self.default_dof_pos - self.dof_pos) - 
 
 ### Sade anlatımla
 
-Policy, hızlı ve alt seviye bir servisi çağıran yavaş, üst seviye bir servistir. Onu üç şekilde çağırabilir. **Tork**: motor eforunu doğrudan yazar, donanım register'larını kurcalamak gibi; bu durumda tüm hızlı işi policy kendisi yapmak zorundadır, kolu yerçekimine karşı tutmak ve hareketini sönümlemek dahil. **Mutlak hedef**: istediği eklem açısını gönderir; bir PD döngüsü (yay ve sönümleyiciden oluşan bir controller, [ders 12](../part-4-dynamics-and-control/12-joint-control.md)) o açıyı saniyede yüzlerce kez kovalar. **Delta hedef**: önceki hedefi küçük bir adımla kaydırır.
+Policy, hızlı ve alt seviye bir servisi üç yoldan biriyle çağıran yavaş, üst seviye bir servistir. **Tork**: motor eforunu doğrudan yazar, donanım register'larını kurcalamak gibi; bu durumda kolu yerçekimine karşı tutmak ve hareketini sönümlemek policy'nin kendi işidir. **Mutlak hedef**: istediği eklem açısını gönderir; bir PD döngüsü (yay ve sönümleyiciden oluşan bir controller, [ders 12](../part-4-dynamics-and-control/12-joint-control.md)) o açıyı saniyede yüzlerce kez kovalar. **Delta hedef**: önceki hedefi küçük bir adımla kaydırır.
 
-Hedeflerle policy, bir setpoint'i saniyede yalnızca 50 kez kaydırır; gerisini alttaki sert döngü yapar. Bu çağrının etrafında üç tasarım seçimi daha vardır: **action ölçeği** (bir birimlik çıktının ne kadar uzağa uzandığı; keşif gürültüsünün radyan cinsinden büyüklüğünü de belirler), **policy hızı** (ne sıklıkla karar verdiği) ve **observation** (ne gördüğü ve hangi çerçevede: "hedef gripper'ımın biraz solunda" bilgisiyle hareket etmek, "hedef odanın şu koordinatlarında" bilgisiyle hareket etmekten kolaydır).
+Hedeflerle policy bir setpoint'i saniyede 50 kez kaydırır, gerisini alttaki sert döngü yapar. Bu çağrının etrafında üç seçim daha vardır: **action ölçeği** (bir birimlik çıktının ne kadar uzağa uzandığı ve keşif gürültüsünün radyan cinsinden ne kadar büyük olduğu), **policy hızı** ve **observation** ("hedef gripper'ımın biraz solunda" bilgisiyle hareket etmek, oda koordinatlarıyla hareket etmekten kolaydır).
 
 ### Policy'den torka
 
@@ -72,7 +72,7 @@ $a \in [-1,1]^n$ policy çıktısı, $q$ ve $\dot q$ eklem açıları ve hızlar
 <details>
 <summary>Matematik ayrıntısı: servo, ölçek, hız ve observation ne yapar</summary>
 
-**SO-101 servosu zaten bir PD döngüsüdür.** Her STS3215, `kp = 998.22`, `kv = 2.731`, `forcerange = ±2.94` N·m'lik bir MuJoCo position actuator'üdür; MuJoCo onu her fizik adımının içinde hesaplar ([XML referansı, actuator'ler](https://mujoco.readthedocs.io/en/stable/XMLreference.html#actuator)). Tork modumuz bu döngüyü kaldırır ve aynı actuator'leri $\tau_{\max} = 2{,}94$ N·m ile motor olarak sürer. Hedeflerle yerçekimi, bozucular ve damping fizik hızında halledilir; torkla policy bunları 50 Hz'de ve gürültüsü artık N·m cinsinden olan bir Gaussian üzerinden halletmek zorundadır.
+**SO-101 servosu zaten bir PD döngüsüdür.** Her STS3215, `kp = 998.22`, `kv = 2.731`, `forcerange = ±2.94` N·m'lik bir MuJoCo position actuator'üdür; MuJoCo onu her fizik adımının içinde hesaplar ([XML referansı, actuator'ler](https://mujoco.readthedocs.io/en/stable/XMLreference.html#actuator)). Tork modumuz bu döngüyü kaldırır ve actuator'leri motor olarak sürer ($\tau_{\max} = 2{,}94$ N·m). Hedeflerle yerçekimi ve damping fizik hızında halledilir; torkla bunları policy 50 Hz'de, gürültüsü N·m cinsinden olarak halleder.
 
 **Action ölçeği.** $s$ iki şeyi birden belirler: ulaşılabilir aralığı ($q_0 \pm s$) ve fiziksel birimlerde keşif gürültüsünün büyüklüğünü (başlangıç policy std'si $e^{-1} \approx 0{,}37$, $0{,}37\,s$ rad olur). Go2 $s = 0{,}25$ rad kullanır; bir gait varsayılan poz yakınında kalır, çalışma alanı boyunca uzanan bir kol kalmaz.
 
@@ -84,20 +84,145 @@ Daha derine: [Proximal Policy Optimization (PPO)](https://aiengineeringfromscrat
 
 </details>
 
+## Sıfırdan yaz
+
+Şimdi policy ile robot arasındaki arayüzü yazacaksın: action eşlemesi, servonun PD yasası, ölçerleriyle birlikte decimation döngüsü ve kontrol hızıyla neyin değiştiği. Her adım MuJoCo'ya ya da dersin `ReachEnv`'ine karşı kontrol ediliyor; hiçbir şey eğitilmiyor ve script yaklaşık 3 s sürüyor.
+
+Fonksiyonlar [`physai/rl.py`](../../physai/rl.py) içinde; `uv run python experiments/34-observation-action-design/build.py` beş adımın hepsini koşturur (çıktı [`build_output.txt`](../../experiments/34-observation-action-design/build_output.txt) dosyasında).
+
+### Adım 1 · Policy çıktısından actuator komutuna
+
+```python
+def action_to_ctrl(a, mode, q_home, scale, ctrl_prev, lo, hi, tau_max=2.94):
+    """Map a policy output in [-1, 1] to the actuator command: absolute target, delta target or torque."""
+    a = np.clip(a, -1.0, 1.0)
+    if mode == "position":
+        return np.clip(q_home + scale * a, lo, hi)
+    if mode == "delta":
+        return np.clip(ctrl_prev + scale * a, lo, hi)
+    return tau_max * scale * a                                         # "torque": the policy is the controller
+```
+
+Kontrol, `ReachEnv`'i her modda $[-1, 1]$'in biraz dışına taşan rastgele action'larla sürer ve onun komutunu seninkiyle karşılaştırır:
+
+```text
+== Step 1. Policy output -> actuator command, 3 episodes of random actions per mode ==
+position (scale 1.0): max |ours - ReachEnv's command| = 0.0e+00
+   delta (scale 0.1): max |ours - ReachEnv's command| = 0.0e+00
+  torque (scale 1.0): max |ours - ReachEnv's command| = 0.0e+00
+```
+
+### Adım 2 · Servo bir hedefle ne yapar
+
+```python
+def pd_torque(q_star, q, qd, kp, kd, tau_max):
+    """What a position servo does at every physics step: a PD law towards the target, clipped to its torque limit."""
+    return np.clip(kp * (q_star - q) - kd * qd, -tau_max, tau_max)
+```
+
+Gain'leri modelden oku, kolu hedefleri yaklaşık 3 mrad uzakta olan 1000 rastgele duruma koy ve MuJoCo'nun hesapladığı kuvvetle karşılaştır:
+
+```text
+== Step 2. The servo's PD law vs MuJoCo, 1000 random states ==
+STS3215 in the Menagerie model: kp = 998.22 N m/rad, kv = 2.731 N m s/rad, force range +-2.94 N m
+max |ours - data.actuator_force| = 3.2e-13 N m; 1885 of 4000 torques at the limit
+a position error of 2.95 mrad alone saturates the servo (2.94 / 998.22)
+```
+
+Senin PD yasan MuJoCo'nun position actuator'ünün kendisi (3,2e-13 N·m). `kp = 998.22` ile 2,95 mrad uzaktaki bir hedef zaten tam 2,94 N·m istiyor, bu yüzden 4000 torkun 1885'i sınırda: Deney'in tork hızı sütununun ölçtüğü sertlik bu.
+
+### Adım 3 · Decimation ve iki ölçer
+
+Fizik $k$ adım koşarken policy'nin komutu sabit tutulur; ölçerler fizik hızında örnekler:
+
+```python
+def torque_rate_and_power(tau, qd, h):
+    """Smoothness and energy of one episode at the physics rate.
+
+    tau: (N + 1, n) actuator torques, starting with the one before the first step; qd: (N, n) joint velocities
+    after each step; h: physics time step. Returns (RMS of ||d tau / dt|| [N m/s], mean sum |tau qdot| [W]).
+    """
+    rate = np.diff(tau, axis=0) / h
+    return np.sqrt(np.mean(np.sum(rate ** 2, axis=1))), np.mean(np.sum(np.abs(tau[1:] * qd), axis=1))
+```
+
+```python
+for _ in range(own.frame_skip):                             # the command is held for k physics steps
+    mujoco.mj_step(own.model, own.data)
+    taus.append(own.data.actuator_force[own.act].copy())
+    qds.append(own.data.qvel[own.vadr].copy())
+```
+
+```text
+== Step 3. Decimation and the physics-rate recorder: one episode per mode (position: scripted IK; torque: a = 0.1) ==
+position: 320 physics steps; torque rate    345.9 N m/s (ReachEnv    345.9), power  1.713 W (ReachEnv  1.713)
+  torque: 320 physics steps; torque rate      6.6 N m/s (ReachEnv      6.6), power  0.138 W (ReachEnv  0.138)
+```
+
+Senin döngün ve ölçerlerin iki modda da `ReachEnv`'in kaydedicisini yeniden üretiyor. Tek bir scripted IK uzanması bile Deney A'daki farkı gösteriyor: sert servodan 345,9 N·m/s, sabit bir tork için 6,6 N·m/s.
+
+### Adım 4 · Kontrol hızı discount'u ve deneyimi değiştirir
+
+```python
+def discount_for_rate(dt, horizon_s=0.4):
+    """The discount that keeps a fixed look-ahead in seconds when the policy period dt changes."""
+    return 1.0 - dt / horizon_s
+```
+
+```text
+== Step 4. Policy rate: gamma = 1 - dt / 0.4 s, and 300,000 policy steps in simulated time ==
+frame_skip  rate Hz   gamma   simulated time
+         1    200.0  0.9875       25 min
+         2    100.0  0.9750       50 min
+         4     50.0  0.9500      100 min
+         8     25.0  0.9000      200 min
+        16     12.5  0.8000      400 min
+```
+
+Bunlar B bölümünün $\gamma$ sütunu; son sütun onun karıştırıcı etkeni: 300.000 policy adımı 200 Hz'de 25 dk, 50 Hz'de 100 dk, 12,5 Hz'de 400 dk simüle zaman ediyor.
+
+### Adım 5 · Neyin ulaşılabilir olduğuna action ölçeği karar verir
+
+Scripted IK controller'ı iki ölçekte de aynı kesilmiş arayüzden, evaluation seed'lerinde gönder:
+
+```text
+== Step 5. Action scale: scripted IK through the same clipped interface, 100 episodes (seeds 10000-10099) ==
+scale 1.00 rad: reaches 100/100
+scale 0.25 rad: reaches 27/100
+joint vectors drawn by the target sampler that lie within q0 +- 0.25 rad on all 4 joints: 1.8 %
+```
+
+1,0 rad'da 100/100, 0,25 rad'da 27/100: Boz'un referans sayıları. Hedef örnekleyicinin çektiği joint vektörlerinin yalnızca %1,8'i dört eklemin hepsinde $q_0 \pm 0{,}25$ rad içinde kalıyor ($0{,}25 \cdot (0{,}25/0{,}6)^3$); IK daha fazlasına ulaşıyor (%27), çünkü başka eklem kombinasyonları aynı noktaların bir kısmına varıyor, ama policy ne öğrenirse öğrensin hedeflerin çoğu action uzayının dışında.
+
+### Elinde kalan
+
+`physai.rl` artık `action_to_ctrl`, `pd_torque`, `torque_rate_and_power` ve `discount_for_rate`'i de içeriyor. [Ders 36](36-legged-locomotion.md) Go2'de aynı PD hedef arayüzünü kullanıyor, [ders 37](../part-9-sim-to-real/37-latency.md) ise komutla actuator arasına bir gecikme ekliyor. [`tests/test_34_observation_action_design.py`](../../tests/test_34_observation_action_design.py) modları, MuJoCo'ya karşı PD yasasını ve ölçerleri elle hesaplanmış bir örnekte kontrol ediyor; `uv run pytest tests/test_34_observation_action_design.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+MuJoCo'da arayüz Python'da değil modelde seçilir: `kp` ve `kv`'li bir `<position>` actuator'ü Adım 2'nin PD servosudur, bir `<motor>` düz bir torktur ve `forcerange` clip'tir ([XML referansı, actuator'ler](https://mujoco.readthedocs.io/en/stable/XMLreference.html#actuator)). Dersin tork modu, servoları motora çevirmek için modelin gain ve bias parametrelerini yeniden yazar (`ReachEnv.__init__` içinde). Unitree'nin training kodu ise PD torkunu üç modun hepsi için decimation döngüsünün içinde kendisi hesaplar ([`legged_robot.py` · `_compute_torques`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)):
+
+| Arayüz | Bu ders | MuJoCo modeli | `legged_gym` `control_type` |
+|---|---|---|---|
+| mutlak hedef | `"position"`, $q^* = q_0 + s a$ | `<position kp=... kv=...>` | `"P"`: $K_p(s a + q_{\text{default}} - q) - K_d \dot q$ |
+| hız hedefi | kullanılmıyor | `<velocity kv=...>` | `"V"`: $K_p(s a - \dot q) - K_d \Delta\dot q / \Delta t$ |
+| tork | `"torque"`, $\tau = 2{,}94\,a$ | `<motor>` | `"T"`: $\tau = s a$ |
+| tork sınırı | `forcerange` = ±2,94 N·m | `forcerange` | `torch.clip(torques, -torque_limits, torque_limits)` |
+| PD hızı | her 5 ms'lik fizik adımında | her fizik adımında | `range(decimation)`'ın her adımında |
+
+Üç tuzak:
+
+- **Modeldeki gain'ler eğittiğin gain'lerdir.** Gerçek bir servonun iç döngüsü `kp = 998.22` değildir; sert simüle servoya yaslanan bir policy donanımda farklı davranabilir (Bölüm 9).
+- **Ölçek aynı zamanda gürültüdür.** Action ölçeği keşif gürültüsünü çarpar (Matematik ayrıntısı); bir robotun ölçeğini kopyalamak onun keşfini de kopyalar.
+- **Hızı değiştirmek $\gamma$'nın anlamını değiştirir.** Ufku `discount_for_rate` ile saniye cinsinden sabit tut ve bütçenin policy adımı mı yoksa simüle zaman mı olduğuna karar ver (Adım 4).
+
 ## Deney
 
 [`experiment.py`](../../experiments/34-observation-action-design/experiment.py) her hücre için ders 33'ün PPO'sunu (aynı config, 300k policy adımı) eğitir: 3 seed × 100 evaluation episode'u. Evaluation sırasında env, fizik hızında torkun ne kadar hızlı değiştiğini (sarsıntılı komutlar) ve eklemlerin ne kadar mekanik güç kullandığını kaydeder:
 
 $$\text{tork hızı} = \sqrt{\tfrac{1}{N}\textstyle\sum_t \lVert (\tau_t - \tau_{t-1})/h \rVert^2}\ \ [\text{N·m/s}], \qquad \text{güç} = \tfrac{1}{N}\textstyle\sum_t \sum_i |\tau_{i,t}\,\dot q_{i,t}|\ \ [\text{W}]$$
 
-```python
-if self.mode == "position":
-    self.data.ctrl[self.act] = np.clip(Q_HOME + self.scale * a, self.lo, self.hi)
-elif self.mode == "delta":
-    self.data.ctrl[self.act] = np.clip(self.data.ctrl[self.act] + self.scale * a, self.lo, self.hi)
-else:  # torque: servo gains removed in __init__, actuators are plain motors
-    self.data.ctrl[self.act] = TAU_MAX * self.scale * a
-```
+Env bunları Sıfırdan yaz, Adım 3'teki gibi kaydeder; action modları Adım 1'in `action_to_ctrl`'üdür.
 
 **Tahmin edin:** üç arayüzden hangisi 300k adımda en çok hedefe ulaşır, hangisi en yumuşaktır?
 
@@ -111,7 +236,7 @@ MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). 
 | delta hedef $+0{,}1\,a$ (PD) | 95 / 88 / 99 | 282/300 | %90,7–96,2 | 8,7 | 980 | 8,81 |
 | tork $2{,}94\,a$ N·m | 83 / 93 / 96 | 272/300 | %86,8–93,5 | 7,6 | 70 | 1,87 |
 
-(Son mesafe: medyan son mesafenin seed'ler üzerinden ortalaması.) Bütçe içinde en iyi mutlak hedefler öğreniyor. Delta hedefler ve tork daha düşük çıkıyor ama aralıkları örtüşüyor, bu yüzden o ikisini sıralamıyoruz; hücre başına üç seed'le aralıklar seed'ler arası değişkenliği de olduğundan küçük gösterir. Tork policy'si bir mertebe daha yumuşak (70'e karşı 1002 N·m/s) ve çok daha az mekanik güç kullanıyor (1,87'ye karşı 9,66 W). Bu, policy'yi değil servoyu işaret ediyor: `kp = 998.22` ve 2,94 N·m'lik sınırla 3 mrad'lık bir konum hatası actuator'ü zaten doyuruyor; böylece 50 Hz'deki her yeni hedef neredeyse bang-bang bir tork basamağı üretiyor (önce bir yöne tam tork, sonra öbür yöne). Bir PD arayüzü ancak gain'leri kadar naziktir; Unitree'nin Go2'deki training PD'si buna kıyasla yumuşaktır ($K_p = 20$ N·m/rad).
+(Son mesafe: medyan son mesafenin seed'ler üzerinden ortalaması.) Bütçe içinde en iyi mutlak hedefler öğreniyor. Delta hedefler ve tork daha düşük çıkıyor ama aralıkları örtüşüyor, bu yüzden o ikisini sıralamıyoruz; hücre başına üç seed'le aralıklar seed'ler arası değişkenliği de olduğundan küçük gösterir. Tork policy'si bir mertebe daha yumuşak (70'e karşı 1002 N·m/s) ve çok daha az mekanik güç kullanıyor (1,87'ye karşı 9,66 W). Bu, policy'yi değil servoyu işaret ediyor: 2,95 mrad'lık bir konum hatası onu zaten doyuruyor (Sıfırdan yaz, Adım 2); böylece 50 Hz'deki her yeni hedef neredeyse bang-bang bir tork basamağı üretiyor. Bir PD arayüzü ancak gain'leri kadar naziktir; Unitree'nin Go2'deki training PD'si buna kıyasla yumuşaktır ($K_p = 20$ N·m/rad).
 
 **B. Policy hızı** (mutlak hedefler, $\gamma = \lambda = 1 - \Delta t/0{,}4$ s, aynı 300k policy adımı):
 
@@ -125,7 +250,7 @@ MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). 
 
 ![Solda 50 Hz'de üç action arayüzünün toplam başarısı: mutlak hedef 298/300, delta hedef 282/300, tork 272/300; tork hızları 1002, 980 ve 70 N·m/s. Sağda 12,5 ile 200 Hz arasında policy hızına göre başarı: 50 Hz'de tepe yapan ters U.](../../experiments/34-observation-action-design/success_vs_action_and_rate.png)
 
-Bir optimum var ve Go2 config'inin durduğu yerde duruyor. İki etki buluşuyor. Sabit sayıda policy adımında 200 Hz'lik bir policy, 50 Hz'lik olanın simüle zamanının (ve episode'larının) yalnızca dörtte birini görür ve aynı ufuk için **credit assignment**'ı (sonraki bir reward'a hangi önceki action'ın yol açtığını çözmek) 4 kat daha fazla adıma yayılır. 12,5 Hz'de her karar 80 ms tutulur, policy bir hareketin içinde düzeltme yapamaz ve güç artar (19,54 W); bu, sert servonun daha büyük hedef sıçramalarını kovalamasıyla tutarlıdır. Bu bütçe policy adımı cinsinden; simüle saniye cinsinden bir bütçe 200 Hz'lik policy'ye dört kat daha fazla deneyim verirdi. O varyantı çalıştırmadık.
+Bir optimum var ve Go2 config'inin durduğu yerde duruyor. İki etki buluşuyor. Sabit sayıda policy adımında 200 Hz'lik bir policy, 50 Hz'lik olanın simüle zamanının (ve episode'larının) yalnızca dörtte birini görür ve aynı ufuk için **credit assignment**'ı (sonraki bir reward'a hangi önceki action'ın yol açtığını çözmek) 4 kat daha fazla adıma yayılır. 12,5 Hz'de her karar 80 ms tutulur, policy bir hareketin içinde düzeltme yapamaz ve güç artar (19,54 W); bu, sert servonun daha büyük hedef sıçramalarını kovalamasıyla tutarlıdır. Simüle saniye cinsinden bir bütçe 200 Hz'lik policy'ye dört kat daha fazla deneyim verirdi (Sıfırdan yaz, Adım 4); o varyantı çalıştırmadık.
 
 **C. Observation içeriği** (mutlak hedefler, 50 Hz):
 
@@ -146,7 +271,7 @@ Go2'nin action ölçeğini, 0,25 rad'ı kola kopyalayın:
 | 1,0 rad | 100 / 98 / 100 | 298/300 | %97,6–99,8 | 7,5 |
 | 0,25 rad | 9 / 8 / 4 | 21/300 | %4,6–10,5 | 62,6 |
 
-Aynı kesilmiş arayüzden gönderilen scripted IK controller, ölçek 1,0'da 100/100 hedefe, 0,25'te ise yalnızca **27/100** hedefe ulaşıyor. Yani başarısızlık PPO'nun değil: hedefler $q_0$'dan 0,6–1,0 rad uzağa kadar örnekleniyor ve $|a| \le 1$ ile policy en fazla $q_0 \pm 0{,}25$ rad komut edebiliyor; hedeflerin çoğu action uzayının dışında kalıyor. PPO, scripted controller'ın 27/100'üne karşı 21/300 alıyor; bu kesin bir tavan değil, bir referanstır (IK, clip altında optimal değildir). Go2'nin 0,25'i çalışır çünkü bir trot varsayılan poz yakınında kalır; ölçek görevin gerektirdiği hareketi kapsamalı, fazlasını değil, çünkü büyük ölçekler keşif gürültüsünü de çarpar.
+Aynı kesilmiş arayüzden gönderilen scripted IK controller, ölçek 1,0'da 100/100 hedefe, 0,25'te ise yalnızca **27/100** hedefe ulaşıyor. Yani başarısızlık PPO'nun değil: hedefler $q_0$'dan 0,6–1,0 rad uzağa kadar örnekleniyor ve $|a| \le 1$ ile policy en fazla $q_0 \pm 0{,}25$ rad komut edebiliyor; hedeflerin çoğu action uzayının dışında kalıyor. Scripted controller'ın 27/100'ü kesin bir tavan değil, bir referanstır (IK, clip altında optimal değildir). Go2'nin 0,25'i çalışır çünkü bir trot varsayılan poz yakınında kalır; ölçek görevin gerektirdiği hareketi kapsamalı, fazlasını değil, çünkü keşif gürültüsünü de çarpar.
 
 ## Gerçek robotta
 

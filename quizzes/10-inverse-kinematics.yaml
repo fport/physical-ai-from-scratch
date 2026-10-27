@@ -1,43 +1,91 @@
-# Lesson 10 · Inverse kinematics and singularities. Every answer is supported by the lesson page or
-# experiments/10-inverse-kinematics/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 10 · Inverse kinematics and singularities. Every answer is supported by the lesson page,
+# experiments/10-inverse-kinematics/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: Why can one hand position have several sets of joint angles?
+    tr: Neden tek bir el konumuna birden çok joint açısı takımı karşılık gelebilir?
+  options:
+  - en: Because the solver is numerical and makes rounding errors.
+    tr: Çünkü çözücü sayısaldır ve yuvarlama hatası yapar.
+  - en: Because the arm can fold differently (elbow up or down, facing front or back) and still put the hand there.
+    tr: Çünkü kol farklı katlanıp (elbow yukarı ya da aşağı, öne ya da arkaya bakarak) eli yine oraya koyabilir.
+  - en: It cannot; every reachable position has exactly one solution.
+    tr: Olamaz; erişilebilir her konumun tam bir çözümü vardır.
+  answer: 1
+  why:
+    en: 'In plain words: several answers, some outside the joint limits. The Experiment''s Step 2 finds four branches without limits and one inside them.'
+    tr: 'Sade anlatımla: birden çok cevap, bazıları joint limitleri dışında. Deney''in Adım 2''si limitsiz dört dal, limitler içinde tek bir dal buluyor.'
+- stage: pre
+  q:
+    en: The arm is stretched almost straight and you ask the hand to move further outward. What does an undamped Newton step command?
+    tr: Kol neredeyse dümdüz gergin ve elden daha dışarı gitmesini istiyorsun. Damping'siz bir Newton adımı ne komut eder?
+  options:
+  - en: Nothing; the solver notices the singularity and stops.
+    tr: Hiçbir şey; çözücü singularity'yi fark edip durur.
+  - en: A small, careful step, because the target is close.
+    tr: Küçük, dikkatli bir adım, çünkü hedef yakındır.
+  - en: 'Enormous joint moves: it divides by a nearly zero singular value.'
+    tr: 'Devasa joint hareketleri: neredeyse sıfır bir singular value''ya bölüyor.'
+  answer: 2
+  why:
+    en: 'In plain words: near a singularity the Jacobian has lost a direction. Build it, Step 4 and Break it - 478.33 rad/s for a 5 cm/s request at the stretched pose.'
+    tr: 'Sade anlatımla: singularity yakınında Jacobian bir yönünü kaybetmiştir. Sıfırdan yaz, Adım 4 ve Boz - gergin pozda 5 cm/s''lik istek için 478,33 rad/s.'
+- stage: check
+  q:
+    en: 'Build it, Step 1: at q = 0, λ = 0.01 barely changes the step (0.1008 → 0.0992 rad) but λ = 0.1 shortens it to 0.0394 rad. Why?'
+    tr: 'Sıfırdan yaz, Adım 1: q = 0''da λ = 0,01 adımı neredeyse değiştirmiyor (0,1008 → 0,0992 rad), ama λ = 0,1 onu 0,0394 rad''a kısaltıyor. Neden?'
+  options:
+  - en: The gain per direction is σ/(σ² + λ²); the smallest σ is 0.0771 m/rad, far above 0.01 but comparable to 0.1.
+    tr: Yön başına kazanç σ/(σ² + λ²); en küçük σ 0,0771 m/rad, 0,01'in çok üstünde ama 0,1 ile kıyaslanabilir.
+  - en: λ = 0.1 switches the solver to the Jacobian-transpose method.
+    tr: λ = 0,1 çözücüyü Jacobian-transpose yöntemine geçirir.
+  - en: The step length is always divided by λ.
+    tr: Adım uzunluğu her zaman λ'ya bölünür.
+  answer: 0
+  why:
+    en: Damping only bites in directions where σ is not much larger than λ; `dls_step` matches the SVD formula to 2.1e-17.
+    tr: Damping yalnız σ'nın λ'dan çok büyük olmadığı yönlerde etkili olur; `dls_step` SVD formülüyle 2,1e-17 farkla örtüşür.
+- stage: check
+  q:
+    en: 'Build it, Step 2: λ = 0 and λ = 0.1 both reach (0.20, 0.05, 0.05) m, with different joint angles. Is one of them wrong?'
+    tr: 'Sıfırdan yaz, Adım 2: λ = 0 da λ = 0,1 de (0,20, 0,05, 0,05) m''ye ulaşıyor, farklı joint açılarıyla. Biri yanlış mı?'
+  options:
+  - en: Yes, the λ = 0 answer, because its lift sits at the joint limit.
+    tr: Evet, λ = 0 cevabı, çünkü lift'i joint limitinde duruyor.
+  - en: Yes, the λ = 0.1 answer, because damping biases the solution.
+    tr: Evet, λ = 0,1 cevabı, çünkü damping çözümü saptırır.
+  - en: 'No: five joints for three position numbers leave a family of solutions; MuJoCo''s FK puts both within 0.5 mm.'
+    tr: 'Hayır: üç konum sayısı için beş joint bir çözüm ailesi bırakır; MuJoCo''nun FK''sı ikisini de 0,5 mm içine koyuyor.'
+  answer: 2
+  why:
+    en: MuJoCo tool error 0.189 mm and 0.392 mm. The undamped run ended with the lift clipped at −1.745 rad (−100°) and still converged.
+    tr: MuJoCo alet hatası 0,189 mm ve 0,392 mm. Damping'siz çözüm lift'i −1,745 rad'da (−100°) kırpılmış olarak bitirdi ve yine de yakınsadı.
+- stage: post
+  q:
     en: From $q_0 = 0$, pure Newton (λ = 0) solves only 73.2% of 500 reachable targets. How do most of its failures end?
     tr: $q_0 = 0$'dan başlayan saf Newton (λ = 0), 500 erişilebilir hedefin yalnızca %73,2'sini çözüyor. Başarısızlıklarının çoğu nasıl bitiyor?
   options:
-    - en: Out of iterations, creeping slowly toward the target.
-      tr: Hedefe yavaşça yaklaşırken iterasyon bütçesi bitiyor.
-    - en: Pinned at a joint limit, after steps of several radians that the clamp cuts off.
-      tr: Kırpmanın kestiği birkaç radyanlık adımlardan sonra bir joint limitine çivilenmiş olarak.
-    - en: With NaN joint angles, because $J^{+}$ does not exist near a singularity.
-      tr: NaN joint açılarıyla, çünkü singularity yakınında $J^{+}$ yoktur.
+  - en: Out of iterations, creeping slowly toward the target.
+    tr: Hedefe yavaşça yaklaşırken iterasyon bütçesi bitiyor.
+  - en: Pinned at a joint limit, after steps of several radians that the clamp cuts off.
+    tr: Kırpmanın kestiği birkaç radyanlık adımlardan sonra bir joint limitine çivilenmiş olarak.
+  - en: With NaN joint angles, because $J^{+}$ does not exist near a singularity.
+    tr: NaN joint açılarıyla, çünkü singularity yakınında $J^{+}$ yoktur.
   answer: 1
   why:
-    en: Step 1 table, median max ‖Δq‖ 4.901 rad and 132 of 134 failures end at a limit.
-    tr: Adım 1 tablosu, medyan en büyük ‖Δq‖ 4,901 rad ve 134 başarısızlığın 132'si bir limitte bitiyor.
-- q:
-    en: DLS with λ = 0.3 succeeds less often (74.6%) than with λ = 0.1 (88.6%). Why?
-    tr: λ = 0,3'lük DLS, λ = 0,1'e (%88,6) göre daha az başarılı (%74,6). Neden?
-  options:
-    - en: The steps are so short that many solves run out of iterations before reaching 0.5 mm.
-      tr: Adımlar o kadar kısa ki birçok çözüm 0,5 mm'ye inmeden iterasyon bütçesini bitiriyor.
-    - en: Larger damping pushes the solver into singularities.
-      tr: Daha büyük damping çözücüyü singularity'lere iter.
-    - en: λ = 0.3 makes the steps larger and they overshoot the target.
-      tr: λ = 0,3 adımları büyütür, adımlar da hedefi aşar.
-  answer: 0
-  why:
-    en: Step 1 table, median iterations 64 against 15, and 77 of 127 failures do not end at a limit. Too little damping explodes, too much is slow.
-    tr: Adım 1 tablosu, medyan iterasyon 15'e karşı 64 ve 127 başarısızlığın 77'si limitte bitmiyor. Az damping patlar, fazlası yavaştır.
-- q:
+    en: 'Experiment, Step 1 table: median max ‖Δq‖ 4.901 rad and 132 of 134 failures end at a limit.'
+    tr: 'Deney, Adım 1 tablosu: medyan en büyük ‖Δq‖ 4,901 rad ve 134 başarısızlığın 132''si bir limitte bitiyor.'
+- stage: post
+  q:
     en: At the stretched pose you request 5 cm/s along the weakest direction $u_3$. What do the pseudo-inverse and DLS (λ = 0.03) do?
     tr: Gergin pozda en zayıf yön $u_3$ boyunca 5 cm/s istiyorsun. Pseudo-inverse ve DLS (λ = 0,03) ne yapar?
   options:
-    - en: Both refuse to move, because the Jacobian has lost rank.
-      tr: İkisi de hareket etmeyi reddeder, çünkü Jacobian rank kaybetmiştir.
-    - en: DLS delivers the full 5 cm/s with smaller joint speeds than the pseudo-inverse.
-      tr: DLS tam 5 cm/s'yi pseudo-inverse'ten daha küçük joint hızlarıyla sağlar.
-    - en: The pseudo-inverse asks for 478.33 rad/s; DLS keeps the joints near 0.006 rad/s and simply does not move in that direction.
-      tr: Pseudo-inverse 478,33 rad/s istiyor; DLS joint'leri 0,006 rad/s civarında tutuyor ve o yönde basitçe hareket etmiyor.
+  - en: Both refuse to move, because the Jacobian has lost rank.
+    tr: İkisi de hareket etmeyi reddeder, çünkü Jacobian rank kaybetmiştir.
+  - en: DLS delivers the full 5 cm/s with smaller joint speeds than the pseudo-inverse.
+    tr: DLS tam 5 cm/s'yi pseudo-inverse'ten daha küçük joint hızlarıyla sağlar.
+  - en: The pseudo-inverse asks for 478.33 rad/s; DLS keeps the joints near 0.006 rad/s and simply does not move in that direction.
+    tr: Pseudo-inverse 478,33 rad/s istiyor; DLS joint'leri 0,006 rad/s civarında tutuyor ve o yönde basitçe hareket etmiyor.
   answer: 2
   why:
     en: Break it table at s = 1.000, DLS achieved / requested is 0.000. λ trades tracking accuracy for bounded commands near a singularity.

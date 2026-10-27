@@ -89,6 +89,149 @@ Daha derine: [Introduction to JAX](https://aiengineeringfromscratch.com/lesson?p
 
 Her satır bir ders 34 ya da ders 35 kararıdır. Sürtünmeyi $[0{,}5;\ 1{,}25]$ aralığında rastgeleleştirmek, 4096 robotun her birinin biraz farklı bir zeminde öğrenmesi demektir (Bölüm 9).
 
+## Sıfırdan yaz
+
+Şimdi yukarıdaki "kod olarak" döngüsünün varsaydığı vectorized environment'ı yazacaksın: tek model, robot başına bir `MjData`, içeri batch'li action'lar, dışarı batch'li observation'lar, kendiliğinden biten ve yeniden başlayan episode'lar ve ne kadar simüle edildiğini söyleyen sayaçlar. Robot, Deney'in PD servolu Go2'si (`load_go2`). Burada hiçbir şey zaman ölçmüyor; onu Deney yapıyor. Kod [`physai/vecenv.py`](../../physai/vecenv.py) içinde; `uv run python experiments/36-legged-locomotion/build.py` adımları koşturur (çıktı [`build_output.txt`](../../experiments/36-legged-locomotion/build_output.txt) dosyasında).
+
+### Adım 1 · Tek model, çok data
+
+Bir `MjModel` hiç değişmeyeni tutar (kütleler, geometri, gain'ler); bir `MjData` bir robotun durumunu. N robot bu yüzden tek model ve N data ister ve batch adımı bunlar üzerinde bir döngüdür:
+
+```python
+class VecEnv:
+    """N robots, one model. reset_fn(m, d, rng) puts one MjData into a start state."""
+
+    def __init__(self, m, n, reset_fn, rng, decimation=4, max_steps=1000, max_roll=0.8, max_pitch=1.0,
+                 min_height=0.15):
+        self.m, self.n, self.reset_fn, self.rng = m, n, reset_fn, rng
+        self.decimation, self.max_steps = decimation, max_steps
+        self.max_roll, self.max_pitch, self.min_height = max_roll, max_pitch, min_height
+        self.datas = [mujoco.MjData(m) for _ in range(n)]
+        self.t = np.zeros(n, dtype=int)                # policy steps in the current episode, per robot
+        self.policy_steps = self.physics_steps = self.episodes = 0
+
+    def obs_one(self, d):
+        """Base height, projected gravity, base velocity (6), joint angles and speeds."""
+        return np.r_[d.qpos[2], projected_gravity(d.qpos[3:7]), d.qvel[:6], d.qpos[7:], d.qvel[6:]]
+
+    def reset(self):
+        for d in self.datas:
+            self.reset_fn(self.m, d, self.rng)
+        self.t[:] = 0
+        return np.array([self.obs_one(d) for d in self.datas])
+
+    def step(self, actions):
+        """actions: (n, nu) control targets. Returns obs, fell, timed_out (one row / entry per robot)."""
+        for d, a in zip(self.datas, actions):
+            d.ctrl[:] = a
+            mujoco.mj_step(self.m, d, nstep=self.decimation)
+        self.t += 1
+        self.policy_steps += self.n
+        self.physics_steps += self.n * self.decimation
+        fell, timed_out = np.zeros(self.n, bool), self.t >= self.max_steps
+        for i, d in enumerate(self.datas):
+            roll, pitch = roll_pitch(d.qpos[3:7])
+            fell[i] = abs(roll) > self.max_roll or abs(pitch) > self.max_pitch or d.qpos[2] < self.min_height
+        for i in np.flatnonzero(fell | timed_out):     # auto-reset in the same step
+            self.reset_fn(self.m, self.datas[i], self.rng)
+            self.t[i] = 0
+            self.episodes += 1
+        return np.array([self.obs_one(d) for d in self.datas]), fell, timed_out
+```
+
+```text
+== Step 1. One model, 8 MjData: the batch vs 8 independent loops (100 policy steps) ==
+max |qpos batch - qpos alone| over 8 robots: 0.0e+00
+episodes ended: 0 (base heights 26.0, 26.1, 25.9, 26.3, 26.3, 26.2, 26.0, 26.5 cm)
+```
+
+Batch, sekiz ayrı simülasyonla bit bit aynı: aynı batch'teki robotlar etkileşmez, yalnızca modeli paylaşır. Küçük rastgele hedeflerle kimse düşmedi ve gövde yükseklikleri Deney'in 26,2 cm'sine yakın kalıyor.
+
+### Adım 2 · Policy'nin gördüğü
+
+Observation, gövde frame'inde yerçekimi yönünü taşır (policy dünya frame'ini göremez) ve roll ya da pitch legged_gym'in sınırlarını (0,8 ve 1,0 rad) aşınca episode biter. İkisi de gövde quaternion'undan, ders 06'nın `quat_to_mat`'i üzerinden gelir:
+
+```python
+def projected_gravity(quat):
+    """Gravity direction (0, 0, -1) seen in the base frame: R^T g for the base quaternion (w, x, y, z)."""
+    return quat_to_mat(quat).T @ np.array([0.0, 0.0, -1.0])
+```
+
+```python
+def roll_pitch(quat):
+    """Roll and pitch of the base (rad), from R = Rz(yaw) Ry(pitch) Rx(roll)."""
+    R = quat_to_mat(quat)
+    return np.arctan2(R[2, 1], R[2, 2]), np.arcsin(np.clip(-R[2, 0], -1.0, 1.0))
+```
+
+```text
+== Step 2. Projected gravity and roll / pitch from the base quaternion ==
+projected gravity vs MuJoCo xmat^T g: max diff 3.9e-16
+roll, pitch vs SciPy as_euler('ZYX'): max diff 1.6e-15
+standing start: projected gravity [ 0.  0. -1.], base height 27.0 cm
+```
+
+### Adım 3 · Auto-reset
+
+```text
+== Step 3. Auto-reset: 16 robots standing, a roll / pitch kick of up to 18 rad/s every 25 steps, episodes of at most 150 steps ==
+300 policy steps (2.4 s per robot): 22 falls, 18 time-outs, episodes ended 40
+first fall after 13 policy steps; every ended row came back at base height 27.0-27.0 cm (the keyframe height) in the same step
+steps since reset now, per robot: [0, 0, 0, 12, 135, 0, 143, 22, 12, 48, 65, 108, 49, 35, 0, 121]
+```
+
+Yirmi iki düşme, her biri olduğu adımda reset ediliyor; yani dönen observation zaten taze başlangıç (27,0 cm, keyframe yüksekliği); ayakta kalan bir robot 150 adımdan sonra time-out alıyor. Düşmelerden sonra episode saatleri dağınık (12, 135, 143, …). Vectorized bir environment'ın normal hali bu: her robot kendi episode'unun farklı bir noktasında; 4096 robotu 4096 farklı örnek yapan da bu.
+
+### Adım 4 · Muhasebe
+
+```python
+def samples_per_update(n_envs, steps_per_env):
+    """On-policy batch size: every robot contributes steps_per_env transitions to one PPO update."""
+    return n_envs * steps_per_env
+```
+
+```text
+== Step 4. Accounting ==
+Step 3 counters: policy steps 4,800 = 16 x 300, physics steps 19,200 = x4, simulated time 38.4 robot-seconds
+Go2 training config: samples per update 98,304, policy steps 147,456,000, physics steps 589,824,000
+each robot advances 24 x 0.02 s = 0.48 s per update
+```
+
+Sayaçlar tanım gereği kesin ve Problem'in aritmetiğini veriyor: PPO güncellemesi başına 98.304 örnek, config'in bir koşusu için 589.824.000 fizik adımı. Fiyatlamak için Deney'in Go2 adımı başına 11–17 µs CPU'suyla çarp.
+
+### Elinde kalan
+
+`physai.vecenv` artık `VecEnv`, `projected_gravity`, `roll_pitch` ve `samples_per_update` içeriyor. Bölüm 9 böyle bir batch'in model alanlarını randomize ediyor (ders 39). [`tests/test_36_legged_locomotion.py`](../../tests/test_36_legged_locomotion.py) onları SciPy ve `mujoco.rollout` ile kontrol eder: `uv run pytest tests/test_36_legged_locomotion.py`.
+
+## Kütüphaneyle kullan
+
+Open-loop batch'ler için MuJoCo'nun C rollout'u aynı döngüyü Python'suz, bir thread havuzu üzerinde koşturur; Gymnasium N environment'ı bir vector API ile sarar.
+
+```python
+state, _ = rollout.rollout(m, [mujoco.MjData(m) for _ in range(4)], x0, U)   # x0: (n, nstate), U: (n, steps, nu)
+envs = gymnasium.vector.SyncVectorEnv([make_env] * n, autoreset_mode="SameStep")   # default is "NextStep"
+```
+
+```text
+== Use it. mujoco.rollout: the same batch in C, open loop ==
+rollout (4 threads) vs VecEnv after 100 policy steps: max |qpos diff| = 0.0e+00
+```
+
+| Araç | Episode bitince | O adımda dönen observation |
+|---|---|---|
+| physai `VecEnv` | aynı adımda reset | taze başlangıç |
+| `unitree_rl_gym` | aynı adımda `reset_idx`, sonra `compute_observations` ([`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)) | eklemler için taze başlangıç; gövde hızı ve projected gravity reset'ten önce hesaplanmış |
+| Gymnasium 1.4 vector, varsayılan `NextStep` | *bir sonraki* `step()` çağrısında reset; o çağrının action'ı yok sayılır, reward'u 0 | son (terminal) observation |
+| Gymnasium 1.4 vector, `SameStep` | aynı adımda reset | taze başlangıç; terminal olan `info["final_obs"]` içinde |
+
+(İki Gymnasium satırı `CartPole-v1` ve Gymnasium 1.4.0 ile kontrol edildi; `mujoco.rollout` open loop'tur, observation'lara tepki veren bir policy Python döngüsüne ya da MJX'e ihtiyaç duyar.)
+
+Tuzaklar:
+
+- **Hangi observation terminal.** Sonraki adımda reset'te son geçişin value hedefi terminal observation'ı kullanmalı; aynı adımda reset'te dönen değil `final_obs` kullanılmalı.
+- **Time-out başarısızlık değildir.** Time-out alan bir robot devam edebilirdi; PPO orada, düşmeden sonrakinin aksine, value'sunu bootstrap etmeli. `step`'in yaptığı gibi iki bayrağı ayrı tut.
+- **`nq` mu `nv` mi.** Go2'nin 19 konumu ama 18 hızı var: gövde quaternion'u dört sayı, üç dönme hızı; eklemler için `qpos[7:]` ama `qvel[6:]` dilimle.
+
 ## Deney
 
 ### CPU kısmı (ölçüldü): saniyede kaç Go2 adımı?
@@ -105,7 +248,7 @@ datas = [mujoco.MjData(m) for _ in range(nthread)]
 state, _ = rollout.rollout(m, datas, X0, U)   # X0: (nbatch, nstate), U: (nbatch, nstep, nu)
 ```
 
-MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5, 4 performans + 6 verimlilik çekirdeği). Makinede başka işler de çalışıyordu, bu yüzden tüm hızlar yaklaşıktır ve bir çalıştırmadan ötekine belirgin biçimde değişir; A ve B bölümleri deterministiktir; load average (kabaca, çekirdekler için yarışan process sayısı) çıktıda yazılıdır. Script 119 s duvar saati sürdü; `python experiment.py --quick` (tek ölçüm turu, 4096'lık batch yok) hızları tabloları yeniden üretmeyen bir smoke test'tir.
+MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5, 4 performans + 6 verimlilik çekirdeği). Makinede başka işler de çalışıyordu, bu yüzden tüm hızlar yaklaşıktır ve çalıştırmadan çalıştırmaya değişir; A ve B bölümleri deterministiktir ve load average (çekirdekler için yarışan process sayısı) çıktıda yazılıdır. Script 119 s sürdü; `python experiment.py --quick` hızları tabloları yeniden üretmeyen bir smoke test'tir.
 
 **A. Contact temelleri.** 2 s ayakta durduktan sonra: gövde yüksekliği 26,2 cm, tam dört zemin contact'ı (FL, FR, RL, RR) ve contact normal kuvvetlerinin toplamı 149,2 N; $m g = 15{,}21\,\text{kg} \times 9{,}81 = 149{,}2$ N. Ağırlığın tamamını ayaklar taşıyor; zemine başka hiçbir şey değmiyor.
 
@@ -139,7 +282,7 @@ CPU saniyesi başına adım (tüm thread'lerin CPU süresi toplamı):
 
 - **Bir Go2 adımının maliyeti kabaca sabit:** her hücrede CPU saniyesi başına 58.368–88.725 adım, yani adım başına yaklaşık 11–17 µs CPU. Thread'ler bir adımı ucuzlatmaz (8 thread'le biraz pahalılaşır: 62.351–78.729); aynı anda daha çok adım koşturur.
 - **Thread'ler batch ister.** Tek robotla fazladan thread'ler bir şey kazandırmaz (53.682 → 52.672). 8 ile 4096 robot arasında 8 thread, tek thread'in duvar saati hızının 6,7–8,6 katını verir. 8 kat ve üstü oranlar büyük olasılıkla, ~20 başka çalışmaya hazır process'in olduğu bir makinede tek thread'li hücrenin daha küçük bir pay aldığı anlamına gelir; duvar saati tablosunu yaklaşık kabul edin.
-- **Tek başına C++ kazandırmıyor.** `rollout` ile tek thread'de tek robot (53.682 adım/s), Python `mj_step` döngüsünden (66.222 adım/s) hızlı değil: bu boyutta bir model için çağrı başına Python overhead'i küçük. En iyi hücre (Python döngüsünün 7,4 katı) bir batch'i thread'lere yaymaktan geliyor.
+- **Tek başına C++ kazandırmıyor.** `rollout` ile tek thread'de tek robot (53.682 adım/s), Python `mj_step` döngüsünden (66.222 adım/s) hızlı değil; en iyi hücre (Python döngüsünün 7,4 katı) bir batch'i thread'lere yaymaktan geliyor.
 - **Çok büyük batch'ler adım başına daha pahalı** (4096 robot: CPU saniyesi başına 58.368–61.575 adım); muhtemelen `rollout` her robotun her durumunu sakladığı ve bellek trafiği batch'le büyüdüğü için; profile etmedik.
 - **Aritmetik (E bölümü):** Go2 training config'i 589.824.000 fizik adımı ister. Buradaki en iyi hızla bu, bu CPU'da yalnızca fizik için 0,3 saat eder; policy çıkarımı ve öğrenme hariç, config'teki 5 ms yerine bizim 2 ms adımımızla. Ve o en iyi hız 8 çekirdek ve yerinde duran robotlar varsayıyor.
 
@@ -164,7 +307,7 @@ C bölümü her robotu oturmuş bir duruştan başlattı. Aynı 512 robotluk bat
 | oturmuş duruş (+ küçük joint hızları) | 379.209 | 1,7 | 4,0 |
 | keyframe pozundan bırakılmış, eklemler ±0,1 rad | 34.194 | 10,3 | 4,4 |
 
-Aynı model, batch ve thread'ler yaklaşık on bir kat yavaş koşuyor. Contact sayısı neredeyse değişmiyor (4,0'a karşı 4,4), ama ayaklar yere basıp contact kuvvetleri yeniden dağılırken constraint solver (MuJoCo'nun contact kuvvetlerini hesaplayan kısmı) adım başına 1,7 yerine 10,3 iterasyon istiyor. Adım başına maliyet robotların ne yaptığına bağlı: darbeler, kayan ve düşen robotlar, yani erken locomotion training'inin çoğu, ayakta durmaktan çok daha pahalı. Sakin robotlarla koşturulan bir throughput benchmark'ı training hızını olduğundan yüksek gösterir ve bir senaryoda ölçülen "hızlanma" başka birine taşınmaz. Benchmark'ı training'inizin gerçekten ziyaret edeceği durumlarla yapın.
+Aynı model, batch ve thread'ler yaklaşık on bir kat yavaş koşuyor. Contact sayısı neredeyse değişmiyor (4,0'a karşı 4,4), ama ayaklar yere basarken constraint solver (MuJoCo'nun contact kuvvetlerini hesaplayan kısmı) adım başına 1,7 yerine 10,3 iterasyon istiyor. Darbeler, kayan ve düşen robotlar, yani erken locomotion training'inin çoğu, ayakta durmaktan çok daha pahalı: sakin robotlarla yapılan bir benchmark training hızını olduğundan yüksek gösterir. Benchmark'ı training'inizin ziyaret edeceği durumlarla yapın (Sıfırdan yaz, Adım 3 bu düşmeleri bilerek üretiyor).
 
 ## Gerçek robotta
 
