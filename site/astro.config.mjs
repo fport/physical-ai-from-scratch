@@ -6,6 +6,7 @@ import sidebar from './src/sidebar.generated.json' with { type: 'json' }
 const REPO = 'https://github.com/fport/physical-ai-from-scratch'
 
 export default defineConfig({
+  site: process.env.SITE_URL,
   base: process.env.SITE_BASE || '/',
   integrations: [
     starlight({

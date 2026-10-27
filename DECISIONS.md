@@ -15,7 +15,9 @@ There is no LICENSE file yet. A common choice is separate licenses for text and 
 
 Menagerie models keep their own licenses (`robotstudio_so101` Apache-2.0, `unitree_go2` BSD-3-Clause); the notebooks don't vendor the models, they clone them.
 
-## 3 · Making it public
+## 3 · GitHub Pages and making it public
+
+`.github/workflows/pages.yml` builds `site/` and deploys it to https://fport.github.io/physical-ai-from-scratch/ on every push to `main`. GitHub Pages is not available for private repos on the free plan, so Pages is not enabled yet: either make the repo public or upgrade to a paid plan (e.g. GitHub Pro), then set Settings → Pages → Source to "GitHub Actions".
 
 The repo is private: https://github.com/fport/physical-ai-from-scratch. When it goes public:
 
