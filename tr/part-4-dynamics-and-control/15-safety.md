@@ -20,7 +20,44 @@ LeRobot'un SO-101 follower'ında, kendi yorumuna göre "for safety purposes" var
 
 ## Ana fikir
 
-Safety katmanları komut ile actuator arasında, dıştan içe doğru sıralanır:
+### Sade anlatımla
+
+Öğrenilmiş bir policy'ye yeni bir sürücü gibi davran ve arabaya güvenlik donanımını tak. **Konum limiti** bir çittir: hedef asla güvenli aralığın dışına çıkamaz. **Hız limiti** (rate limit) bir hız sınırlayıcıdır: hedef her kontrol tick'inde (komut döngüsünün bir turunda) yalnızca biraz ilerleyebilir. **Torque cap** kayan bir debriyajdır: hedef ne kadar yanlış olursa olsun motor bundan sert itmez. **Watchdog** trendeki ölü adam pedalıdır: zamanında taze bir komut gelmezse dur. **E-stop** fişi çeker ve koruduğu yazılıma bağlı olmamalıdır.
+
+Her katmanın ne yapabileceğine iki kural karar verir. Birincisi, **bir limit zarar üzerinde değil, tek bir değişken üzerinde çalışır**: torque cap kolun bir engele ne kadar sert itmeye devam ettiğini sınırlar, ama hızlı bir kol yine sert çarpar; yavaşça savrulan bir çekicin de sert vurması gibi. İkincisi, **"dur"un ne demek olduğu arayüze bağlıdır**: yeni hedef almayan bir position servo son hedefi tutar; hız komutlarıyla sürülen bir kol hareket etmeye devam eder.
+
+```mermaid
+flowchart TD
+    P["policy çıktısı<br/>hedef açı"] --> WD["watchdog<br/>taze mesaj yok mu? tut"]
+    WD --> PL["konum limiti<br/>güvenli aralığa kırp"]
+    PL --> RL["relative-target limiti<br/>tick başına şimdiki ± δ"]
+    RL --> SV["servo PD döngüsü"]
+    SV --> TC["torque cap<br/>en fazla τmax"]
+    TC --> M["motor ve kol"]
+    ES["donanım E-stop<br/>gücü keser"] -.-> M
+```
+
+### Güvenlik katmanları kod olarak
+
+```python
+def safe_goal(target, q_now, t_now, t_last_msg):
+    if t_now - t_last_msg > watchdog_timeout:          # stale command: stop where you are
+        return q_now
+    goal = np.clip(target, q_min, q_max)               # position limit: stay inside the safe range
+    goal = np.clip(goal, q_now - delta, q_now + delta) # relative-target limit: <= delta rad per tick
+    return goal                                        # the servo then pushes with at most tau_max
+
+# torque cap: set once, enforced by the actuator (MuJoCo: m.actuator_forcerange; STS3215: a register)
+```
+
+| Formül | Neyi sınırlar |
+|---|---|
+| hedef $\leftarrow \text{clip}(\text{hedef},\, q - \delta,\, q + \delta)$ | hedefin hızı: en fazla $\delta/\Delta t$ |
+| $F \approx \tau_{\max}/r$ | $r$ kaldıracında bir engele kalıcı itme |
+| yol $\approx v\, t_w$ | watchdog devreye girene kadar kolun almaya devam ettiği yol |
+| $k_p\,\delta \ge \tau_{\max}$ | doğruysa, takılan bir servo rate limit'e rağmen cap'inde iter |
+
+Burada $q$ şimdiki eklem açısı, $\delta$ hedefin tick başına izin verilen en büyük adımı, $\Delta t$ tick süresi (50 Hz'de 20 ms), $\tau_{\max}$ torque cap, $r$ eklem ekseninden contact noktasına kaldıraç kolu, $F$ contact kuvveti, $v$ eklem hızı, $t_w$ watchdog timeout'u ve $k_p$ servo'nun stiffness'ıdır (ders 12).
 
 | Katman | Neyi sınırlar | Tipik uygulama |
 |---|---|---|
@@ -31,7 +68,20 @@ Safety katmanları komut ile actuator arasında, dıştan içe doğru sıralanı
 | Watchdog | bayat komutları | $t_w$ içinde taze mesaj gelmezse: dur ve tut |
 | E-stop | her şeyi | gücü kes ya da durma komutu ver; koruduğu yazılıma bağlı olmamalı |
 
-Tasarımı iki kural belirler. Birincisi, **bir limit bir değişkene etki eder, zarara değil**: torque cap kalıcı itme kuvvetini sınırlar ($r$ kolunda $F \approx \tau_{\max}/r$) ama hıza ve contact stiffness'ına bağlı olan çarpma tepesini doğrudan sınırlamaz. İkincisi, **duran bir komutun ne anlama geldiği arayüze bağlıdır**: yeni hedef gelmeyen bir position servo sonuncuyu tutar; yeni komut gelmeyen bir velocity arayüzü hareket etmeye devam eder.
+<details>
+<summary>Matematik ayrıntısı: torque cap neden itmeyi sınırlar da çarpmayı sınırlamaz</summary>
+
+**Kalıcı itme.** Kol direğe dayanıp durduğunda hiçbir şey ivmelenmez; eklem torku contact kuvvetinin momentini dengeler: $\tau = F r$. Servo cap'inde saturation'dayken $F = \tau_{\max}/r$. Bu, hızdan da contact modelinden de bağımsızdır.
+
+**Çarpma.** Ondan önce kol, eklem etrafında $I$ inertia'sı ve $\omega$ eklem hızıyla gelir. $r$ kaldıracında $k_c$ stiffness'lı basit bir yay-contact modelinde $\tfrac12 I\omega^2$ kinetik enerjisi contact'ı sıkıştırarak emilir; yani tepe kuvvet geliş hızıyla ve $\sqrt{k_c}$ ile büyür. Torque cap tepeyi yalnızca dolaylı olarak, eklemin ne kadar hızlı ivmelenebileceğini sınırlayarak sınırlar (B bölümü hızın cap'le düştüğünü gösteriyor); rate limit ise geliş hızını doğrudan sınırlar.
+
+**Rate limit ve takılan servo.** Hedef şimdiki konumun en fazla $\delta$ önündedir. Serbest harekette bu, hızı $\delta/\Delta t$ civarında sınırlar. Bir engele karşı konum değişmeyi bırakır, hedef $\delta$ önde kalır ve servo $k_p\delta$ komut eder; $k_p\delta \ge \tau_{\max}$ olduğunda cap bunu $\tau_{\max}$'a kırpar.
+
+**Watchdog.** Son mesaj kolu $v$ hızıyla hareket ettiriyorsa kol, timeout devreye girmeden önce yaklaşık $v\, t_w$ kadar yol alır, artı durmak için gereken mesafe. Çarpışmayı ancak bu, engele olan mesafeden kısaysa önler.
+
+Daha derine: LeRobot [`robots/utils.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/utils.py) (`ensure_safe_goal_position`); MuJoCo [Modeling · actuators ve `forcerange`](https://mujoco.readthedocs.io/en/stable/modeling.html); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), böl. 11.
+
+</details>
 
 ## Deney
 
@@ -77,6 +127,8 @@ Cap hızı da sınırlıyor, çünkü joint daha yavaş ivmeleniyor; 0,10 N·m'd
 | çarpma anındaki hız [rad/s] | 4,494 | 4,494 | 2,866 | 1,513 | 0,929 | 0,359 |
 | tepe kuvvet [N] | 125,98 | 125,98 | 72,94 | 45,82 | 21,39 | 17,17 |
 | kalıcı itme [N] | 14,33 | 14,33 | 13,54 | 14,48 | 14,67 | 13,54 |
+
+![Solda: torque cap'e karşı direkteki çarpma tepesi ve kalıcı itme; cap düştükçe ikisi de düşüyor, 2,94 N·m'de 125,98 ve 14,33 N'dan 0,10 N·m'de sıfıra. Sağda: aynı iki kuvvet relative-target limiti δ'ya karşı; δ sıkılaştıkça çarpma tepesi 125,98'den 17,17 N'a iniyor, kalıcı itme ise 14 N civarında kalıyor.](../../experiments/15-safety/safeguard_sweeps.png)
 
 Tick başına δ = 0,2 rad bu servo için hiç limit değil. Daha küçük δ çarpma hızını ve tepeyi düşürüyor, ama kalıcı itme 14 N civarında kalıyor: kol direğe dayanıp durunca hedef hâlâ mevcut + δ, ve buradaki her δ için $k_p\,\delta$ ≥ 2,94 N·m (998,22 × 0,005 ≈ 5 N·m); yani servo cap'inde itiyor.
 

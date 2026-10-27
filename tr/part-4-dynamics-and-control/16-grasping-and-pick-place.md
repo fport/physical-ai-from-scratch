@@ -20,15 +20,60 @@ Bölüm 7 policy'leri demonstration'lardan eğitiyor ve en ucuz demonstration'la
 
 ## Ana fikir
 
+### Sade anlatımla
+
+Bir küpü iki parmağının arasında sıkıştırdığında onu alttan hiçbir şey tutmaz: bütün ağırlığı parmak uçlarındaki sürtünme taşır. Sürtünme en fazla *tutunma katsayısı × ne kadar sıktığın* kadarını taşıyabilir. Ağırlık bundan büyükse küp kayıp düşer. Islak bir sabunu tutmak düşük sürtünmeli durumdur: daha sert sıkman gerekir ve parmakların hâlâ hareket ederken sıkarsan sabun fırlar gider.
+
+Script'li bir pick-and-place küçük bir **state machine**'dir; bir oyun karakterinin durumları ya da bir trafik ışığı gibi: her state'in bir eylemi (kolun nereye gideceği, çenenin açık olup olmadığı) ve bir çıkış koşulu (bir timer ya da algılanan bir şey) vardır. Script açık çeneleri küpün üstüne getirir, indirir, sensörler grasp'in oluştuğunu söyleyene kadar kapatır, kaldırır ve tutar. Sondaki fizik testi dürüsttür: küpü gripper'a kaynak yapmak yok, yalnızca contact ve sürtünme var.
+
+```mermaid
+stateDiagram-v2
+    [*] --> settle
+    settle --> pre: 0,3 s
+    pre --> down: 1,2 s
+    down --> close: 0,8 s
+    close --> lift: iki çene de değiyor, çene hızı 0,1 s boyunca 0,05 rad/s altında
+    close --> lift: timeout 4 s (yine de kaldır)
+    lift --> hold: 1,0 s
+    hold --> [*]: 0,8 s, sonra başarı testi
+```
+
+### Grasp testi ve state machine kod olarak
+
+```python
+# Friction cone for a two-jaw grasp on parallel faces
+squeeze = N1 + N2                  # normal forces of the two jaws on the cube [N] (mj_contactForce)
+ratio = mu * squeeze / (m * g)     # how many times friction could carry the weight
+holds = ratio >= 1.0               # below 1 the cube slides out of the jaws
+
+# State machine: an action per state, an exit condition per state
+state, t0 = "settle", time()
+while state != "done":
+    command_arm_and_jaw(state)                         # IK + min-jerk target, jaw open or closed
+    t = time() - t0
+    if state == "close":
+        if both_jaws_touch() and jaw_still(speed=0.05, for_s=0.1):   # sensed, not timed
+            state, t0 = "lift", time()
+        elif t > 4.0:                                  # timeout: lift anyway, the test will tell
+            state, t0 = "lift", time()
+    elif t >= DURATION[state]:
+        state, t0 = NEXT[state], time()                # settle -> pre -> down -> close; lift -> hold -> done
+```
+
+| Formül | Ne söylüyor |
+|---|---|
+| $\mu\,(N_1 + N_2) \;\ge\; m g$ | sürtünme ağırlığı taşıyabilir (Lynch & Park, bölüm 12) |
+| $\dfrac{\mu (N_1 + N_2)}{m g} \ge 1$ | aynısı oran olarak: friction-cone payı |
+| yarı açı $= \arctan\mu$ | her contact kuvveti yüzey normali etrafında bu genişlikte bir cone'un içinde kalmalı |
+| $m_{\max} = \mu (N_1+N_2)/g$ | verilen bir sıkmanın kaldırabileceği en ağır küp |
+
+Burada $\mu$ çene ile küp arasındaki sürtünme katsayısı, $N_1, N_2$ iki çenenin küpe bastırdığı normal kuvvetler, $m$ küpün kütlesi ve $g$ = 9,81 m/s² yerçekimidir. Grasp **antipodal**'dır: normalleri onları birleştiren doğru boyunca birbirine bakan iki contact; küpün iki paralel yüzünde çeneler yatay bastırır ve yukarı doğru yalnızca sürtünme etki eder.
+
 **Gripper geometrisi.** SO-101 gripper'ında sabit bir çene ve bir menteşe üzerinde hareketli bir çene var (`gripper` joint'i, Menagerie modelinde aralık −0,17 ile 1,75 rad), bir STS3215 position servo ile sürülüyor. 3 cm'lik bir küp üzerinde kapalı limiti (−0,17 rad) komutlamak, servo'nun torque cap'ine ulaşana kadar itmesine yol açar; sıkma kuvvetini o cap ve çene kolu belirler.
 
-**Antipodal grasp.** Normalleri zıt olan ve contact noktalarını birleştiren doğru üzerinde yatan iki contact. Küpün iki paralel yüzüne yukarıdan yapılan bir grasp'te çeneler $N_1, N_2$ normal kuvvetleriyle yatay bastırır ve ağırlığı tamamen sürtünme taşımalıdır (Lynch & Park, bölüm 12):
+**Hangi sürtünme geçerli.** MuJoCo bir contact'ta `priority`'si yüksek olan geom'un sürtünmesini kullanır (aksi halde eleman bazında maksimumu) ([Modeling](https://mujoco.readthedocs.io/en/stable/modeling.html)); SO-101'in çene pad'lerinin priority'si 1 ve sürtünmesi 1, bu yüzden küpe priority 2 veriliyor ki geçerli olan onun μ'sü olsun.
 
-$$\mu\,(N_1 + N_2) \;\ge\; m g \qquad\Longleftrightarrow\qquad \frac{\mu (N_1 + N_2)}{m g} \ge 1$$
-
-Bu friction-cone koşuludur: her contact kuvveti yarı açısı $\arctan\mu$ olan cone'unun içinde kalmalı. MuJoCo bir contact'ta `priority`'si yüksek olan geom'un sürtünmesini kullanır (aksi halde eleman bazında maksimumu) ([Modeling](https://mujoco.readthedocs.io/en/stable/modeling.html)); SO-101'in çene pad'lerinin priority'si 1 ve sürtünmesi 1, bu yüzden küpe priority 2 veriliyor ki geçerli olan onun μ'sü olsun.
-
-**State machine.** Her state'in bir giriş eylemi ve bir çıkış koşulu var:
+**State'ler ayrıntılı:**
 
 | state | kol hedefi | çene | çıkış koşulu |
 |---|---|---|---|
@@ -43,6 +88,21 @@ Kol hedefleri 5 kol joint'i üzerinde damped-least-squares IK'dan geliyor (gripp
 
 **Başarı, fiziksel olarak.** Sonda: küpün altı yerden ≥ 4 cm yukarıda **ve** iki çeneyle de contact var.
 
+<details>
+<summary>Matematik ayrıntısı: friction cone, sıkma ve kaldırmanın neden biraz fazlasını istediği</summary>
+
+**Coulomb sürtünmesi.** Her contact'ta teğetsel kuvvet $f_{t,i}$ en fazla $\mu N_i$ olabilir. Geometrik olarak toplam contact kuvveti, normal etrafında yarı açısı $\arctan\mu$ olan bir cone'un içinde kalmalıdır (ders 04). Antipodal grasp'te iki teğetsel kuvvet ağırlığı birlikte taşır: $f_{t,1} + f_{t,2} = mg$ ve her biri $f_{t,i} \le \mu N_i$; buradan $\mu(N_1 + N_2) \ge mg$.
+
+**Torque cap'ten sıkma.** Takılan bir position servo cap'i $\tau_{\max}$ ile iter; $r_j$ çene kolunda hareketli çene yaklaşık $\tau_{\max}/r_j$ ile bastırır; küp dengede kalsın diye sabit çene de aynı kuvvetle karşılık verir. Yani her contact yaklaşık $\tau_{\max}/r_j$ taşır ve $N_1 + N_2 \approx 2\tau_{\max}/r_j$ olur; kuvvet ikiye bölünmez. B bölümünde sıkmanın cap'le kabaca orantılı büyümesinin sebebi bu.
+
+**Kaldırma.** Küpü yukarı doğru $a$ ivmesiyle hızlandırmak $\mu(N_1+N_2) \ge m(g + a)$ ister; bu yüzden ölçülen başarı sınırı durağan oran 1'in biraz üstünde durur. Kapanma sırasında contact'lar hareket eder ve çene küpü yana iter; o anda contact kuvveti cone'unun dışına çıkarsa küp, durağan test daha devreye girmeden kayıp gider. A bölümünün çok düşük μ'de gösterdiği budur.
+
+**MuJoCo contact'ı.** `condim` 4, `condim` 3'ün kayma sürtünmesine burulma sürtünmesini ekler; MuJoCo'nun contact'ları yumuşaktır: küçük bir iç içe geçmeye izin verir; bu yüzden çok düşük μ'deki kuvvetler ve fırlama hızları modelin özellikleridir ([Modeling](https://mujoco.readthedocs.io/en/stable/modeling.html)).
+
+Daha derine: [ders 04 · Friction](../part-1-simulation/04-friction.md); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), bölüm 12 (Grasping and Manipulation); MuJoCo [Modeling · contact parametreleri](https://mujoco.readthedocs.io/en/stable/modeling.html).
+
+</details>
+
 ## Deney
 
 Pick, Bölüm 7'nin demonstration kaydetmek için import edebileceği tek bir fonksiyon:
@@ -54,13 +114,13 @@ def scripted_pick(model, data, cube_pos, record=False):
     per-step (time, state, qpos, ctrl) trajectory."""
 ```
 
-Kurulum: SO-101 (Menagerie `scene.xml`, timestep 2 ms), 3 cm küp, `condim` 4, küp sürtünmesi μ, küp kütlesi m, çene torque cap'i τ (varsayılan 2,94 N·m). Her sweep değeri (22, 0) cm çevresindeki 2 × 2 cm'lik bir karede düzgün dağılmış 10 küp pozisyonuyla koşuluyor, seed 0. Script'in tamamı: [`experiments/16-grasping-and-pick-place/experiment.py`](../../experiments/16-grasping-and-pick-place/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministik, ~30 s.
+Kurulum: SO-101 (Menagerie `scene.xml`, timestep 2 ms), 3 cm küp, `condim` 4 (kayma artı burulma sürtünmesi), küp sürtünmesi μ, küp kütlesi m, çene torque cap'i τ (varsayılan 2,94 N·m). Her sweep değeri (22, 0) cm çevresindeki 2 × 2 cm'lik bir karede düzgün dağılmış 10 küp pozisyonuyla koşuluyor, seed 0. Script'in tamamı: [`experiments/16-grasping-and-pick-place/experiment.py`](../../experiments/16-grasping-and-pick-place/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministik, ~30 s.
 
 Nominal pick (μ 1,0, 30 g, varsayılan cap): başarılı, küpün altı 7,37 cm'de, IK hatası 0,18 mm, çene normal kuvvetleri 39,84 / 39,83 N, kaydedilen 2287 adım. Varsayılan cap'le sıkma 0,29 N'luk bir küp üzerinde yaklaşık 80 N: sürtünme asla sınır değil. Cone'u görmek için A ve C bölümleri 0,5 N·m'lik bir cap kullanıyor.
 
 *Tahmin et:* τ = 0,5 N·m'de sıkma yaklaşık 13 N, yani 30 g'lık bir küp için cone koşulu μ ≈ 0,02'nin altında bozulur. Ölçülen sınır orada mı çıkacak?
 
-**A. Sürtünme sweep'i** (30 g, τ = 0,5 N·m). "close" = close state'inde geçen süre, "sıkma" = state bittiğindeki $N_1 + N_2$ (çenenin kapandığı denemeler üzerinden ortalama).
+**A. Sürtünme sweep'i** (30 g, τ = 0,5 N·m). "close" = close state'inde geçen süre, "sıkma" = state bittiğindeki $N_1 + N_2$ (çenenin kapandığı denemeler üzerinden ortalama). "Wilson %95", n denemede k başarıyla tutarlı olan gerçek başarı oranları aralığıdır; yalnızca 10 denemeyle geniştir. "Fırladı", 30 cm'den uzağa düşen küpleri sayar.
 
 | μ | başarı | Wilson %95 | close | sıkma | $\mu(N_1+N_2)/mg$ | tuttu / kapanmadı / düşürdü; fırladı |
 |---|---|---|---|---|---|---|
@@ -98,6 +158,8 @@ Sıkma cap ile kabaca orantılı artıyor (7,04 → 12,74 → 27,23 N). 0,3 N·m
 | sıkma [N] | 14,24 | 14,95 | 15,52 | 15,87 | 16,25 | 16,47 | 16,61 | 16,90 |
 | $\mu(N_1+N_2)/mg$ | 14,52 | 4,57 | 2,37 | 1,62 | 1,24 | 1,12 | 1,02 | 0,74 |
 | sonuç | tuttu | tuttu | tuttu | tuttu | tuttu | düşürdü | düşürdü | düşürdü |
+
+![Solda: A bölümünde her sürtünme değeri için 10 denemenin sonuçları; μ = 0,03'e kadar denemelerin çoğu çenenin küpe hiç oturmamasıyla bitiyor, μ = 0,05'ten itibaren 10'unun 10'u tutuluyor. Sağda: C bölümünün başarı oranı, logaritmik eksende friction-cone oranına karşı; oranı 1,24 ya da üstü olan her kütle başarılı, 1,12 ya da altı olan her kütle başarısız; kesikli çizgiyle gösterilen 1 sınırının hemen üstünde.](../../experiments/16-grasping-and-pick-place/grasp_outcomes.png)
 
 Burada hikâyenin tamamı cone koşulu: ortalama oranı ≥ 1,24 olan her kütle bütün denemelerde tutuyor, ortalama oranı ≤ 1,12 olan her kütle bütün denemelerde kaldırma sırasında düşüyor (10/10 için Wilson %95: [0,72, 1,00]; 0/10 için: [0,00, 0,28]). Sınır statik değer olan 1'in biraz üstünde; bu, kaldırma sırasında küpü yukarı ivmelendirmek için gereken ek kuvvetle tutarlı.
 

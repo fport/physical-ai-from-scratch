@@ -20,9 +20,55 @@ Bir Franka Panda'yı `home` pozunda sabit tutmak için, yalnızca yerçekimine k
 
 ## Ana fikir
 
-Joint konumları $q \in \mathbb{R}^n$ olan rijit bir açık zincir için (Lynch & Park, *Modern Robotics*, böl. 8):
+### Sade anlatımla
 
-$$M(q)\,\ddot q + C(q,\dot q)\,\dot q + g(q) = \tau + J^\top(q)\, f$$
+Bir robot kolunu hareket ettirmek, Newton'un "kuvvet = kütle × ivme" yasasının bütün link zinciri için bir kez yazılmış hâlidir. Bir eklemin nasıl ivmeleneceğine üç şey karar verir:
+
+- **Kolun şu an ne kadar ağır hissettirdiği.** Buz patencisi kollarını içeri çekince daha hızlı döner: kütle eksenden uzaktayken aynı beden daha zor döner. Bir robot omzu da uzanmış kolu katlanmış koldan çok daha ağır hisseder; bir eklemi oynatmak diğerlerini de çeker.
+- **Sen hiçbir şey göndermesen de etki eden kuvvetler.** Yerçekimi her link'i aşağı çeker. Eklemler zaten hareket ediyorsa link'ler birbirini yana da iter (lunaparkta dönen platformda hissettiğin Coriolis ve merkezkaç etkileri). Bunların toplamına **bias kuvveti** denir: her şeyi olduğu gibi tutmak için bile sıfırlaman gereken kısım.
+- **Neyle ittiğin ve neyin geri ittiği.** Motor torkları ve masadan ya da bir nesneden gelen contact kuvvetleri.
+
+Denkleme iki soru sorabilirsin. **Forward dynamics**: "Bu torkları uyguluyorum; kol nasıl ivmelenir?" Simülatörün her adımda yaptığı budur. **Inverse dynamics**: "Bu ivmeyi istiyorum; hangi torklar gerekir?" Controller'ın ihtiyacı budur. Dersin ikinci yarısı zamanla ilgili: simülatör kolu bir oyun döngüsü gibi küçük adımlarla ilerletir ve her adımı atma biçimi (**integrator**) sessizce enerji ekleyip çıkarabilir.
+
+```mermaid
+flowchart TD
+    T["motor torkları τ<br/>+ contact kuvvetleri"] --> FD["forward dynamics<br/>mj_forward"]
+    S["şu anki durum<br/>q, q̇"] --> FD
+    FD --> A["eklem ivmeleri q̈"]
+    A --> I["integrator<br/>Euler / RK4 / implicit"]
+    I -- "bir timestep sonra" --> S
+    D["istenen q̈"] --> ID["inverse dynamics<br/>mj_inverse"]
+    S --> ID
+    ID --> TN["gereken torklar"]
+```
+
+### Hareket denklemi kod olarak
+
+```python
+# n joints. Every array is recomputed by MuJoCo for the current pose and speed.
+M = mass_matrix(q)         # (n, n) how heavy each joint feels in this pose      -> mj_fullM
+c = bias_force(q, qd)      # (n,)   gravity + Coriolis/centrifugal               -> qfrc_bias
+tau_c = J_c.T @ f_contact  # (n,)   contact forces mapped onto the joints        -> qfrc_constraint
+
+# Forward dynamics (simulator): torques in, accelerations out
+qdd = np.linalg.solve(M, tau + tau_c - c)
+
+# Inverse dynamics (controller): accelerations in, torques out
+tau_needed = M @ qdd_desired + c - tau_c
+
+# One step of semi-implicit Euler, MuJoCo's default integrator
+qd = qd + dt * qdd         # new velocity first ...
+q = q + dt * qd            # ... then position, using the new velocity
+```
+
+| Formül | Ne olduğu |
+|---|---|
+| $M(q)\,\ddot q + C(q,\dot q)\,\dot q + g(q) = \tau + J^\top(q)\, f$ | rijit açık zincirin hareket denklemi (Lynch & Park, *Modern Robotics*, böl. 8) |
+| $\ddot q = M^{-1}\big(\tau + J^\top f - c\big)$, $\;c = C\dot q + g$ | forward dynamics |
+| $\tau = M\ddot q_d + c - J^\top f$ | inverse dynamics |
+| $\dot q = 0$ iken $c = g(q)$ | kolu sabit tutan tork (gravity compensation) |
+
+Burada $q \in \mathbb{R}^n$ eklem açıları, $\dot q$ ve $\ddot q$ hızları ve ivmeleri, $M(q)$ joint-space inertia matrisi, $C(q,\dot q)\dot q$ Coriolis/merkezkaç kuvvetleri, $g(q)$ yerçekimi torkları, $c$ bunların toplamı (bias kuvveti), $\tau$ uyguladığın torklar, $f$ contact kuvvetleri ve $J$ onları eklemlere aktaran Jacobian'dır (ders 09).
 
 | Terim | Anlamı | MuJoCo'da nerede |
 |---|---|---|
@@ -31,14 +77,24 @@ $$M(q)\,\ddot q + C(q,\dot q)\,\dot q + g(q) = \tau + J^\top(q)\, f$$
 | $\tau$ | uyguladığın kuvvetler: actuator'lar ve kullanıcı kuvvetleri | `qfrc_actuator`, `qfrc_applied` |
 | $J^\top f$ | joint'lere aktarılmış contact ve diğer constraint kuvvetleri | `qfrc_constraint` |
 
-MuJoCo aynı denklemi $M\dot v + c = \tau + J^\top f$ olarak yazar ve $c$'yi sıfır ivmede recursive Newton–Euler algoritmasıyla hesaplar ([Computation](https://mujoco.readthedocs.io/en/stable/computation/index.html)). İki çağrı sana iki yönü de verir:
+MuJoCo aynı denklemi $M\dot v + c = \tau + J^\top f$ olarak yazar. `mj_forward`, $q, \dot q, \tau$'dan `qacc`'yi hesaplar; `mj_step`'in integrate etmeden önce yaptığı budur. `mj_inverse`, $q, \dot q, \ddot q$'dan `qfrc_inverse`'ü hesaplar ("qacc must be set before calling") ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)). $\dot q = 0$ iken bias saf yerçekimidir; yani durağan haldeki `qfrc_bias`, 12. derste feedforward olarak vereceğin yerçekimi kompanzasyon torkudur. $M$ matrisi ise 13. ve 14. derslerde istenen ivmeyi torka çeviren şeydir.
 
-- **Forward dynamics** `mj_forward`: $q, \dot q, \tau$ verilince $\ddot q$'yu (`qacc`) hesaplar. `mj_step`'in integrate etmeden önce yaptığı budur.
-- **Inverse dynamics** `mj_inverse`: $q, \dot q, \ddot q$ verilince ("qacc must be set before calling") onu üreten kuvveti (`qfrc_inverse`) hesaplar ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)).
+**Integrator'lar.** MuJoCo şunları sunar: `Euler` (semi-implicit: yukarıdaki kodda olduğu gibi önce yeni hız, sonra yeni hızla konum), `RK4` (adım başına dört kuvvet hesabı, ortalaması alınır), `implicit` (hıza bağlı kuvvetlerin türevlerini de kullanır) ve `implicitfast` (aynısı ama Coriolis/merkezcil türevler olmadan; dokümanlar çoğu model için bunu öneriyor, ama varsayılan hâlâ `Euler`) ([Computation · Numerical integration](https://mujoco.readthedocs.io/en/stable/computation/index.html)). Sürtünmesiz bir sarkaç enerjisini sabit tutmak zorundadır; bu yüzden enerji kayması integration hatasının temiz bir ölçüsüdür.
 
-$\dot q = 0$ iken bias saf yerçekimidir; yani durağan haldeki `qfrc_bias`, 12. derste feedforward olarak vereceğin yerçekimi kompanzasyon torkudur. $M$ matrisi ise 13. ve 14. derslerde istenen ivmeyi torka çeviren şeydir.
+<details>
+<summary>Matematik ayrıntısı: denklem nereden geliyor, integrator'lar neden kayıyor</summary>
 
-Dersin ikinci yarısı zamanla ilgili. MuJoCo denklemi birkaç şemadan biriyle integrate eder: `Euler` (semi-implicit: önce yeni hız, sonra yeni hızla konum), `RK4`, `implicit` (hıza bağlı kuvvetlerin türevlerini içerir) ve `implicitfast` (aynısı ama Coriolis/merkezcil türevler olmadan; dokümanlar çoğu model için bunu öneriyor, ama varsayılan hâlâ `Euler`) ([Computation · Numerical integration](https://mujoco.readthedocs.io/en/stable/computation/index.html)). Sürtünmesiz bir sarkaç enerjiyi korumak zorundadır; bu yüzden enerji kayması integration hatasının temiz bir ölçüsüdür.
+**Kökeni.** Kinetik enerji $T = \tfrac12 \dot q^\top M(q)\dot q$ ve potansiyel enerji $U(q)$ ile Euler–Lagrange denklemleri $\frac{d}{dt}\frac{\partial T}{\partial \dot q} - \frac{\partial T}{\partial q} + \frac{\partial U}{\partial q} = \tau$ tam olarak $M\ddot q + C\dot q + g = \tau$ verir. $C\dot q$ terimi, $M$'nin $q$ ile değişmesinden gelen her şeyi toplar; hızlarda ikinci derecedendir, bu yüzden durağan halde kaybolur. $g = \partial U/\partial q$. Contact kuvvetleri virtual work yoluyla $J^\top f$ olarak girer.
+
+**$M$ neden simetrik pozitif tanımlı.** Fiziksel bir kolun sıfır olmayan her hızı için $T = \tfrac12 \dot q^\top M \dot q$ pozitiftir; yani $M \succ 0$ ve forward dynamics çözümünün her zaman tek bir cevabı vardır. Condition number'ı (en büyük özdeğerin en küçüğe oranı) "en ağır" ve "en hafif" yönlerin ne kadar eşitsiz olduğunu söyler.
+
+**MuJoCo $c$'yi nasıl hesaplar.** İvmeyi sıfıra koyup recursive Newton–Euler algoritmasını koşar: o anki $q, \dot q$'da sıfır ivme için gereken torklar tam olarak $C\dot q + g$'dir ([Computation](https://mujoco.readthedocs.io/en/stable/computation/index.html)).
+
+**Enerji kayması.** Sürtünme ve actuator yokken $E = T + U$ sabittir. Birinci mertebe bir integrator, simüle edilen birim zaman başına $\Delta t$ ile orantılı hata yapar; deneyde adım yarıya inince hatanın yarıya inmesinin sebebi bu. Semi-implicit Euler yalnızca $M$ sabitken ve hiçbir kuvvet hıza bağlı değilken symplectic'tir (enerji hatasını biriktirmek yerine sınırlı tutar); çift sarkaç iki koşulu da bozar ("Boz" bölümüne bak). Implicit şemalar hıza bağlı kuvvetleri doğrusallaştırır; bu da sayısal damping ekler.
+
+Daha derine: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml) (türev, zincir kuralı), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems) ($M\ddot q = b$'yi çözmek); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), böl. 8; MuJoCo [Computation](https://mujoco.readthedocs.io/en/stable/computation/index.html).
+
+</details>
 
 ## Deney
 
@@ -77,6 +133,8 @@ mujoco.mj_forward(m, d)              # must give back qdd
 | `implicit` | 3,093 / −3,093 | 6,007 / −6,007 | 11,352 / −11,352 | 24,317 / −24,317 | 39,105 / −39,105 | 55,292 / −54,794 |
 | `implicitfast` | her hücrede `Euler` ile aynı | | | | | |
 
+![Logaritmik eksende timestep'e karşı 10 s sonundaki enerji değişimi: Euler 0,5 ms'de +%3,467'den 20 ms'de +%124,182'ye çıkıyor, implicit −%3,093'ten −%54,794'e iniyor, RK4 sıfırda kalıyor.](../../experiments/11-rigid-body-dynamics/energy_vs_timestep.png)
+
 Tablonun söyledikleri:
 
 - **Euler enerji kazanıyor, implicit kaybediyor**; ikisi de kabaca timestep ile orantılı (dt yarıya inince hata da yarıya iniyor: 6,984 → 3,467). Varsayılan 2 ms'de sürtünmesiz çift sarkaç 10 s'de %14,357 enerji kazanıyor.
@@ -84,7 +142,7 @@ Tablonun söyledikleri:
 - **`implicit` enerji söndürüyor.** Coriolis kuvvetlerini doğrusallaştırmak sayısal damping ekliyor. Contact'lı bir robotta bu çoğu zaman işe yarar; enerji inceliyorsan yanlıştır.
 - **RK4 başka bir sınıfta**: 5 ms'ye kadar %0,000 (üç ondalığa kadar), adım başına dört kuvvet hesabı karşılığında.
 
-**Sonuç 3: robotlarda aynı büyüklükler.** $\dot q = 0$ ile:
+**Sonuç 3: robotlarda aynı büyüklükler.** $\dot q = 0$ ile (keyframe, model dosyasında saklanan isimli bir pozdur):
 
 | Model, poz | `qfrc_bias`'tan $g(q)$ [N·m] |
 |---|---|
@@ -92,13 +150,13 @@ Tablonun söyledikleri:
 | SO-101 öne uzanmış (hepsi 0), joint 1–5 | 0,000, −0,573, −0,483, −0,130, −0,007 |
 | SO-101 katlı (lift −1,57, elbow 1,57) | 0,000, −0,066, −0,483, −0,130, −0,007 |
 
-Panda'nın `home`'daki $M$ köşegeni 1,509, 2,795, 1,471, 1,058, 0,144, 0,154, 0,107 kg·m²; bunun her joint'te 0,100'ü modelin `armature` değeri (köşegene eklenen yansıyan rotor inertia'sı). $M$'nin condition number'ı: 32,6. 2,795 kg·m² hisseden bir omuz ile 0,107 kg·m² hisseden bir bilek aynı gain'ler altında aynı davranmaz; 12. ve 14. derslerin konusu bu.
+Panda'nın `home`'daki $M$ köşegeni 1,509, 2,795, 1,471, 1,058, 0,144, 0,154, 0,107 kg·m²; bunun her joint'te 0,100'ü modelin `armature` değeri (köşegene eklenen yansıyan rotor inertia'sı). $M$'nin condition number'ı (en ağır yönünün en hafif yönüne oranı): 32,6. 2,795 kg·m² hisseden bir omuz ile 0,107 kg·m² hisseden bir bilek aynı gain'ler altında aynı davranmaz; 12. ve 14. derslerin konusu bu.
 
 ## Boz
 
 Semi-implicit Euler koşusunun timestep'ini büyüt: 20 ms'de pasif sarkaç 10 s'yi bırakılabilir enerjisinin **+%124,182**'siyle bitiriyor ve +%140,049'a kadar çıkıyor. Bırakıldığından daha yükseğe salınan sürtünmesiz bir sarkaç fizik değil; integration hatası. Simülasyonda seni hiçbir şey uyarmıyor: NaN yok, contact yok, exception yok. Tek savunma bunun gibi bir kontrol: enerji (`<flag energy="enable"/>` ile aç, `d.energy`'yi oku) ya da daha küçük bir adımla karşılaştırma.
 
-Mekanizma: semi-implicit Euler, her adımın başındaki inertia'yı ve Coriolis kuvvetini kullanan birinci mertebe bir yöntemdir. Inertia'sı sabit ve hıza bağlı kuvveti olmayan bir sistemde symplectic'tir ve enerji hatası sınırlı kalır; burada $M$, $q_2$'ye bağlı ve Coriolis kuvveti explicit hesaplanıyor, bu yüzden o yapı kayboluyor ve adım başına hata salınmak yerine birikiyor. Büyüklüğü, ilk satırın gösterdiği gibi dt ile ölçekleniyor.
+Mekanizma: semi-implicit Euler, her adımın başındaki inertia'yı ve Coriolis kuvvetini kullanan birinci mertebe bir yöntemdir. Inertia'sı sabit ve hıza bağlı kuvveti olmayan bir sistemde symplectic'tir: enerji hatası salınır ama sınırlı kalır; burada $M$, $q_2$'ye bağlı ve Coriolis kuvveti explicit hesaplanıyor, bu yüzden o yapı kayboluyor ve adım başına hata salınmak yerine birikiyor. Büyüklüğü, ilk satırın gösterdiği gibi dt ile ölçekleniyor.
 
 ## Gerçek robotta
 

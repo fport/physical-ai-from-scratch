@@ -20,13 +20,74 @@ The Menagerie SO-101 gives every STS3215 joint the same `damping="0.60" friction
 
 ## Core idea
 
-**Parametric model.** Keep the simulator's structure, expose a parameter vector $\theta$, and fit it so that the simulated response to the *logged commands* matches the *logged measurements* (output-error, or simulation-error, criterion):
+### In plain words
 
-$$\hat\theta = \arg\min_\theta \sum_k \big\| y_k - \hat y_k(\theta; u_{0:k}) \big\|^2 .$$
+System identification is fitting a regression where the model is your simulator and the weights are physical constants. You log what you commanded the real arm to do and what it actually did. You replay the same commands in the simulator, compare the two trajectories, and turn the simulator's knobs (mass, friction, servo stiffness, delay) until the replay matches the log. As with any regression, you judge the result on data you did not fit.
 
-When the model is a black box (a MuJoCo rollout), solve this with a nonlinear least-squares method and finite-difference Jacobians (`scipy.optimize.least_squares`; see AIEFS: [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization)). For torque-controlled arms with torque sensing, rigid-body dynamics is linear in the inertial parameters, so ordinary least squares on a regressor $\tau = Y(q,\dot q,\ddot q)\,\pi$ is the classic route (Khalil & Dombre). A hobby position servo reports no calibrated joint torque, so here the simulator is the model.
+Two things differ from ordinary regression. First, you generate the data yourself, so you choose the inputs: move the arm in ways that make every knob leave a fingerprint larger than the sensor noise. This is called *excitation*. Second, if the model lacks a mechanism, the fit does not raise an error; it bends all the other knobs to imitate the missing one, like omitted-variable bias in a regression.
 
-**What matters for an arm** (MuJoCo names):
+```mermaid
+flowchart TD
+    U["logged commands"] --> R["real arm"]
+    U --> S["simulator<br/>with parameters θ"]
+    R --> Y["logged positions"]
+    S --> P["simulated positions"]
+    Y --> E["residual:<br/>logged − simulated"]
+    P --> E
+    E --> O["least_squares<br/>adjusts θ"]
+    O --> S
+```
+
+### The fit, as code
+
+```python
+from scipy.optimize import least_squares
+
+def simulate(theta, cmd):
+    """Replay logged commands in MuJoCo with parameters theta; return joint positions."""
+    ...   # theta: mass scale, armature, damping, frictionloss, kp scale, delay
+
+def residuals(theta):
+    return (simulate(theta, cmd_fit) - q_fit).ravel()    # one entry per joint per sample
+
+theta_hat = least_squares(residuals, theta_nominal).x    # minimizes the sum of squared residuals
+
+# Judge it on a run the fit never saw, like a test set
+val_rms = np.sqrt(np.mean((simulate(theta_hat, cmd_val) - q_val) ** 2))
+```
+
+| What | Formula |
+|---|---|
+| Output-error fit | $\hat\theta = \arg\min_\theta \sum_k \big\| y_k - \hat y_k(\theta; u_{0:k}) \big\|^2$ |
+| Validation error | RMS of $y_k - \hat y_k(\hat\theta; u_{0:k})$ on a held-out run |
+| Linear in the parameters (arms with torque sensing) | $\tau = Y(q,\dot q,\ddot q)\,\pi$ |
+
+$\theta$ is the parameter vector, $u_k$ the logged command and $y_k$ the logged joint positions at sample $k$, $\hat y_k(\theta; u_{0:k})$ the positions the simulator produces from the commands up to $k$, $\tau$ the joint torques, $Y$ a matrix computed from the measured motion ($q$, $\dot q$, $\ddot q$) and $\pi$ the inertial parameters.
+
+Comparing whole simulated trajectories with the log is the *output-error* (or simulation-error) criterion. When the model is a black box (a MuJoCo rollout), solve it with a nonlinear least-squares method and finite-difference Jacobians (`scipy.optimize.least_squares`; see AIEFS: [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization)). For torque-controlled arms with torque sensing, rigid-body dynamics is linear in the inertial parameters, so ordinary least squares on the regressor $\tau = Y\pi$ is the classic route (Khalil & Dombre). A hobby position servo reports no calibrated joint torque, so here the simulator is the model.
+
+<details>
+<summary>Math details: how the solver works, and why some parameters cannot be pinned</summary>
+
+**Gauss–Newton in one line.** Stack all residuals into a vector $r(\theta)$ and linearize, $r(\theta + \delta) \approx r(\theta) + J\delta$ with $J = \partial r/\partial\theta$. Minimizing $\|r + J\delta\|^2$ gives the step $\delta = -(J^\top J)^{-1} J^\top r$. `least_squares` uses trust-region variants of this step (its default `trf` method handles bounds). With a black-box simulator every column of $J$ is a finite difference: one extra rollout per parameter per iteration.
+
+**Parameterization.** The experiment fits log-ratios to the nominal values: physical scales stay positive, and a given percentage change looks the same for every parameter.
+
+**Identifiability.** A parameter is identifiable only if its column of $J$ is large compared with the noise and not nearly parallel to another column. If two parameter changes move the output in almost the same way, $J^\top J$ has a tiny eigenvalue along their combination: noise moves the estimate far along that *sloppy* direction while the predicted output barely changes. That is part B below.
+
+**Excitation.** The input decides how large and how different the columns of $J$ are. Too large an input leaves the regime the model describes well: once the servo is at its torque limit, its torque no longer depends on `kp` or damping, so their columns shrink (part A, 0.4 rad).
+
+**Noise model.** Least squares is the maximum-likelihood estimate when the measurement noise is white, Gaussian and equally large on every sample. Real encoders are quantized and can be biased; then the estimate is still useful but no longer optimal.
+
+**Missing mechanism.** If the true system has a term the model lacks, least squares projects its effect onto the parameters that exist. Every parameter can be biased at once (Break it).
+
+Go deeper: [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization) (AIEFS); L. Ljung, *System Identification: Theory for the User*; W. Khalil, E. Dombre, *Modeling, Identification and Control of Robots*; [SciPy `least_squares`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html).
+
+</details>
+
+### What matters for an arm
+
+MuJoCo names:
 
 | Parameter | MuJoCo field | Shows up as |
 |---|---|---|
@@ -38,7 +99,7 @@ When the model is a black box (a MuJoCo rollout), solve this with a nonlinear le
 | Torque limit | `actuator_forcerange` | maximum acceleration |
 | Delay | (outside the model) | phase lag between command and motion |
 
-**Excitation.** A parameter can only be identified if it changes the measured signal more than the noise does. The input must be *persistently exciting* (Ljung): rich in frequency and large enough in amplitude, yet inside the regime where the model holds and the robot is safe.
+**Excitation in practice.** A parameter can only be identified if it changes the measured signal more than the noise does. The input must be *persistently exciting*: rich in frequency and large enough in amplitude, yet inside the regime where the model holds and the robot is safe.
 
 ## Experiment
 
@@ -49,7 +110,7 @@ When the model is a black box (a MuJoCo rollout), solve this with a nonlinear le
 | nominal | 1.000 | 0.028 | 0.600 | 0.052 | 1.000 | 0 ms |
 | hidden "real" | 1.200 | 0.040 | 0.900 | 0.100 | 0.700 | 15 ms |
 
-Five arm joints are driven by a multisine (0.5–3.5 Hz, different phases per joint) for 4 s around a mid pose; positions are logged at 100 Hz with white noise; physics 5 ms. The fit runs on the log; a different, held-out trajectory (smoothed random goals) checks the prediction. Before any fit, nominal vs real on the validation trajectory: 9.54 mrad RMS.
+Five arm joints are driven by a multisine (a sum of sine waves, 0.5–3.5 Hz, different phases per joint) for 4 s around a mid pose; positions are logged at 100 Hz with white noise; physics 5 ms. The fit runs on the log; a different, held-out trajectory (smoothed random goals) checks the prediction. Before any fit, nominal vs real on the validation trajectory: 9.54 mrad RMS.
 
 ```python
 def resid(x):                                    # x: log-ratios to nominal, delay in 10 ms units
@@ -69,6 +130,8 @@ Full script: [`experiments/38-system-identification/experiment.py`](../experimen
 | **0.100 rad** | −4.1% | −0.5% | +0.1% | +16.5% | +1.4% | −0.0 | **0.09** | 4.6% |
 | 0.200 rad | −0.2% | +1.5% | +2.1% | −48.2% | −8.1% | −0.5 | 0.13 | 41.0% |
 | 0.400 rad | −6.9% | −23.4% | −35.4% | −68.3% | +13.3% | −3.7 | 6.67 | 100.0% |
+
+![Left: validation error of the fitted model versus excitation amplitude on log axes, against the nominal model's 9.54 mrad; the error falls to 0.09 mrad at 0.1 rad and climbs back as the share of saturated steps rises to 100%. Right: validation error grows slowly with measurement noise, up to 1.49 mrad at 30 mrad, while the fit without a delay term reaches only 6.23 mrad even without noise.](../experiments/38-system-identification/fit_error.png)
 
 Too small and the noise dominates: at 0.005 rad the 2 mrad noise is 40% of the excitation amplitude, and the effects of damping, friction and mass are a small part of that small signal. Too large and some servo is always at its torque limit: the servo becomes a torque source whose gain and damping barely matter, and the fit fails on validation (6.67 mrad, almost as bad as nominal). In between (0.1–0.2 rad) the validation error drops from 9.54 to 0.09–0.13 mrad. From 0.02 to 0.2 rad the delay is found to within 0.5 ms; it is the easiest parameter, because it shifts every sample.
 
@@ -99,7 +162,7 @@ Procedure for the real SO-101 (not yet measured on the real arm):
 
 1. **Calibrate and connect** as in lesson 40. LeRobot reports joint positions in degrees relative to the middle of the calibrated range by default (`use_degrees = True`; [`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py), [`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py)). The offset and sign between those degrees and the Menagerie joint angles are unknown: put the arm in two known poses and fit them first, or add them to $\theta$.
 2. **Log a command stream** with the Python API (`robot.send_action`, `robot.get_observation`, [LeRobot guide](https://huggingface.co/docs/lerobot/il_robots)) in a fixed-rate loop, saving the time stamp of every command and every reading. The loop rate the bus allows was not measured here.
-3. **Excite one joint at a time first**, then all together: steps of increasing size and a chirp or multisine, starting at a few degrees, staying inside the calibrated range, away from the table, with the safety layers of lesson 15 on. Repeat each run to see the noise.
+3. **Excite one joint at a time first**, then all together: steps of increasing size and a chirp (a sine sweeping up in frequency) or multisine, starting at a few degrees, staying inside the calibrated range, away from the table, with the safety layers of lesson 15 on. Repeat each run to see the noise.
 4. **Fit** the same six parameters (plus offsets) by replaying the logged commands in MuJoCo with the logged time stamps, as in `experiment.py`. The Menagerie gains were derived assuming a servo P gain of 16 (comment in `so101.xml`), which matches LeRobot's default `position_p_coefficient = 16`.
 5. **Validate** on a held-out run and on a real task motion. If the fit only works on its own data, a mechanism is missing (backlash, which the Menagerie file defines but does not use; cable forces; temperature-dependent friction).
 

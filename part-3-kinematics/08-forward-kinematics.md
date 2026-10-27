@@ -22,22 +22,71 @@ Before computing joint angles for a target (lesson 10), you need the forward map
 
 ## Core idea
 
-**Forward kinematics (FK)** composes the frame tree of lesson 07 from the base to the tool. In MJCF every body has a fixed offset from its parent (`pos`, `quat`) and, for a hinge, a rotation about an axis given in the body frame. For a serial chain of hinges:
+### In plain words
 
-$$T_{W,\text{site}}(q) = \prod_{i=1}^{n}\Big(T^{\text{static}}_{i}\ \mathrm{Rot}(\hat a_i, q_i)\Big)\ T_{\text{site}} ,$$
+Think of a desk lamp with hinges. If you know every hinge angle, you can say exactly where the bulb is: start at the foot, follow the first arm, turn by the first hinge angle, follow the next arm, and so on. That is **forward kinematics (FK)**: joint angles in, tool pose out. It is a pure function with exactly one answer, cheap to evaluate, and it is just the frame tree of lesson 07 multiplied out from the base to the tool.
 
-with $T^{\text{static}}_i$ from `body_pos`/`body_quat`, $\hat a_i$ = `jnt_axis` and the joint at the body origin (`jnt_pos = 0` in this model). Lynch & Park write the same map as a product of matrix exponentials, $T(q) = e^{[\mathcal S_1]q_1}\cdots e^{[\mathcal S_n]q_n}M$ (*Modern Robotics*, Ch. 4); the factors differ, the result does not.
+The reverse question ("which angles put the bulb here?") is harder, and sometimes has no answer at all. The reason is counting. A gripper pose needs six numbers: three for where it is, three for which way it faces. Each joint is one knob. The SO-101 has five knobs that move the gripper, so it cannot set six numbers independently. Three of its joints (shoulder lift, elbow, wrist flex) have parallel axes, so together they move the gripper only inside one vertical plane; the pan joint turns that plane, and wrist roll spins the gripper about its own pointing axis. At a given point, the gripper can only point within that plane.
 
-**Degrees of freedom.** For an open chain of 1-DoF joints, the mobility equals the number of joints. A gripper pose lives in a 6-D space, so:
+The **workspace** is every point the tool can reach. For a real arm there is no formula for it; you estimate it by trying many random joint settings and recording where the tool lands.
+
+```mermaid
+flowchart TD
+    B["base"] -- "shoulder_pan<br/>(vertical axis)" --> S["shoulder"]
+    S -- "shoulder_lift" --> U["upper_arm"]
+    U -- "elbow_flex" --> L["lower_arm"]
+    L -- "wrist_flex" --> W["wrist"]
+    W -- "wrist_roll<br/>(pointing axis)" --> G["gripper"]
+    G -- "fixed offset" --> T["site gripperframe<br/>(tool point)"]
+```
+
+Lift, elbow and wrist flex are the three parallel "pitch" axes. The sixth motor, `gripper`, hangs off the `gripper` body and only moves the jaw, so it is not in this chain.
+
+### Forward kinematics as code
+
+```python
+import numpy as np
+
+def fk(q):                                  # q: the 5 arm joint angles (rad)
+    M = np.eye(4)                           # start at the base frame
+    for T_static, axis, qi in zip(STATIC, AXES, q):
+        M = M @ T_static                    # fixed offset parent -> child body (MJCF pos/quat)
+        M = M @ T(axis_rot(axis, qi), np.zeros(3))  # turn by qi about the joint axis
+    return M @ T_SITE                       # fixed offset to the tool point (site pos/quat)
+
+# Workspace by sampling: uniform random joints within limits, keep where the tool lands
+pts = np.array([fk(np.random.uniform(lo, hi))[:3, 3] for _ in range(N)])
+```
+
+| Quantity | Formula |
+|---|---|
+| Forward kinematics | $T_{W,\text{site}}(q) = \prod_{i=1}^{n}\Big(T^{\text{static}}_{i}\ \mathrm{Rot}(\hat a_i, q_i)\Big)\ T_{\text{site}}$ |
+| Mobility of an open chain of 1-DoF joints | number of joints $n$ |
+| Workspace | $\{\,p(q) : q_{\min} \le q \le q_{\max}\,\}$ |
+
+$q_i$ is the angle of joint $i$; $T^{\text{static}}_i$ is the fixed transform from the parent body to body $i$ (from `body_pos`/`body_quat`); $\hat a_i$ is the joint axis in that body's frame (`jnt_axis`, with the joint at the body origin, `jnt_pos = 0` in this model); $\mathrm{Rot}(\hat a, q)$ is a rotation by $q$ about $\hat a$; $T_{\text{site}}$ is the fixed offset of the tool site; $p(q)$ is the tool position and $q_{\min}, q_{\max}$ are the joint limits.
 
 | Arm | Joints moving the tool | Task dimension | Consequence |
 |---|---|---|---|
 | SO-101 | 5 (pan, lift, elbow, wrist flex, wrist roll) | 6 | at a given point, only a 2-D family of orientations exists |
 | Franka Panda | 7 | 6 | one redundant DoF: generically many solutions |
 
-On the SO-101, lift, elbow and wrist flex have **parallel** axes, so they move the tool in one vertical plane whose direction is set by the pan joint; wrist roll spins the tool about its own approach axis. At a fixed position the approach axis must therefore lie in that plane.
+A **degree of freedom (DoF)** is one independent number you can change; "redundant" means more joints than the task needs.
 
-**Workspace.** The set of tool positions over all joint values within limits. There is no closed form for real arms; you sample it. Matrix products are covered in AIEFS: [Matrix Transformations](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/03-matrix-transformations).
+<details>
+<summary>Math details: product of exponentials, counting DoF and the arm plane</summary>
+
+**Same map, other notation.** Lynch & Park write FK as a product of matrix exponentials, $T(q) = e^{[\mathcal S_1]q_1}\cdots e^{[\mathcal S_n]q_n}M$, where $M$ is the tool pose at $q = 0$ and $\mathcal S_i$ is joint $i$'s screw axis in the base frame (*Modern Robotics*, Ch. 4). The factors differ from the MJCF-style product above, the result does not.
+
+**Counting.** A pose has 3 position and 3 orientation numbers. Fixing the tool position uses 3 of the SO-101's 5 joint DoF, which leaves $5 - 3 = 2$ for orientation: a 2-D family out of the 3-D set of all orientations.
+
+**The arm plane.** Lift, elbow and wrist flex rotate about parallel axes with normal $n$, so they move the tool and its approach axis only within the plane perpendicular to $n$; pan rotates that plane about the vertical. Wrist roll spins the tool about the approach axis, which leaves the approach direction unchanged. So at a fixed point the approach axis must lie in the arm plane. The 12 mm site offset from the roll axis (Step 1) bends this rule slightly.
+
+**Why sampling is uneven.** Uniform sampling in joint space is not uniform in space: regions where small joint changes move the tool a lot are visited rarely, so rare corners need many samples to show up.
+
+Go deeper: AIEFS [Matrix Transformations](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/03-matrix-transformations); Lynch & Park, *Modern Robotics*, Ch. 2 "Configuration Space" and Ch. 4 "Forward Kinematics".
+
+</details>
 
 ## Experiment
 
@@ -73,7 +122,7 @@ Over 1000 random joint vectors within limits, hand FK and `mj_kinematics` agree 
 
 Five of them move `gripperframe`; the sixth moves only the jaw.
 
-**Step 3 · sweep the number of samples → workspace estimate.** Joint vectors uniform within limits, no collision filtering.
+**Step 3 · sweep the number of samples → workspace estimate.** Joint vectors uniform within limits, no collision filtering. Volume is counted as occupied **voxels** (cubic cells of 1 cm or 2 cm); the **convex hull** is the smallest convex shape around all points.
 
 | Samples | volume, 1 cm voxels | volume, 2 cm voxels | convex hull | max reach | site below z = 0 |
 |---|---|---|---|---|---|
@@ -84,9 +133,11 @@ Five of them move `gripperframe`; the sixth moves only the jaw.
 
 Max reach (measured from the point on the pan axis at shoulder height) converges after 10,000 samples, the volume does not: with 1 cm voxels it is still growing at one million samples, because uniform joint sampling visits the workspace very unevenly. The convex hull converges fastest but overestimates, since it fills every concave region. A quarter of all joint vectors put the tool below the table plane the base stands on.
 
+![Left: estimated SO-101 workspace volume versus number of joint samples on log axes; the 1 cm voxel volume is still rising steeply at one million samples, the 2 cm voxel volume levels off, the convex hull is almost flat from the start. Right: best approach-direction error versus the required angle out of the arm plane, a line just below error equals beta.](../experiments/08-forward-kinematics/workspace_and_orientation.png)
+
 ## Break it
 
-**Required orientation out of the arm plane.** Fix the target point (0.22, 0, 0.08) m. Find the arm plane (normal $n$ = shoulder-lift axis; the three pitch axes are parallel to 4.6e-16). Ask for an approach direction $a = \cos\beta\,a_0 + \sin\beta\,n$, where $a_0$ is in the plane, 45° below horizontal. Solve with a bounded least-squares solver from 12 seeds (lesson 10 builds such solvers):
+**Required orientation out of the arm plane.** Fix the target point (0.22, 0, 0.08) m. Find the arm plane (normal $n$ = shoulder-lift axis; the three pitch axes are parallel to 4.6e-16). Ask for an approach direction $a = \cos\beta\,a_0 + \sin\beta\,n$, where $a_0$ is in the plane, 45° below horizontal. Solve with a bounded least-squares solver from 12 seeds (random starting joint vectors; lesson 10 builds such solvers):
 
 | β (out of plane) | 0° | 5° | 10° | 20° | 30° | 45° | 60° | 90° |
 |---|---|---|---|---|---|---|---|---|

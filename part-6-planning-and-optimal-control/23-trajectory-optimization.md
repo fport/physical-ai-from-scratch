@@ -20,11 +20,62 @@ A pendulum (1 kg at 1 m, $mgl = 9.81$ N·m, joint damping 0.1 N·m·s) hangs dow
 
 ## Core idea
 
-The continuous problem (see AIEFS: [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization) for constrained optimization basics):
+### In plain words
 
-$$\min_{u(\cdot)} \int_0^T u^2\,dt + w_s \int_0^T \dot u^2\,dt \quad \text{s.t.}\quad \dot x = f(x,u),\ \ \lvert u\rvert \le u_{max},\ \ x(0)=x_0,\ \ x(T)=x_{goal}.$$
+Trajectory optimization is curve fitting under constraints. Describe the motor torque over the 4 s with a handful of control points, called **knots**, joined by straight lines, like dragging the handles of a curve in a drawing tool. Among all such torque curves you want the one that uses the least effort and changes smoothly, subject to rules that must hold exactly: the pendulum obeys its physics, the torque never exceeds the limit, the motion starts hanging down and ends upright and at rest. A numerical optimizer (here SLSQP, sequential quadratic programming: it repeatedly replaces the problem by a simpler quadratic one with linearized constraints, solves that, and steps) moves the knots until no small change can lower the cost without breaking a rule.
 
-Effort and smoothness are cost terms; the goal is imposed here as a hard terminal constraint (a terminal penalty $w_g\lVert x(T)-x_{goal}\rVert^2$ is the soft alternative). We discretize $u(t)$ as piecewise linear through $N+1$ knots, spacing $h = T/N$, and solve with SciPy's SLSQP (sequential quadratic programming). There are two standard ways to impose $\dot x = f(x,u)$ ([Tedrake, ch. 10](https://underactuated.csail.mit.edu/trajopt.html)):
+The interesting choice is how to enforce "obeys its physics". There are two standard ways:
+
+- **Direct shooting** is aiming a cannon. Only the torques are unknown. For any guess you simulate forward and look where the pendulum lands at 4 s; the rule is "land on the goal". Every torque affects the landing, and early torques much more than late ones.
+- **Direct collocation** is a connect-the-dots puzzle. You also guess the pendulum's state (angle and angular velocity) at every knot, and require that each pair of neighbouring dots agrees with the physics according to a simple integration rule. Nothing is simulated inside the optimizer, and every rule only links two neighbours, so the problem is easy for the solver. But "agrees by the simple rule" is not the same as "agrees with the real motion between the dots". That gap is this lesson's twist.
+
+### The two transcriptions
+
+```mermaid
+flowchart TD
+    P["problem: cost + physics +<br/>torque limit + start and goal"] --> SH["shooting<br/>unknowns: knot torques"]
+    P --> CO["collocation<br/>unknowns: knot states and torques"]
+    SH --> SHC["simulate forward (RK4),<br/>require final state = goal"]
+    CO --> COC["require the trapezoid rule<br/>between neighbouring knots"]
+    SHC --> O["SLSQP moves the unknowns<br/>to lower the cost"]
+    COC --> O
+    O --> R["replay u(t) in MuJoCo:<br/>does it really end upright?"]
+```
+
+### Shooting and collocation as code
+
+```python
+# Pendulum: state x = (theta, omega), theta = 0 hanging down; u = motor torque (N m)
+def f(x, u):                                    # dynamics: returns (theta_dot, omega_dot)
+    theta, omega = x
+    return (omega, (u - b * omega - m * g * l * sin(theta)) / (m * l**2))
+
+# Torque is piecewise linear through N+1 knots u[0..N], spaced h = T / N seconds apart.
+def cost(u):                                    # effort + smoothness
+    return h * sum((u[:-1]**2 + u[1:]**2) / 2) + w_s * sum(diff(u)**2) / h
+
+def shooting_constraint(u):                     # unknowns: u only
+    x = x0
+    for k in range(N):                          # integrate every interval (RK4, 20 sub-steps)
+        x = rk4_interval(f, x, u[k], u[k + 1], h)
+    return x - x_goal                           # 2 equations: angle and speed at time T
+
+def collocation_constraints(X, u):              # unknowns: knot states X[0..N] and u
+    F = f(X, u)                                 # dynamics evaluated at every knot
+    defects = X[1:] - X[:-1] - h / 2 * (F[1:] + F[:-1])   # trapezoid rule, 2N equations
+    return concat(defects, X[0] - x0, X[-1] - x_goal)
+```
+
+The optimizer minimizes `cost` with the torque bounds `-u_max <= u <= u_max` and drives the constraint functions to zero.
+
+| Quantity | Formula |
+|---|---|
+| Cost | $J = \int_0^T u^2\,dt + w_s \int_0^T \dot u^2\,dt$ |
+| Dynamics | $\dot x = f(x, u)$ |
+| Knot spacing | $h = T/N$ |
+| Trapezoidal defect | $x_{k+1} - x_k - \tfrac{h}{2}\bigl(f(x_k,u_k) + f(x_{k+1},u_{k+1})\bigr) = 0$ |
+
+Here $u$ is the motor torque, $\dot u$ its rate of change, $w_s$ the weight of the smoothness term, $T$ the duration, $x = (\theta, \omega)$ the pendulum's angle and angular velocity, $f$ the dynamics, $N$ the number of intervals (so $N+1$ knots), and $x_k, u_k$ the state and torque at knot $k$. A **defect** is the amount by which one interval breaks the integration rule; collocation requires every defect to be zero.
 
 | | Direct shooting | Direct collocation |
 |---|---|---|
@@ -34,11 +85,24 @@ Effort and smoothness are cost terms; the goal is imposed here as a hard termina
 | exact | the simulated trajectory | the discretized equations |
 | initial guess | inputs only | states and inputs |
 
-Our collocation uses the trapezoidal defect
+<details>
+<summary>Math details: the continuous problem, the two transcriptions and their trade-offs</summary>
 
-$$x_{k+1} - x_k - \tfrac{h}{2}\bigl(f(x_k,u_k) + f(x_{k+1},u_{k+1})\bigr) = 0.$$
+**The continuous problem.**
 
-Tedrake's chapter uses a cubic-state, linear-input scheme that is accurate to third order; trapezoidal is the simpler second-order version. Collocation's Jacobian is sparse and banded and each constraint only couples neighbouring knots; shooting has few variables but every constraint depends on every input through the whole rollout, and early inputs move the terminal state far more than late ones (Tedrake's "tail wagging the dog").
+$$\min_{u(\cdot)} \int_0^T u^2\,dt + w_s \int_0^T \dot u^2\,dt \quad \text{s.t.}\quad \dot x = f(x,u),\ \ \lvert u\rvert \le u_{max},\ \ x(0)=x_0,\ \ x(T)=x_{goal}.$$
+
+Effort and smoothness are cost terms; the goal is imposed here as a hard terminal constraint (a terminal penalty $w_g\lVert x(T)-x_{goal}\rVert^2$ is the soft alternative). Discretizing $u(t)$ as piecewise linear through $N+1$ knots turns the infinite-dimensional problem into a finite nonlinear program that SLSQP can solve ([Tedrake, ch. 10](https://underactuated.csail.mit.edu/trajopt.html)). In the code above the effort integral uses the trapezoid rule and $\int \dot u^2 dt$ is approximated by $\sum (\Delta u)^2 / h$.
+
+**Accuracy of the trapezoid rule.** The trapezoidal defect is a second-order integration rule: its error per interval shrinks like $h^3$, its accumulated error like $h^2$. Tedrake's chapter uses a cubic-state, linear-input scheme (Hermite–Simpson), which is more accurate; trapezoidal is the simpler version. The solver satisfies the defects to machine precision, but the defects themselves only approximate $\dot x = f(x,u)$ between knots, which is why the replay error falls as $N$ grows.
+
+**Structure of the constraints.** Collocation's constraint Jacobian (the matrix of derivatives of all constraints with respect to all unknowns) is sparse and banded: each defect only couples knots $k$ and $k+1$. Shooting has few variables, but every constraint depends on every input through the whole rollout, and early inputs move the terminal state far more than late ones (Tedrake's "tail wagging the dog"). That makes shooting numerically harder and its Jacobian expensive: here it is computed by forward differences, one extra rollout per knot.
+
+**Local, not global.** The dynamics contain $\sin\theta$, so the set of feasible trajectories is not convex. SQP converges to a point satisfying the first-order optimality (KKT, Karush–Kuhn–Tucker) conditions: no feasible small change lowers the cost. Such a point is a local minimum at best, and which one you get depends on the initial guess (Break it). A local solver that stalls cannot tell you whether the problem is infeasible or it is merely stuck.
+
+Go deeper: [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization) (gradients, constraints, local minima); [Tedrake, *Underactuated Robotics*, ch. 10](https://underactuated.csail.mit.edu/trajopt.html) (direct transcription, shooting, collocation); [SciPy SLSQP](https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html).
+
+</details>
 
 ## Experiment
 
@@ -58,7 +122,7 @@ r = minimize(obj, z0, jac=obj_grad, method="SLSQP",
              constraints=[{"type": "eq", "fun": defects, "jac": defects_jac}])
 ```
 
-Cost: $J = \int u^2 dt + 0.05 \int \dot u^2 dt$. Collocation gets an analytic constraint Jacobian; shooting's terminal-constraint Jacobian comes from batched forward differences (the cost gradient is analytic in both). Both start from zero torque with the state resting at the bottom. After solving, every $u(t)$ is **replayed open-loop in a MuJoCo pendulum** (same parameters, RK4, 1 ms steps): the replay error is the goal error of the motion you would actually get. MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), deterministic.
+Cost: $J = \int u^2 dt + 0.05 \int \dot u^2 dt$. Collocation gets an analytic constraint Jacobian; shooting's terminal-constraint Jacobian comes from batched forward differences (the cost gradient is analytic in both). Both start from zero torque with the state resting at the bottom. After solving, every $u(t)$ is **replayed open-loop in a MuJoCo pendulum** (played back as a fixed torque schedule, with no feedback; same parameters, RK4, 1 ms steps): the replay error is the goal error of the motion you would actually get. The solver residual is the largest constraint violation the solver itself sees. MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), deterministic.
 
 | method | N | converged | iterations | cost | solver residual | replay error θ (deg) | replay error ω (deg/s) |
 |---|---|---|---|---|---|---|---|
@@ -72,6 +136,8 @@ Cost: $J = \int u^2 dt + 0.05 \int \dot u^2 dt$. Collocation gets an analytic co
 | collocation | 40 | True | 54 | 38.41 | 2.9e-12 | 2.27 | 6.92 |
 | shooting | 80 | True | 158 | 38.09 | 1.4e-11 | 0.00 | 0.00 |
 | collocation | 80 | True | 91 | 38.11 | 3.4e-13 | 0.61 | 1.87 |
+
+![Two panels for the converged runs, N = 10 to 80 knots. Left: the cost reported by shooting and collocation falls and meets, 38.09 and 38.11 at N = 80. Right: the goal error when the torque is replayed in MuJoCo stays at 0.00 degrees for shooting, while collocation's falls from 23.82 to 0.61 degrees.](../experiments/23-trajectory-optimization/cost_vs_knots.png)
 
 1. **Same cost, different truth.** From $N=10$ on, both report convergence with residuals of $10^{-10}$ or less, and the costs meet (38.09 vs 38.11 at $N=80$). But collocation's $u(t)$ at $N=10$ ends 23.82° short of upright when actually simulated. The solver solved the discretized equations exactly; the trapezoidal rule between knots is what is wrong. The error falls as knots are added: 23.82 → 6.73 → 2.27 → 0.61°.
 2. **Shooting's constraint is the simulation.** Its terminal constraint is evaluated on an RK4 rollout of the same piecewise-linear input, so the replay lands on the goal to the printed precision.
@@ -92,7 +158,7 @@ Same problem, collocation with $N = 40$, different initial guesses. The eight no
 | line + noise, draws 2, 3 | True | 50, 58 | 38.41 | 2.27 | 3 | −77 .. 180 |
 | line + noise, draw 6 | False | 76 | 134.04 | 160.58 | 2 | −29 .. 197 |
 
-The obvious guess, a straight line from down to up, converges cleanly and reports success, into a different local minimum: one big back-swing (θ down to −56°) instead of a three-reversal pump, at cost 50.63 instead of 38.41. Five of eight noisy guesses fall into the same basin, two into the better one, one does not converge at all. The defects contain $\sin\theta$, so the feasible set is not convex, and SQP converges to a local point satisfying the optimality (KKT) conditions; which one depends on where it starts. Tedrake reports that a straight-line guess was needed for his acrobot and cart-pole swing-ups; on our pendulum it works, but lands in the worse minimum. The success flag says nothing about which minimum you got. Remedies: multi-start and keep the best, initialize from a physically plausible rollout (or from an MPC run, lesson 24), or use continuation (solve an easier problem first, e.g. a larger torque limit, then tighten). We did not isolate why the one-swing solution also replays much worse at the same $N$; either way, an open-loop plan that ends at an unstable equilibrium needs feedback to track it.
+The obvious guess, a straight line from down to up, converges cleanly and reports success, into a different **local minimum** (a solution no small change can improve, although a very different one is better): one big back-swing (θ down to −56°) instead of a three-reversal pump, at cost 50.63 instead of 38.41. Five of eight noisy guesses fall into the same basin (the set of starting points that end in that minimum), two into the better one, one does not converge at all. The defects contain $\sin\theta$, so the feasible set is not convex, and SQP converges to a local point satisfying the optimality (KKT) conditions; which one depends on where it starts. Tedrake reports that a straight-line guess was needed for his acrobot and cart-pole swing-ups; on our pendulum it works, but lands in the worse minimum. The success flag says nothing about which minimum you got. Remedies: multi-start and keep the best, initialize from a physically plausible rollout (or from an MPC run, lesson 24), or use continuation (solve an easier problem first, e.g. a larger torque limit, then tighten). We did not isolate why the one-swing solution also replays much worse at the same $N$; either way, an open-loop plan that ends at an unstable equilibrium needs feedback to track it.
 
 ## On the real robot
 

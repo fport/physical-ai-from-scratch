@@ -20,7 +20,24 @@
 
 ## Ana fikir
 
-Deploy bir pipeline'dır; her ok, bir varsayımın kırılabileceği bir yerdir.
+### Sade anlatımla
+
+Öğrenilmiş bir policy'yi kola deploy etmek bir build pipeline'ıdır: donanım kurulumu, veri, model, yayın. Her aşama daha önceki bir aşamanın ürettiği konfigürasyonu kullanır; hepsinden önemlisi, ham motor okumalarını policy'nin gördüğü joint değerlerine çeviren *kalibrasyon* dosyası. Bir kalibrasyonla eğitip başka biriyle çalıştırırsan hiçbir şey çökmez; her hedef sessizce kayar. Bu, bir modeli bir feature normalizasyonuyla eğitip başka biriyle servis etmenin robot versiyonudur.
+
+Veriyi *teleoperation* ile kaydedersin: elle tuttuğun *leader* kolu hareket ettirirsin, motorlu *follower* kol onu taklit eder. Bu kayıtlarla bir policy eğitilir; *rollout* da onu sen olmadan follower üzerinde çalıştırır. Yani işin çoğu kayıt tutmaktır: ilk teleoperation'dan son rollout'a kadar port, id, kalibrasyon, kameralar ve frame rate aynı kalsın; komutlar motorlara ulaşmadan önce bir modele karşı kontrol edilsin.
+
+```mermaid
+flowchart TD
+    P["portları bul,<br/>motor ID'lerini ayarla"] --> C["calibrate et<br/>(dosya adı id'den)"]
+    C --> T["teleoperation<br/>leader → follower"]
+    T --> R["episode kaydet<br/>LeRobotDataset"]
+    R --> L["ACT'yi eğit"]
+    L --> F["hedeflerin<br/>sim preflight'ı"]
+    F --> O["kolda rollout"]
+    C -. "aynı id, kameralar, fps" .-> O
+```
+
+### Pipeline ve değişmezleri
 
 | Aşama | Komut | Ürettiği | Korunacak değişmez |
 |---|---|---|---|
@@ -32,7 +49,9 @@ Deploy bir pipeline'dır; her ok, bir varsayımın kırılabileceği bir yerdir.
 | Eğitim | `lerobot-train` | ACT checkpoint'i | tam olarak o dataset üzerinde eğitilmiş |
 | Rollout | `lerobot-rollout` | otonom episode'lar | kayıttakiyle aynı kameralar, fps, kalibrasyon |
 
-Birimler: varsayılan `use_degrees = True` ile LeRobot beş kol joint'ini kalibrasyonda kaydedilen aralığın ortasına göre derece cinsinden, gripper'ı 0'dan 100'e raporluyor ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py), [`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py)). Menagerie modeli kendi sıfırından radyan kullanıyor. Bir sim kontrolü ancak ikisi arasındaki ofseti ve işareti ölçtükten sonra anlamlıdır (ders 38).
+(Baudrate seri bus'ın hızıdır; EEPROM, servo'nun güç kesilince silinmeyen kendi belleğidir.)
+
+**Birimler.** Varsayılan `use_degrees = True` ile LeRobot beş kol joint'ini kalibrasyonda kaydedilen aralığın ortasına göre derece cinsinden, gripper'ı 0'dan 100'e raporluyor ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py), [`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py)). Menagerie modeli kendi sıfırından radyan kullanıyor. Bir sim kontrolü ancak ikisi arasındaki ofseti ve işareti ölçtükten sonra anlamlıdır (ders 38).
 
 ## Deney
 
@@ -85,7 +104,7 @@ Komutlar ve bilgiler [SO-101 sayfası](https://huggingface.co/docs/lerobot/so101
 
 ### Bölüm 2 · Simülasyon preflight'ı
 
-9. adımdan önce ve kaydedilmiş ya da üretilmiş herhangi bir trajectory'yi tekrar oynatmadan önce onu modele karşı kontrol et. Bir pick-and-place hedef dizisi (9 waypoint, 1,2 s'lik min-jerk segmentleri, 30 fps'de 303 hedef, 10,1 s) Menagerie SO-101'in servo'larından oynatılıyor. Altı kontrol, eşikler bizim:
+*Preflight*, herhangi bir şey hareket etmeden önce çalışan bir kontroldür. 9. adımdan önce ve kaydedilmiş ya da üretilmiş herhangi bir trajectory'yi tekrar oynatmadan önce onu modelden geçir. Burada: bir pick-and-place hedef dizisi (9 waypoint, 1,2 s'lik min-jerk segmentleri, yani yumuşak kalkış ve duruş; 30 fps'de 303 hedef, 10,1 s) Menagerie SO-101'in servo'larından oynatılıyor. Altı kontrol, eşikler bizim:
 
 | kontrol | kural |
 |---|---|
@@ -123,7 +142,7 @@ Tam script: [`experiments/40-real-so101/experiment.py`](../../experiments/40-rea
 | track [°] | 0,62 | 0,67 | 0,70 | 0,72 | 2,11 |
 | sonuç | PASS | PASS | PASS | FAIL: gravity | FAIL: gravity |
 
-**Gözlem.** Step kontrolü ×2'de devreye giriyor, takip çok daha sonra (×4) bozuluyor: robotta da uygulayabileceğin ucuz ve muhafazakâr bir vekil. Bu modeldeki servo her hızda adımların %37,2–74,8'inde tork limitinde; $k_p$ = 998 N·m/rad ile doğrusal bandı yalnızca 2,94/998 ≈ 2,9 mrad, bu yüzden saturation tek başına burada pek bir şey söylemiyor. 0,6 kg'da statik tork (2,397 N·m) limitin %80'ini geçiyor, kol ise hâlâ 0,72° ile takip ediyor: gravity kontrolü eksik margin'i kol bunu kanıtlamak zorunda kalmadan işaretliyor (ders 12'de uzatılmış kol 0,8 kg'da düştü).
+**Gözlem.** Step kontrolü ×2'de devreye giriyor, takip çok daha sonra (×4) bozuluyor: robotta da uygulayabileceğin ucuz ve muhafazakâr bir vekil. Modeldeki servo her hızda adımların %37,2–74,8'inde tork limitinde; $k_p$ = 998 N·m/rad ile doğrusal bandı yalnızca 2,94/998 ≈ 2,9 mrad, bu yüzden saturation tek başına burada pek bir şey söylemiyor. 0,6 kg'da statik tork (2,397 N·m) limitin %80'ini geçiyor, kol ise hâlâ 0,72° ile takip ediyor: gravity kontrolü eksik margin'i kol bunu kanıtlamak zorunda kalmadan işaretliyor (ders 12'de uzatılmış kol 0,8 kg'da düştü).
 
 ## Boz
 

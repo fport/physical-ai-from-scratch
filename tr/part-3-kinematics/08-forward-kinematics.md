@@ -22,22 +22,71 @@ Bir hedef için joint açılarını hesaplamadan önce (ders 10) ileri haritaya 
 
 ## Ana fikir
 
-**Forward kinematics (FK)**, ders 07'deki frame tree'yi base'den alete kadar birleştirir. MJCF'te her body'nin üst body'sine göre sabit bir ofseti (`pos`, `quat`) ve hinge için body frame'inde verilmiş bir eksen etrafında bir rotation'ı vardır. Seri bir hinge zinciri için:
+### Sade anlatımla
 
-$$T_{W,\text{site}}(q) = \prod_{i=1}^{n}\Big(T^{\text{static}}_{i}\ \mathrm{Rot}(\hat a_i, q_i)\Big)\ T_{\text{site}} ,$$
+Menteşeli bir masa lambası düşün. Her menteşenin açısını biliyorsan ampulün tam olarak nerede olduğunu söyleyebilirsin: ayaktan başla, ilk kolu izle, ilk menteşe açısı kadar dön, sonraki kolu izle, böyle devam et. Bu **forward kinematics (FK)**'tir: joint açıları girer, aletin pose'u çıkar. Tek cevabı olan saf bir fonksiyondur, hesaplaması ucuzdur ve ders 07'deki frame tree'nin base'den alete kadar çarpılmasından ibarettir.
 
-burada $T^{\text{static}}_i$ `body_pos`/`body_quat`'tan, $\hat a_i$ = `jnt_axis`'ten gelir ve joint body orijinindedir (bu modelde `jnt_pos = 0`). Lynch & Park aynı haritayı matris üstelleri çarpımı olarak yazar: $T(q) = e^{[\mathcal S_1]q_1}\cdots e^{[\mathcal S_n]q_n}M$ (*Modern Robotics*, Böl. 4); çarpanlar farklı, sonuç aynı.
+Ters soru ("ampulü buraya hangi açılar koyar?") daha zordur ve bazen hiç cevabı yoktur. Sebebi saymaktır. Bir gripper pose'u altı sayı ister: üçü nerede olduğu, üçü hangi yöne baktığı için. Her joint bir düğmedir. SO-101'in gripper'ı hareket ettiren beş düğmesi var; altı sayıyı bağımsız olarak ayarlayamaz. Joint'lerinden üçünün (shoulder lift, elbow, wrist flex) eksenleri paraleldir; birlikte gripper'ı yalnızca tek bir dikey düzlem içinde hareket ettirirler. Pan joint'i bu düzlemi döndürür, wrist roll ise gripper'ı kendi bakış ekseni etrafında çevirir. Verilen bir noktada gripper yalnızca o düzlem içinde bir yöne bakabilir.
 
-**Degrees of freedom.** 1 DoF'lu joint'lerden oluşan açık bir zincirde hareketlilik joint sayısına eşittir. Bir gripper pose'u 6 boyutlu bir uzayda yaşar, dolayısıyla:
+**Workspace**, aletin ulaşabildiği bütün noktalardır. Gerçek bir kol için formülü yoktur; çok sayıda rastgele joint ayarı deneyip aletin nereye düştüğünü kaydederek tahmin edilir.
 
-| Kol | Aleti hareket ettiren joint | Görev boyutu | Sonuç |
+```mermaid
+flowchart TD
+    B["base"] -- "shoulder_pan<br/>(dikey eksen)" --> S["shoulder"]
+    S -- "shoulder_lift" --> U["upper_arm"]
+    U -- "elbow_flex" --> L["lower_arm"]
+    L -- "wrist_flex" --> W["wrist"]
+    W -- "wrist_roll<br/>(bakış ekseni)" --> G["gripper"]
+    G -- "sabit ofset" --> T["site gripperframe<br/>(alet noktası)"]
+```
+
+Lift, elbow ve wrist flex üç paralel "pitch" eksenidir. Altıncı motor `gripper`, `gripper` body'sine bağlıdır ve yalnızca çeneyi oynatır; bu yüzden bu zincirde yoktur.
+
+### Forward kinematics kod olarak
+
+```python
+import numpy as np
+
+def fk(q):                                  # q: 5 kol joint açısı (rad)
+    M = np.eye(4)                           # base frame'inden başla
+    for T_static, axis, qi in zip(STATIC, AXES, q):
+        M = M @ T_static                    # üst body -> alt body sabit ofseti (MJCF pos/quat)
+        M = M @ T(axis_rot(axis, qi), np.zeros(3))  # joint ekseni etrafında qi kadar dön
+    return M @ T_SITE                       # alet noktasına sabit ofset (site pos/quat)
+
+# Örneklemeyle workspace: limitler içinde düzgün rastgele joint'ler, aletin düştüğü yeri sakla
+pts = np.array([fk(np.random.uniform(lo, hi))[:3, 3] for _ in range(N)])
+```
+
+| Büyüklük | Formül |
+|---|---|
+| Forward kinematics | $T_{W,\text{site}}(q) = \prod_{i=1}^{n}\Big(T^{\text{static}}_{i}\ \mathrm{Rot}(\hat a_i, q_i)\Big)\ T_{\text{site}}$ |
+| 1-DoF joint'lerden açık zincirin mobility'si | joint sayısı $n$ |
+| Workspace | $\{\,p(q) : q_{\min} \le q \le q_{\max}\,\}$ |
+
+$q_i$, $i$. joint'in açısıdır; $T^{\text{static}}_i$ üst body'den $i$. body'ye sabit transform'dur (`body_pos`/`body_quat`'tan); $\hat a_i$ o body'nin frame'inde joint eksenidir (`jnt_axis`; joint body orijinindedir, bu modelde `jnt_pos = 0`); $\mathrm{Rot}(\hat a, q)$, $\hat a$ etrafında $q$ kadar rotation'dır; $T_{\text{site}}$ alet site'ının sabit ofsetidir; $p(q)$ aletin konumu, $q_{\min}, q_{\max}$ joint limitleridir.
+
+| Kol | Aleti oynatan joint'ler | Görev boyutu | Sonuç |
 |---|---|---|---|
 | SO-101 | 5 (pan, lift, elbow, wrist flex, wrist roll) | 6 | verilen bir noktada yalnızca 2 boyutlu bir orientation ailesi var |
-| Franka Panda | 7 | 6 | bir fazla DoF: genelde çok sayıda çözüm |
+| Franka Panda | 7 | 6 | bir fazla (redundant) DoF: genelde çok sayıda çözüm |
 
-SO-101'de lift, elbow ve wrist flex eksenleri **paraleldir**; aleti, yönünü pan joint'inin belirlediği tek bir düşey düzlemde hareket ettirirler. Wrist roll aleti kendi yaklaşma ekseni etrafında döndürür. Bu yüzden sabit bir konumda yaklaşma ekseni o düzlemde kalmak zorundadır.
+**Degree of freedom (DoF)**, değiştirebildiğin bağımsız bir sayıdır; "redundant", görevin gerektirdiğinden fazla joint olması demektir.
 
-**Workspace.** Limitler içindeki tüm joint değerleri için alet konumlarının kümesi. Gerçek kollar için kapalı formu yoktur; örneklenir. Matris çarpımları AIEFS'te: [Matrix Transformations](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/03-matrix-transformations).
+<details>
+<summary>Matematik ayrıntısı: product of exponentials, DoF sayımı ve kol düzlemi</summary>
+
+**Aynı harita, başka gösterim.** Lynch & Park FK'yi matris üstellerinin çarpımı olarak yazar: $T(q) = e^{[\mathcal S_1]q_1}\cdots e^{[\mathcal S_n]q_n}M$; burada $M$ aletin $q = 0$'daki pose'u, $\mathcal S_i$ ise $i$. joint'in base frame'indeki screw axis'idir (*Modern Robotics*, Böl. 4). Çarpanlar yukarıdaki MJCF tarzı çarpımdan farklıdır, sonuç farklı değildir.
+
+**Sayım.** Bir pose'un 3 konum ve 3 orientation sayısı vardır. Alet konumunu sabitlemek SO-101'in 5 joint DoF'unun 3'ünü kullanır; orientation için $5 - 3 = 2$ kalır: bütün orientation'ların 3 boyutlu kümesi içinde 2 boyutlu bir aile.
+
+**Kol düzlemi.** Lift, elbow ve wrist flex normali $n$ olan paralel eksenler etrafında döner; aleti ve yaklaşma eksenini yalnızca $n$'ye dik düzlem içinde oynatırlar. Pan bu düzlemi dikey eksen etrafında döndürür. Wrist roll aleti yaklaşma ekseni etrafında çevirir; bu, yaklaşma yönünü değiştirmez. Yani sabit bir noktada yaklaşma ekseni kol düzleminde olmak zorundadır. Site'ın roll ekseninden 12 mm'lik ofseti (Adım 1) bu kuralı biraz esnetir.
+
+**Örnekleme neden eşitsiz.** Joint uzayında düzgün örnekleme uzayda düzgün değildir: küçük joint değişimlerinin aleti çok oynattığı bölgeler seyrek ziyaret edilir; nadir köşelerin görünmesi için çok örnek gerekir.
+
+Daha derine: AIEFS [Matrix Transformations](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/03-matrix-transformations); Lynch & Park, *Modern Robotics*, Böl. 2 "Configuration Space" ve Böl. 4 "Forward Kinematics".
+
+</details>
 
 ## Deney
 
@@ -73,7 +122,7 @@ Limitler içindeki 1000 rastgele joint vektöründe elle FK ile `mj_kinematics` 
 
 Beşi `gripperframe`'i hareket ettiriyor; altıncısı yalnızca çeneyi.
 
-**Adım 3 · örnek sayısı sweep'i → workspace tahmini.** Joint vektörleri limitler içinde düzgün dağılımlı, çarpışma filtresi yok.
+**Adım 3 · örnek sayısı sweep'i → workspace tahmini.** Joint vektörleri limitler içinde düzgün dağılımlı, çarpışma filtresi yok. Hacim, dolu **voxel**'lerin (1 cm ya da 2 cm'lik küp hücreler) sayısıyla ölçülür; **convex hull** bütün noktaları saran en küçük dışbükey şekildir.
 
 | Örnek | hacim, 1 cm voxel | hacim, 2 cm voxel | convex hull | en büyük erişim | z = 0'ın altında site |
 |---|---|---|---|---|---|
@@ -84,9 +133,11 @@ Beşi `gripperframe`'i hareket ettiriyor; altıncısı yalnızca çeneyi.
 
 En büyük erişim (pan ekseni üzerinde omuz yüksekliğindeki noktadan ölçülen) 10 000 örnekten sonra yakınsıyor, hacim yakınsamıyor: 1 cm voxel ile bir milyon örnekte hâlâ büyüyor, çünkü düzgün joint örneklemesi workspace'i çok eşitsiz geziyor. Convex hull en hızlı yakınsıyor ama fazla tahmin ediyor, çünkü her içbükey bölgeyi dolduruyor. Joint vektörlerinin dörtte biri aleti base'in durduğu masa düzleminin altına koyuyor.
 
+![Solda: log eksenlerde, joint örneği sayısına göre tahmini SO-101 workspace hacmi; 1 cm voxel hacmi bir milyon örnekte hâlâ dik yükseliyor, 2 cm voxel hacmi düzleşiyor, convex hull baştan beri neredeyse yatay. Sağda: kol düzleminin dışında istenen açıya göre en iyi yaklaşma yönü hatası; hata eşittir beta doğrusunun hemen altında bir çizgi.](../../experiments/08-forward-kinematics/workspace_and_orientation.png)
+
 ## Boz
 
-**Kol düzleminin dışında istenen orientation.** Hedef noktayı (0,22, 0, 0,08) m'de sabitle. Kol düzlemini bul (normal $n$ = shoulder lift ekseni; üç pitch ekseni 4,6e-16'ya kadar paralel). $a = \cos\beta\,a_0 + \sin\beta\,n$ yaklaşma yönünü iste; $a_0$ düzlemde, yatayın 45° altında. 12 seed'den sınırlı bir least-squares çözücüyle çöz (ders 10 bu tür çözücüleri kuruyor):
+**Kol düzleminin dışında istenen orientation.** Hedef noktayı (0,22, 0, 0,08) m'de sabitle. Kol düzlemini bul (normal $n$ = shoulder lift ekseni; üç pitch ekseni 4,6e-16'ya kadar paralel). $a = \cos\beta\,a_0 + \sin\beta\,n$ yaklaşma yönünü iste; $a_0$ düzlemde, yatayın 45° altında. 12 seed'den (rastgele başlangıç joint vektörleri) sınırlı bir least-squares çözücüyle çöz (ders 10 bu tür çözücüleri kuruyor):
 
 | β (düzlem dışı) | 0° | 5° | 10° | 20° | 30° | 45° | 60° | 90° |
 |---|---|---|---|---|---|---|---|---|

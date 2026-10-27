@@ -16,17 +16,76 @@
 
 ## Problem
 
-Bir behavior cloning policy'si şimdiki observation'ı bir sonraki action'a eşler. Gösterimlerde observation'ın aynı kaldığı ama doğru action'ın zamanla değiştiği anlar vardır: kol, gripper kapanırken bekler, sonra yoluna devam eder. ACT makalesi ([Zhao vd. 2023](https://arxiv.org/abs/2304.13705), Böl. I), action dizilerini tahmin etmenin "temporally correlated confounders" ile, örneğin gösterimlerdeki duraklamalarla başa çıkmaya yardım ettiğini söyler. Chunk boyutu ablation'ında (Şek. 8a: 2 simülasyon görevi × scripted/insan verisi, ortalama, ensembling yok) başarı $k = 1$'de %1'den $k = 100$'de %44'e çıkıyor.
+Bir behavior cloning policy'si şimdiki observation'ı bir sonraki action'a eşler. Gösterimlerde observation'ın aynı kaldığı ama doğru action'ın zamanla değiştiği anlar vardır: kol, gripper kapanırken bekler, sonra yoluna devam eder. ACT makalesi (Action Chunking with Transformers, [Zhao vd. 2023](https://arxiv.org/abs/2304.13705), Böl. I), action dizilerini tahmin etmenin "temporally correlated confounders" ile, örneğin gösterimlerdeki duraklamalarla başa çıkmaya yardım ettiğini söyler. Chunk boyutu ablation'ında (Şek. 8a: 2 simülasyon görevi × scripted/insan verisi, ortalama, ensembling yok) başarı $k = 1$'de %1'den $k = 100$'de %44'e çıkıyor.
 
 Bizim sürümümüz, simülasyonda: düzlemsel bir kol hedefe gider, 0,5 s hareketsiz bekler, sonra bir bırakma noktasına gider. 100 gösterimle eğitilmiş tek adımlık bir policy, **600 episode'un 543'ünde hedefte takılı kalıyor**.
 
 ## Ana fikir
 
-**Action chunking.** $\pi(a_t \mid o_t)$ yerine $\pi(a_{t:t+k} \mid o_t)$ öğren. Bir chunk'ı uygulayıp her $k$ adımda bir yeniden sorgulamak görevin etkin ufkunu $k$ kat kısaltır (Böl. I): daha az karar, hataların birikmesi için daha az fırsat ([ders 29](29-dagger.md)).
+### Sade anlatımla
 
-**Bekleme tek adımlık policy'yi neden bozar.** Bekleme boyunca observation (eklemler durağan) neredeyse hiç değişmez; veride bir sonraki action, sonuncusu hariç her bekleme adımında "bekle"dir. ACT'nin L1 loss'unu boyut boyut medyan minimize eder: bekle, sonsuza kadar (L2 ortalamayı, yani yavaş bir sürünmeyi verirdi; [ders 30](30-diffusion-and-flow-policies.md)). O observation'dan tahmin edilen bir chunk'ta $i$. eleman gösterimlerin giderek artan bir kısmında "çoktan hareket ediyor"dur; bu yüzden medyan chunk bir süre bekler, sonra ayrılır, yeter ki $k$ ayrılışı içerecek kadar uzun olsun.
+Geri sayımı olmayan bir kırmızı ışıkta bekleyen acemi bir sürücü düşün. Sürücü koltuğundan bakınca beklemenin her saniyesi aynı görünür. Yalnızca "bu sahnede bir sonraki hamlem ne?" sorusunu öğrenen bir öğrenci, o sahneden gelen örneklerin neredeyse hepsinde "bekle" görür, çünkü "git" yalnızca bir kez, en sonda olur. Öğrenci de beklemeyi öğrenir, sonsuza kadar. Sahne ne kadar süredir beklediğini söylemez; zamanlama şimdiki observation'da değil, geçmiştedir.
 
-**Bir chunk'ı uygulamanın iki yolu.**
+**Action chunking** bunu sonraki birkaç hamleye birden bağlanarak çözer: policy tek bir action yerine sonraki $k$ action'ı tahmin eder, örneğin "bekle, bekle, bekle, git, git". Plan ayrılış anını içerecek kadar uzunsa kol ayrılır. Yan kazanç: daha az karar, hataların birikmesi için daha az fırsat demektir ([ders 29](29-dagger.md)).
+
+Bir chunk'ı uygulamanın iki yolu var. **Open-loop**: $k$ action'ın hepsini bakmadan oynat, sonra yeniden sor; haritaya bakmadan bir sonraki kavşağa kadar tarifi izlemek gibi. **Temporal ensembling**: her adımda sor, önceki adımlarda yapılmış örtüşen planları sakla ve hepsinin *şimdi* için verdiği tavsiyeyi ortala; eski planlara biraz daha çok güven. İlki bağlanır; ikincisi tepki verir ve yumuşatır, ama ortalama almak ayrılma kararını da sulandırabilir.
+
+```mermaid
+flowchart TD
+    O["observation o_t"] --> P["policy bir chunk tahmin eder:<br/>t ... t+k-1 action'ları"]
+    P --> Q{"uygulama şeması"}
+    Q -->|"open-loop"| C["k action'ın hepsini oynat,<br/>sonra yeniden sorgula"]
+    Q -->|"temporal ensembling"| B["gelecek her adım için<br/>en fazla k tahmin sakla"]
+    B --> W["t adımı için ağırlıklı ortalama<br/>(eski olan daha ağır)"]
+    C --> R["robot"]
+    W --> R
+```
+
+### Chunking ve ensembling kod olarak
+
+```python
+# dataset: one observation -> the next k actions (episode end padded with the last action)
+X = [o[t] for t in range(T)]
+Y = [a_pad[t:t + k] for t in range(T)]           # shape (k, n_joints); trained with L1 loss
+
+# open-loop: query once every k steps
+if t % k == 0:
+    chunk = policy(obs)
+action = chunk[t % k]
+
+# temporal ensembling: query every step, average every prediction made for step t
+chunks[t] = policy(obs)                           # chunks[s][j] predicts step s + j
+def ensembled_action(chunks, t, k, m=0.01):
+    preds = [chunks[s][t - s] for s in range(max(0, t - k + 1), t + 1)]  # oldest first
+    w = [exp(-m * i) for i in range(len(preds))]                          # i = 0 is the oldest
+    return sum(wi * p for wi, p in zip(w, preds)) / sum(w)
+```
+
+| Ne | Formül |
+|---|---|
+| Tek adımlık policy | $\pi(a_t \mid o_t)$ |
+| Chunk'lı policy | $\pi(a_{t:t+k} \mid o_t)$ |
+| Temporal ensembling | $a_t = \dfrac{\sum_i w_i\, \hat a_t^{(i)}}{\sum_i w_i}, \qquad w_i = e^{-m i}$ |
+| L1 optimumu | o observation için gösterilen action'ların boyut boyut medyanı |
+
+$o_t$, $t$ adımındaki observation; $a_t$ action; $k$ chunk boyutu; $\hat a_t^{(i)}$, $t$ adımı için yapılmış $i$. tahmin ($i = 0$ en eskisi); $w_i$ onun ağırlığı ve $m$ ağırlığın ne kadar hızlı azaldığıdır ($m \to 0$ düz bir ortalamadır).
+
+<details>
+<summary>Matematik ayrıntısı: L1 neden sonsuza kadar bekletir ve chunk nasıl kurtulur</summary>
+
+**Bekleme tek adımlık policy'yi neden bozar.** Bekleme boyunca observation (eklemler durağan) neredeyse hiç değişmez; veride bir sonraki action, sonuncusu hariç her bekleme adımında "bekle"dir. ACT'nin L1 loss'unu boyut boyut medyan minimize eder: bekle, sonsuza kadar. L2 ortalamayı, yani yavaş bir sürünmeyi verirdi ([ders 30](30-diffusion-and-flow-policies.md)).
+
+**Chunk neden kurtulabilir.** O observation'dan tahmin edilen bir chunk'ta $i$. eleman, $i$ büyüdükçe gösterimlerin giderek artan bir kısmında "çoktan hareket ediyor"dur. Bu kısım yarıyı geçince $i$. elemanın medyanı "hareket ediyor" olur. Bu yüzden medyan chunk bir süre bekler, sonra ayrılır, yeter ki $k$ ayrılışı içerecek kadar uzun olsun.
+
+**Daha az karar.** Bir chunk'ı uygulayıp her $k$ adımda bir yeniden sorgulamak görevin etkin ufkunu $k$ kat kısaltır (Böl. I); ders 29'un diliyle, hataların birikebileceği adım sayısı azalır.
+
+**Ensembling ağırlıkları.** $w_i = e^{-mi}$ ve $i = 0$ en eski tahmin olduğundan eski tahminler daha ağırdır. Makaleye göre "a smaller m means faster incorporation", yani küçük $m$ yeni observation'ları daha hızlı dahil eder (Böl. IV-A). Makale $m$ için bir değer vermiyor; LeRobot'un config yorumu orijinalin $m = 0{,}01$ kullandığını söylüyor ([`configuration_act.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py)). Herhangi bir adım için en fazla $k$ tahmin vardır; ortalama en fazla $k$ terim üzerindendir.
+
+Daha derine (AIEFS): [The Full Transformer — Encoder + Decoder](https://aiengineeringfromscratch.com/lesson?path=phases/07-transformers-deep-dive/05-full-transformer), [Autoencoders & Variational Autoencoders (VAE)](https://aiengineeringfromscratch.com/lesson?path=phases/08-generative-ai/02-autoencoders-vae). Birincil kaynak: [Zhao vd. 2023](https://arxiv.org/abs/2304.13705), Böl. I ve IV.
+
+</details>
+
+### Bir chunk'ı uygulamanın iki yolu
 
 | | open-loop chunk'lar | temporal ensembling |
 |---|---|---|
@@ -35,13 +94,9 @@ Bizim sürümümüz, simülasyonda: düzlemsel bir kol hedefe gider, 0,5 s harek
 | bozucuya tepki | chunk başına bir kez | her adımda |
 | chunk sınırları | sıçrar | yumuşar |
 
-Temporal ensembling (Böl. IV-A) şimdiki adım için yapılmış (en fazla $k$) tahmini ortalar:
+### ACT'nin mimarisi
 
-$$a_t = \frac{\sum_i w_i\, \hat a_t^{(i)}}{\sum_i w_i}, \qquad w_i = e^{-m i},$$
-
-burada $i = 0$ en eski tahmindir; yani eski tahminler daha ağırdır ve $m \to 0$ düz bir ortalamadır. Makaleye göre "a smaller m means faster incorporation", yani küçük $m$ yeni observation'ları daha hızlı dahil eder. Makale $m$ için bir değer vermiyor; LeRobot'un config yorumu orijinalin $m = 0{,}01$ kullandığını söylüyor ([`configuration_act.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py)).
-
-**ACT'nin mimarisi** (Böl. IV; bkz. AIEFS: [Full Transformer](https://aiengineeringfromscratch.com/lesson?path=phases/07-transformers-deep-dive/05-full-transformer), [VAE](https://aiengineeringfromscratch.com/lesson?path=phases/08-generative-ai/02-autoencoders-vae)):
+ACT, chunking'in üstüne bir transformer ve bir CVAE ekler. CVAE (conditional variational autoencoder), eğitim sırasında gösterilen chunk'ı küçük bir "stil" vektörü $z$'ye sıkıştırır; bu, modelin aynı işi yapmanın farklı yollarını temsil etmesini sağlar (Böl. IV; bkz. AIEFS: [Full Transformer](https://aiengineeringfromscratch.com/lesson?path=phases/07-transformers-deep-dive/05-full-transformer), [VAE](https://aiengineeringfromscratch.com/lesson?path=phases/08-generative-ai/02-autoencoders-vae)):
 
 | parça | ne yapar |
 |---|---|
@@ -72,7 +127,7 @@ den[:, t:t + k] += w[None, :, None]
 a = num[:, t] / den[:, t]
 ```
 
-**Başarı:** en az 0,2 s hedefin 3 cm içinde kalmak, sonra 4,0 s'de bırakma noktasının 3 cm içinde olmak; seed başına 200 yeni hedef, satır başına 600 episode, her satırda aynı bozucular. Hatalar: *ıska* (hedefe hiç ulaşmadı), *kısa* (0,2 s dolmadan ayrıldı), *takılı* (4,0 s'de hâlâ hedefte). Bekleme: başarılı episode'larda hedefte kalınan en uzun sürenin medyanı. Jerk: komut edilen joint hedeflerinin üçüncü farkının RMS'i (rad/s³).
+**Başarı:** en az 0,2 s hedefin 3 cm içinde kalmak, sonra 4,0 s'de bırakma noktasının 3 cm içinde olmak; seed başına 200 yeni hedef, satır başına 600 episode, her satırda aynı bozucular. Hatalar: *ıska* (hedefe hiç ulaşmadı), *kısa* (0,2 s dolmadan ayrıldı), *takılı* (4,0 s'de hâlâ hedefte). Bekleme: başarılı episode'larda hedefte kalınan en uzun sürenin medyanı. Jerk (komutun ne kadar ani değiştiği): komut edilen joint hedeflerinin üçüncü farkının RMS'i (rad/s³).
 
 **Tahmin:** küçük $k$ takılır; büyük open-loop chunk'lar çok seyrek tepki verir; ensembling yumuşatır.
 
@@ -88,6 +143,8 @@ a = num[:, t] / den[:, t]
 | $k=16$ ensembled | 160/600 | %23,3–30,3 | 5 | 1 | 362 | 0,81 | 543 |
 | $k=32$ open-loop | 297/600 | %45,5–53,5 | 200 | 103 | 0 | 0,38 | 3875 |
 | $k=32$ ensembled | **552/600** | %89,6–93,9 | 39 | 9 | 0 | 0,58 | **433** |
+
+![Logaritmik ölçekte chunk boyutu k'ya (1, 4, 8, 16, 32) göre open-loop ve ensembled için iki panel. Solda: başarı k = 8'e kadar %5,3 ya da altında kalıyor; sonra open-loop k = 16'da %71,8'e sıçrayıp k = 32'de %49,5'e düşüyor, ensembled ise k = 16'da %26,7'ye ve k = 32'de %92,0'ye çıkıyor. Sağda: takılı episode'lar iki şemada da k = 8'e kadar 600'de 534 ile 545 arasında kalıyor ve k = 32'de 0'a iniyor; k = 16'da open-loop'ta 6, ensembled'da 362 takılı var.](../../experiments/31-act/chunk_size.png)
 
 8 ile 16 arasındaki sıçrama neden? Her policy'yi (seed 0) 200 hedef için tam hedefin üstünde durağanken sorgula ve hedeften 0,02 rad'dan fazla ayrılan ilk chunk elemanını bul:
 

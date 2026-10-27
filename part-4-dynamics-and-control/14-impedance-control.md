@@ -20,27 +20,70 @@ A stiff position controller that meets an unexpected table keeps pushing until s
 
 ## Core idea
 
-Let $x$ be the pose of the tool centre point (TCP), $\dot x = J(q)\dot q$ its 6-D velocity (lesson 09), $e$ the pose error (position, and orientation as $\tfrac12\sum_i R_i \times R_{d,i}$).
+### In plain words
 
-**Task-space PD / impedance.** Pick a desired wrench from a virtual spring–damper and map it to joints with $J^\top$ (the principle of virtual work):
+Position control says "be exactly here". With stiff gains it behaves like a hand welded to a rigid rod: if a table is in the way, it pushes until something gives. **Impedance control** instead ties the hand to its target with a virtual spring and damper whose stiffness you choose. In free air the hand follows the target. Against a table the hand stops, the spring stretches, and the hand pushes with *stiffness × how far the target sits behind the surface*. You no longer command a position; you command how the hand reacts when it is not where you asked. Think of pressing a doorbell with a relaxed finger instead of a locked arm.
 
-$$\tau = J^\top \big(K e - D\dot x\big) + g(q) \;(+\, C\dot q)$$
+To turn a push at the hand into motor torques, the controller uses the Jacobian of lesson 09 backwards. It maps joint speeds to hand speed; transposed, it maps a hand force to joint torques, like a chain of levers.
 
-At rest against an obstacle, the hand pushes with $F = K e$: you set the force by choosing $K$ and how far the target sits beyond the surface (Hogan 1985).
+Two refinements make it work on a real arm. First, the arm feels heavier when you push the hand in some directions than in others, so one spring gives a different response along each axis; **operational-space control** scales the spring by that felt mass so every direction behaves alike. Second, a 7-joint arm has one spare motion: the elbow can swing while the hand stays put (the **null space**). A separate posture spring, filtered so it cannot move the hand, keeps the elbow where you want it.
 
-**Operational space.** The arm's inertia as felt at the hand is
+```mermaid
+flowchart TD
+    X["target hand pose"] --> E["pose error e<br/>hand velocity ẋ = J·q̇"]
+    E --> F["virtual spring + damper<br/>force F = K·e − D·ẋ"]
+    F --> JT["to joint torques<br/>τ = Jᵀ·F"]
+    NS["elbow posture term<br/>filtered by N"] --> S["add gravity g(q)<br/>clip to torque limits"]
+    JT --> S
+    S --> R["Panda touching a surface"]
+    R -- "measured q, q̇" --> E
+```
 
-$$\Lambda(q) = \big(J M^{-1} J^\top\big)^{-1}$$
+### Impedance and operational-space control as code
 
-and it differs by direction and pose. Commanding $F = \Lambda\,(k_p e - k_d \dot x)$ makes the hand behave like a unit mass in every direction, so one pair of gains gives the same response along x, y and z (Khatib 1987; Lynch & Park ch. 11). A full implementation also cancels the task-space Coriolis term; here $C\dot q + g$ is cancelled in joint space with `qfrc_bias`.
+```python
+J = jac_site(q)                       # (6, 7): joint speeds -> hand linear + angular velocity
+v = J @ qd                            # hand velocity, (6,)
+e = pose_error(x_target, x)           # (6,): position error [m] + orientation error [rad]
+Minv = np.linalg.inv(M(q))            # inverse joint-space inertia (lesson 11)
+Lam = np.linalg.inv(J @ Minv @ J.T)   # (6, 6): inertia the hand "feels" per direction [kg]
 
-**Null space.** A 7-joint arm controlling a 6-D pose has one joint-space direction that does not move the hand. Torques projected with
+F = K * e - D * v                     # impedance: spring K [N/m], damper D [N s/m] at the hand
+# F = Lam @ (kp * e - kd * v)         # operational space: same response in every direction
 
-$$N = I - J^\top \bar J^\top, \qquad \bar J = M^{-1}J^\top\Lambda,$$
+Jbar = Minv @ J.T @ Lam               # dynamically consistent pseudo-inverse of J
+N = np.eye(7) - J.T @ Jbar.T          # null-space filter: keeps only torques that leave the hand still
+tau = J.T @ F + N @ (k0 * (q0 - q) - d0 * qd) + g(q)   # hand spring + elbow posture + gravity
+```
 
-act only in that direction; a posture term $N\,(k_0 (q_0 - q) - d_0\dot q)$ keeps the elbow where you want it without disturbing the hand.
+| Formula | What it is |
+|---|---|
+| $\tau = J^\top \big(K e - D\dot x\big) + g(q) \;(+\, C\dot q)$ | task-space PD = impedance control |
+| $F = K e$ (at rest against an obstacle) | the contact force you design (Hogan 1985) |
+| $\Lambda(q) = \big(J M^{-1} J^\top\big)^{-1}$ | the arm's inertia as felt at the hand |
+| $F = \Lambda\,(k_p e - k_d \dot x)$ | operational-space control: unit-mass behaviour in every direction (Khatib 1987) |
+| $N = I - J^\top \bar J^\top, \qquad \bar J = M^{-1}J^\top\Lambda$ | null-space projector for posture torques |
+
+Here $x$ is the pose of the tool centre point (TCP, the working point of the gripper), $\dot x = J(q)\dot q$ its 6-D velocity (lesson 09), $e$ the pose error (position, and orientation as $\tfrac12\sum_i R_i \times R_{d,i}$, built from the columns $R_i$ of the current and desired rotation matrices), $F$ the **wrench** (a force and a torque together, six numbers), $K, D$ the stiffness and damping, $k_p, k_d$ the same per unit mass, $M$ the joint-space inertia, $g(q)$ gravity, $C\dot q$ the Coriolis term and $I$ the identity matrix.
+
+At rest against an obstacle the hand pushes with $F = K e$: you set the force by choosing $K$ and how far the target sits beyond the surface. $\Lambda$ differs by direction and pose, which is why one $K$ gives different responses along x, y and z. A full operational-space implementation also cancels the task-space Coriolis term; here $C\dot q + g$ is cancelled in joint space with `qfrc_bias` (Lynch & Park ch. 11).
 
 **What we changed in the model.** Menagerie's Panda has position-servo actuators. We set their `gainprm` and `biasprm` to zero (they produce no force), write our torques to `qfrc_applied`, and clip them at the model's `forcerange` (87 N·m joints 1–4, 12 N·m joints 5–7). With `MjSpec` we add a `tcp` site 10.34 cm in front of the flange and a probe sphere of 1 cm radius just ahead of it; for part B we add a rigid block under the hand, and only the probe can collide with it (`contype = conaffinity = 2`).
+
+<details>
+<summary>Math details: J transpose, the hand's inertia and why null-space torques leave the hand alone</summary>
+
+**Why $\tau = J^\top F$.** Power is the same whether you count it at the hand or at the joints: $F^\top \dot x = F^\top J\dot q = (J^\top F)^\top \dot q$. So the joint torques that produce the hand wrench $F$ are $J^\top F$ (the principle of virtual work). No inverse of $J$ is needed.
+
+**The hand's inertia.** From $M\ddot q + c = \tau$ and $\ddot x = J\ddot q + \dot J\dot q$, with $\tau = J^\top F + c$: $\ddot x = J M^{-1} J^\top F + \dot J \dot q$. The matrix $J M^{-1} J^\top$ maps a hand force to a hand acceleration, so its inverse $\Lambda$ is a mass (6 × 6, kg for the translational block). Choosing $F = \Lambda(k_p e - k_d \dot x)$ turns each axis into $\ddot x \approx k_p e - k_d \dot x$, a unit-mass spring–damper with the same $\omega_n = \sqrt{k_p}$ in every direction (ignoring $\dot J\dot q$).
+
+**Null space.** A null-space torque $\tau_0$ is filtered to $N\tau_0$. Its hand acceleration is $J M^{-1} N \tau_0 = \big(J M^{-1} - J M^{-1} J^\top \Lambda J M^{-1}\big)\tau_0 = (JM^{-1} - JM^{-1})\tau_0 = 0$, using $J M^{-1} J^\top = \Lambda^{-1}$. That is what "dynamically consistent" means: the posture term cannot push the hand, and it cannot correct a hand error either.
+
+**Contact force.** With gravity cancelled and the hand at rest against a rigid surface, the controller's force $K e - D\cdot 0$ is balanced by the contact force, so the surface feels $K e$ as long as no joint torque is clipped. The impact before that is different: a hand of mass $\Lambda_{zz}$ arriving with speed is stopped by the contact itself, and the peak force depends on that contact's stiffness, not on $K$.
+
+Go deeper: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml); O. Khatib, [doi:10.1109/JRA.1987.1087068](https://doi.org/10.1109/JRA.1987.1087068); N. Hogan, [doi:10.1115/1.3140702](https://doi.org/10.1115/1.3140702); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), ch. 11.
+
+</details>
 
 ## Experiment
 
@@ -56,7 +99,7 @@ tau = J.T @ F + d.qfrc_bias[:7]
 tau = np.clip(tau, -lim, lim)
 ```
 
-**A. 5 cm steps along x, y, z** (2 s each). Impedance: K = 600 N/m, D = 50 N·s/m. Operational space: $k_p$ = 100 s⁻², $k_d$ = 14 s⁻¹. *Predict:* which controller gives the same response in all three directions?
+**A. 5 cm steps along x, y, z** (2 s each; "off-axis peak" is the largest motion along the two axes that should not move). Impedance: K = 600 N/m, D = 50 N·s/m. Operational space: $k_p$ = 100 s⁻², $k_d$ = 14 s⁻¹. *Predict:* which controller gives the same response in all three directions?
 
 | controller | axis | $\Lambda_{ii}$ | overshoot | time into ±2 mm | off-axis peak |
 |---|---|---|---|---|---|
@@ -89,6 +132,8 @@ Without the posture term nothing restores the redundant direction: the arm ends 
 | 10000 | 500.0 | 483.60 | 1028.1 | 1.823 | 77.9% | 0 | 56.91° |
 | 30000 | 1500.0 | 395.95 | 1132.7 | 19.180 | 80.8% | 6 | 96.27° |
 | 100000 | 5000.0 | 205.03 | 1245.0 | 21.679 | 81.8% | 10 | 111.22° |
+
+![Log-log plot of force on the surface versus stiffness K. The measured holding force lies on the designed line K × 5 cm from K = 100 to 3000 N/m, then falls away once joint torques saturate (483.60, 395.95, 205.03 N); the impact peak stays between 54.7 and 148.5 N up to K = 3000 and jumps above 1000 N when torques saturate.](../experiments/14-impedance-control/force_vs_stiffness.png)
 
 Up to K = 3000 the holding force matches K × 5 cm (148.45 N against 150 N at K = 3000): **the force is designed, not measured.** Penetration stays below 1 mm and is set by MuJoCo's soft-contact parameters, not by the stiffness you chose: it grows only from 0.545 to 0.888 mm while the force grows about 30 times. The peak force at low K (54.7 N at K = 100, against a 5.00 N holding force) is the impact: a hand with $\Lambda_{zz}$ = 6.88 kg arriving at speed is stopped by the stiff contact, whatever spring you designed behind it.
 

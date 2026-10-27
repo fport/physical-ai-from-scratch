@@ -20,9 +20,62 @@ Lesson 33 trained an arm reach with 300,000 policy steps. Unitree's Go2 training
 
 ## Core idea
 
-**Floating base and contacts.** The Go2 model has `nq = 19`, `nv = 18`, `nu = 12`: 12 actuated joints plus a 6-DoF base that no motor drives. The base moves only through contact forces at the feet. A contact can push but not pull ($f_n \ge 0$) and its tangential force is bounded by friction, $\lVert f_t \rVert \le \mu f_n$ ([lesson 04](../part-1-simulation/04-friction.md)). Standing means the normal forces carry the weight, $\sum f_n = m g$. A **gait** is a schedule of which feet are in stance (contact) and which are in swing; in a trot, diagonal pairs alternate. The policy never commands contact forces directly. It commands joint targets (lesson 34: $q^* = 0.25\,a + q_{\text{default}}$, PD with $K_p = 20$, $K_d = 0.5$) and the contact forces follow from the physics.
+### In plain words
 
-**What the Go2 config rewards and randomizes** ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)):
+An arm is bolted to the table; a dog-like robot is not. Its body (the **base**) floats: no motor holds it, and it moves only because the feet push on the floor. A foot can push but never pull, and it can push sideways only as hard as friction allows before it slips. Walking is a schedule of which feet are on the ground and which are swinging, called a **gait**. The policy never commands those foot forces. It sends joint targets, a PD loop turns them into torques, and the physics of the contacts turns the torques into forces on the body.
+
+Learning that from trial and error takes on the order of a hundred million steps. PPO needs fresh attempts from the current policy for every update, and consecutive steps of one robot are nearly the same data. So the practical question becomes throughput, and the answer is to scale out like a stateless web service: run thousands of independent robot copies at once and step them all with one batched call.
+
+### From policy to a moving body
+
+```mermaid
+flowchart TD
+    P["policy, every 20 ms<br/>12 numbers a"] --> Q["joint targets<br/>q* = 0.25·a + q_default"]
+    Q --> D["PD at every physics step<br/>τ = 20 (q* − q) − 0.5 q̇"]
+    D --> J["12 leg joints move"]
+    J --> C["foot contacts:<br/>push only, friction-limited"]
+    C --> B["floating base moves"]
+    B --> O["observation: base velocity,<br/>gravity direction, joints, command"]
+    O --> P
+```
+
+### Massively parallel PPO, as code
+
+```python
+num_envs, steps_per_env = 4096, 24          # Go2 training config
+obs = envs.reset()                          # shape (4096, obs_dim): one row per simulated robot
+for t in range(steps_per_env):
+    actions = policy(obs)                   # ONE batched network call for all robots
+    obs, rewards, dones = envs.step(actions)   # ONE batched physics call (on a GPU with MJX)
+samples = num_envs * steps_per_env          # 98,304 samples for this PPO update
+seconds_per_robot = steps_per_env * 0.02    # while each robot advances only 0.48 s
+```
+
+| Quantity | Formula |
+|---|---|
+| a contact only pushes | $f_n \ge 0$ |
+| friction limit | $\lVert f_t \rVert \le \mu f_n$ |
+| standing still | $\sum f_n = m g$ |
+| samples per update | $N_{\text{env}} \times T$ |
+
+$f_n$ and $f_t$ are the normal and tangential (sideways) parts of a foot's contact force, $\mu$ the friction coefficient, $m$ the robot's mass, $g$ gravity, $N_{\text{env}}$ the number of parallel robots and $T$ the steps each one collects per iteration.
+
+<details>
+<summary>Math details: floating base, friction cones and why on-policy RL wants many copies</summary>
+
+**Floating base.** The Go2 model has `nq = 19`, `nv = 18`, `nu = 12`: 12 actuated joints plus a 6-DoF base that no motor drives (`nq` is one larger than `nv` because the base orientation is stored as a 4-number quaternion). The base accelerates only through contact forces at the feet, which must lie inside the friction cone $\lVert f_t \rVert \le \mu f_n$ ([lesson 04](../part-1-simulation/04-friction.md)). In a trot, diagonal pairs of feet alternate between stance (contact) and swing.
+
+**On-policy sampling.** PPO's update is only valid for samples from (nearly) the current policy, so old data cannot be reused across iterations. Samples from one robot are strongly correlated in time; 4096 robots give 4096 independent trajectories per update. The bottleneck becomes raw simulation throughput, which is why the physics, the policy and the PPO update all run batched on a GPU.
+
+**MJX and MuJoCo Playground.** MJX runs MuJoCo in JAX (and a Warp version for NVIDIA GPUs); its documentation says it pays off when simulating thousands of scenes in parallel, while a single scene can be about 10× slower than CPU MuJoCo ([MJX docs](https://mujoco.readthedocs.io/en/stable/mjx.html)). MuJoCo Playground (Zakka et al., 2025, [arXiv 2502.08844](https://arxiv.org/abs/2502.08844), [playground.mujoco.org](https://playground.mujoco.org/)) builds environments and PPO training on MJX and reports training "in minutes on a single GPU". Its default locomotion PPO config uses `num_envs = 8192`; for `Go1JoystickFlatTerrain` it sets `num_timesteps = 200_000_000` ([`locomotion_params.py`](https://github.com/google-deepmind/mujoco_playground/blob/main/mujoco_playground/config/locomotion_params.py)). The Playground locomotion registry has Go1, Spot and Barkour quadrupeds, but no Go2 environment ([`locomotion/__init__.py`](https://github.com/google-deepmind/mujoco_playground/blob/main/mujoco_playground/_src/locomotion/__init__.py)).
+
+Go deeper: [Introduction to JAX](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/12-intro-to-jax), [Proximal Policy Optimization (PPO)](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/08-ppo); Rudin et al. ([arXiv 2109.11978](https://arxiv.org/abs/2109.11978)); Zakka et al. ([arXiv 2502.08844](https://arxiv.org/abs/2502.08844)).
+
+</details>
+
+### What the Go2 config rewards and randomizes
+
+([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py))
 
 | Item | Value |
 |---|---|
@@ -35,10 +88,6 @@ Lesson 33 trained an arm reach with 300,000 policy steps. Unitree's Go2 training
 | episode | `episode_length_s = 20`; ends early on base contact (`terminate_after_contacts_on = ["base"]`) or when roll exceeds 0.8 rad or pitch 1.0 rad (`check_termination` in [`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)) |
 
 Every row is a lesson-34 or lesson-35 decision. Randomizing friction over $[0.5, 1.25]$ means each of the 4096 robots learns on a slightly different floor (Part 9).
-
-**Why so many parallel copies.** PPO is on-policy: each update needs fresh samples from the current policy, and the samples of one robot are strongly correlated in time. 4096 robots × 24 steps gives 98,304 samples per update from 4096 independent trajectories, while each robot only advances 0.48 s. The bottleneck becomes raw simulation throughput, which is why the physics, the policy and the PPO update all run batched on a GPU.
-
-**MJX and MuJoCo Playground.** MJX runs MuJoCo in JAX (and a Warp version for NVIDIA GPUs); its documentation says it pays off when simulating thousands of scenes in parallel, while a single scene can be about 10× slower than CPU MuJoCo ([MJX docs](https://mujoco.readthedocs.io/en/stable/mjx.html)). MuJoCo Playground (Zakka et al., 2025, [arXiv 2502.08844](https://arxiv.org/abs/2502.08844), [playground.mujoco.org](https://playground.mujoco.org/)) builds environments and PPO training on MJX and reports training "in minutes on a single GPU". Its default locomotion PPO config uses `num_envs = 8192`; for `Go1JoystickFlatTerrain` it sets `num_timesteps = 200_000_000` ([`locomotion_params.py`](https://github.com/google-deepmind/mujoco_playground/blob/main/mujoco_playground/config/locomotion_params.py)). The Playground locomotion registry has Go1, Spot and Barkour quadrupeds, but no Go2 environment ([`locomotion/__init__.py`](https://github.com/google-deepmind/mujoco_playground/blob/main/mujoco_playground/_src/locomotion/__init__.py)).
 
 ## Experiment
 
@@ -56,7 +105,7 @@ datas = [mujoco.MjData(m) for _ in range(nthread)]
 state, _ = rollout.rollout(m, datas, X0, U)   # X0: (nbatch, nstate), U: (nbatch, nstep, nu)
 ```
 
-MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5, 4 performance + 6 efficiency cores). Other jobs were running on the machine, so all rates are approximate and change noticeably from run to run; sections A and B are deterministic, and the load average is printed in the output. The script took 119 s wall-clock (printed at the end); `python experiment.py --quick` (one timing round, no 4096 batch) is a smoke test whose rates do not reproduce the tables.
+MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5, 4 performance + 6 efficiency cores). Other jobs were running on the machine, so all rates are approximate and change noticeably from run to run; sections A and B are deterministic, and the load average (roughly, how many processes compete for the cores) is printed in the output. The script took 119 s wall-clock; `python experiment.py --quick` (one timing round, no 4096 batch) is a smoke test whose rates do not reproduce the tables.
 
 **A. Contact basics.** After 2 s of standing: base height 26.2 cm, exactly four floor contacts (FL, FR, RL, RR), and the sum of contact normal forces is 149.2 N against $m g = 15.21\,\text{kg} \times 9.81 = 149.2$ N. The feet carry the whole weight; nothing else touches the floor.
 
@@ -83,6 +132,8 @@ Steps per CPU-second (CPU time summed over all threads):
 | 64 | 88,725 | 86,335 | 73,876 | 69,250 |
 | 512 | 72,782 | 71,480 | 69,633 | 62,351 |
 | 4096 | 61,348 | 61,575 | 58,368 | 58,883 |
+
+![Two log-log panels against the number of robots per rollout call (1 to 4096), one line per thread count. Left, wall-clock steps per second: with one robot every thread count stays below the Python loop's 66,222; with 8 to 4096 robots, 8 threads reach up to 490,195. Right, steps per CPU second: all lines stay between 58,368 and 88,725.](../experiments/36-legged-locomotion/throughput_vs_batch.png)
 
 Read the two tables together:
 
@@ -113,7 +164,7 @@ Section C started every robot from a settled stance. Start the same 512-robot ba
 | settled stance (+ small joint velocities) | 379,209 | 1.7 | 4.0 |
 | released from keyframe pose, joints ±0.1 rad | 34,194 | 10.3 | 4.4 |
 
-The same model, batch and threads run about eleven times slower. The number of contacts barely changes (4.0 vs 4.4), but the constraint solver needs 10.3 iterations per step instead of 1.7 while feet land and contact forces are redistributed. Per-step cost depends on what the robots are doing: impacts, slipping and falling robots, which is most of early locomotion training, cost far more than standing. A throughput benchmark run on calm robots overstates training speed, and a "speedup" measured on one scenario does not carry over to another. Benchmark with the states your training will actually visit.
+The same model, batch and threads run about eleven times slower. The number of contacts barely changes (4.0 vs 4.4), but the constraint solver (the part of MuJoCo that computes contact forces) needs 10.3 iterations per step instead of 1.7 while feet land and contact forces are redistributed. Per-step cost depends on what the robots are doing: impacts, slipping and falling robots, which is most of early locomotion training, cost far more than standing. A throughput benchmark run on calm robots overstates training speed, and a "speedup" measured on one scenario does not carry over to another. Benchmark with the states your training will actually visit.
 
 ## On the real robot
 
@@ -148,4 +199,4 @@ Next: [lesson 37](../part-9-sim-to-real/37-latency.md), the first sim-to-real ga
 - [MuJoCo · MJX documentation](https://mujoco.readthedocs.io/en/stable/mjx.html); [Python bindings · rollout](https://mujoco.readthedocs.io/en/stable/python.html).
 - [`unitree_rl_gym` · `legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py) (BSD-3-Clause).
 - [MuJoCo Menagerie · `unitree_go2`](https://github.com/google-deepmind/mujoco_menagerie/tree/f3b6013/unitree_go2) (BSD-3-Clause).
-- Code: [`experiment.py`](../experiments/36-legged-locomotion/experiment.py), [`output.txt`](../experiments/36-legged-locomotion/output.txt).
+- Code: [`experiment.py`](../experiments/36-legged-locomotion/experiment.py), [`output.txt`](../experiments/36-legged-locomotion/output.txt); figure from [`plot.py`](../experiments/36-legged-locomotion/plot.py).

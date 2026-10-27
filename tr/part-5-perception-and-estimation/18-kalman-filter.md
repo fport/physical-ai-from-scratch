@@ -16,31 +16,106 @@
 
 ## Problem
 
-Ders 17, aynı noisy SO-101 eklem sinyali üzerinde ölçülmüş bir çelişkiyle bitti: en iyi konum filtresinin delay'i 4 ms'ydi (5 örneklik moving average, 5,17 mrad), en iyi hız filtresi 64 ms istiyordu (65 örnek, 0,12 rad/s). Bir controller ikisini de tek bir estimator'dan, gecikmesiz ve onlara ne kadar güveneceğini söyleyen bir sayıyla birlikte ister. Hareketin doğrusal bir modelini yazabiliyorsan Kalman'ın 1960'taki recursive filtresi ([Kalman 1960](https://doi.org/10.1115/1.3662552)) bunu yapar.
+Ders 17, aynı noisy SO-101 eklem sinyali üzerinde ölçülmüş bir çelişkiyle bitti: en iyi konum filtresinin delay'i 4 ms'ydi (5 örneklik moving average, 5,17 mrad), en iyi hız filtresi 64 ms istiyordu (65 örnek, 0,12 rad/s). Bir controller ikisini de tek bir **estimator**'dan (doğrudan ölçemediğini ölçebildiklerinden çıkaran kod), gecikmesiz ve onlara ne kadar güveneceğini söyleyen bir sayıyla birlikte ister. Hareketin doğrusal bir modelini yazabiliyorsan Kalman'ın 1960'taki recursive filtresi ([Kalman 1960](https://doi.org/10.1115/1.3662552)) bunu yapar.
 
 ## Ana fikir
 
-State $x_k\in\mathbb R^n$, ölçüm $z_k$ ([Welch & Bishop, TR 95-041](https://techreports.cs.unc.edu/papers/95-041.pdf), denklem 1.1–1.2):
+### Sade anlatımla
 
-$$x_k = F x_{k-1} + w_{k-1},\quad w\sim\mathcal N(0,Q) \qquad z_k = H x_k + v_k,\quad v\sim\mathcal N(0,R)$$
+Elinde bir de termometre olan bir hava tahmincisi düşün. Birkaç dakikada bir, az önce bildiklerinden bir tahmin yapar ("ılıktı ve ısınıyordu, şimdi biraz daha sıcak olmalı"), sonra biraz noisy olan termometreyi okur. İkisinden birini seçmez. İkisini harmanlar ve her birine ne kadar güvenilir çıktıysa o kadar güvenir: model iyi, termometre kötüyse "çoğunlukla tahmin"; termometre hassassa "çoğunlukla okuma". Harmanladıktan sonra öncekinden daha emindir ve ne kadar emin olduğunu da aklında tutar.
 
-**Predict:** $\hat x^-_k = F\hat x_{k-1}$, $\;P^-_k = F P_{k-1} F^\top + Q$.
-**Update:** $K_k = P^-_k H^\top (H P^-_k H^\top + R)^{-1}$, $\;\hat x_k = \hat x^-_k + K_k(z_k - H\hat x^-_k)$, $\;P_k = (I - K_k H)P^-_k$.
+Kalman filter eklem için tam olarak bunu yapar, saniyede 500 kez. Tahmin bir hareket modelinden gelir: "eklem hızını korur". Okuma encoder'dan gelir. Harmanlama ağırlığı, yani **gain**, her adımda senin verdiğin iki sayıdan yeniden hesaplanır: encoder ne kadar noisy, eklem modeli ne kadar şaşırtabilir.
 
-Bayes yorumu AIEFS'te (bkz. AIEFS: [Bayes' Theorem](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/07-bayes-theorem)). Burada mühendislik hâli lazım.
+Geride kalmamasının sebebi tahmindir. Ders 17'deki moving average yalnızca geriye bakar, yani eklemin nerede olduğunu raporlar. Kalman filter ise yeni okumayla karşılaştırmadan önce tahminini kendi hesapladığı hızla ileri taşır; böylece yumuşak bir hareket "geçmişe doğru ortalanmaz". Kendi belirsizliğini de takip ettiği için her tahmine ne kadar güvenebileceğini söyler.
 
-**Tek eklem için constant-velocity modeli.** $x = [q,\ \dot q]^\top$; encoder yalnızca $q$'yu görür:
+### Predict/update döngüsü
 
-$$F = \begin{bmatrix}1 & \Delta t\\ 0 & 1\end{bmatrix},\quad H = [1\ \ 0],\quad Q = q_c\begin{bmatrix}\Delta t^3/3 & \Delta t^2/2\\ \Delta t^2/2 & \Delta t\end{bmatrix}$$
+```mermaid
+flowchart TD
+    S["tahmin: açı, hız<br/>+ belirsizlik P"] --> PR["predict<br/>açıyı hız · dt kadar ilerlet<br/>belirsizlik Q kadar büyür"]
+    PR --> G["gain K<br/>okumaya ne kadar güvenilecek<br/>(P ve R'den)"]
+    Z["encoder okuması z<br/>noise varyansı R"] --> U
+    G --> U["update<br/>tahmin += K · (z − öngörü)<br/>belirsizlik küçülür"]
+    U --> S
+    U --> C["açı ve hız<br/>controller'a"]
+```
 
-$Q$, ivmeyi yoğunluğu $q_c$ (rad²/s³) olan beyaz noise olarak modellemekten gelir. $R$ encoder varyansıdır: burada $\sigma^2 + \Delta^2/12$.
+### Filtre, kod olarak
+
+State iki sayıdan oluşan bir vektördür: eklem açısı `q` ve hızı `qd`. `P` 2×2'lik bir **covariance** matrisidir: filtrenin ne kadar yanıldığına dair kendi tahmini (köşegeninin karekökü, state'in her elemanı için bir standart sapmadır).
+
+```python
+dt = 0.002                                   # time between encoder readings (s)
+F = np.array([[1, dt], [0, 1]])              # motion model: q += qd * dt, qd stays
+H = np.array([[1, 0]])                       # the encoder measures q only
+Q = q_c * np.array([[dt**3 / 3, dt**2 / 2],  # how far the model may drift per step;
+                    [dt**2 / 2, dt]])        # q_c = how hard the joint may accelerate
+R = encoder_variance                         # measured noise of one reading (rad^2)
+
+def kalman_step(x, P, z):
+    # predict: forecast the state one step ahead; uncertainty grows
+    x = F @ x
+    P = F @ P @ F.T + Q
+    # gain: which share of the surprise to believe (0 = ignore the encoder)
+    S = H @ P @ H.T + R                      # expected spread of the surprise
+    K = P @ H.T / S
+    # update: move the forecast part of the way towards the reading
+    x = x + (K * (z - H @ x)).ravel()        # z - H x is the surprise ("innovation")
+    P = (np.eye(2) - K @ H) @ P              # uncertainty shrinks
+    return x, P
+```
+
+Tek bir sayı için gain basitçe $K = P/(P+R)$'dir: tahmin belirsizse ($P \gg R$) okumayı kopyalarsın, okuma noisy ise ($R \gg P$) tahmini korursun.
+
+| Adım | Formül |
+|---|---|
+| State predict | $\hat x^-_k = F\hat x_{k-1}$ |
+| Covariance predict | $P^-_k = F P_{k-1} F^\top + Q$ |
+| Gain | $K_k = P^-_k H^\top (H P^-_k H^\top + R)^{-1}$ |
+| State update | $\hat x_k = \hat x^-_k + K_k(z_k - H\hat x^-_k)$ |
+| Covariance update | $P_k = (I - K_k H)P^-_k$ |
+
+Burada $\hat x_k = [q,\ \dot q]^\top$ $k$ adımındaki tahmin, üstteki $-$ işareti $z_k$ okunmadan önceki öngörü, $P$ tahminin covariance'ı, $F$ hareket modeli, $H$ sensor'ün neyi gördüğünü seçen matris, $Q$ modelin bir adımda yaptığı hatanın covariance'ı, $R$ encoder noise'unun varyansı, $K$ ise gain'dir.
+
+Ayarladığın iki düğme var:
 
 | Ayar | Fiziksel anlamı | Nasıl belirlenir |
 |---|---|---|
 | $R$ | ölçüm noise varyansı | ölç: sensor'ü durağanken ya da bilinen bir hareket boyunca logla ([Welch & Bishop](https://techreports.cs.unc.edu/papers/95-041.pdf), §1 "Filter Parameters and Tuning") |
 | $q_c$ | eklemin habersizce ne kadar sert ivmelenebileceği | ayarla: tek gerçek tasarım seçimi |
 
-Deneyden önce bilinmesi gereken iki gerçek: $Q$ ve $R$ sabitse $P_k$ ve $K_k$ sabitlere yakınsar; yani kararlı hâldeki filtre sabit bir doğrusal filtredir (Welch & Bishop da bunu söyler). Ve başlangıç geçişi bittikten sonra tahmin yalnızca $q_c/R$ oranına bağlıdır; mutlak ölçek sadece raporlanan $P$'yi değiştirir.
+Deneyden önce bilinmesi gereken iki gerçek. $Q$ ve $R$ sabitse $P_k$ ve $K_k$ sabitlere yakınsar; yani kısa bir başlangıç döneminden (**geçiş**, transient) sonra filtre sabit bir doğrusal filtredir (Welch & Bishop da bunu söyler). Ve geçiş bittikten sonra tahmin yalnızca $q_c/R$ oranına bağlıdır; mutlak ölçek sadece raporlanan $P$'yi değiştirir.
+
+<details>
+<summary>Matematik ayrıntısı: model, Q ve R'nin kaynağı ve gain'in neden bir güven oranı olduğu</summary>
+
+**Model.** State $x_k\in\mathbb R^n$, ölçüm $z_k$ ([Welch & Bishop, TR 95-041](https://techreports.cs.unc.edu/papers/95-041.pdf), denklem 1.1–1.2):
+
+$$x_k = F x_{k-1} + w_{k-1},\quad w\sim\mathcal N(0,Q) \qquad z_k = H x_k + v_k,\quad v\sim\mathcal N(0,R)$$
+
+Bu model doğruysa filtre optimaldir (ortalama karesel hatası en küçüktür): doğrusal dinamik ve belirtilen covariance'lara sahip, birbirinden bağımsız Gauss noise'lar $w$ ve $v$.
+
+**Tek eklem için constant-velocity modeli.** $x = [q,\ \dot q]^\top$; encoder yalnızca $q$'yu görür:
+
+$$F = \begin{bmatrix}1 & \Delta t\\ 0 & 1\end{bmatrix},\quad H = [1\ \ 0],\quad Q = q_c\begin{bmatrix}\Delta t^3/3 & \Delta t^2/2\\ \Delta t^2/2 & \Delta t\end{bmatrix}$$
+
+**Q nereden gelir.** İvme $a(t)$'yi yoğunluğu $q_c$ (rad²/s³) olan beyaz noise olarak modelle. Bir adımda hızı $\int_0^{\Delta t} a(s)\,ds$, açıyı $\int_0^{\Delta t} (\Delta t - s)\,a(s)\,ds$ kadar değiştirir. Bu iki integralin varyansları ve covariance'ı $q_c\Delta t$, $q_c\int_0^{\Delta t}(\Delta t-s)^2ds = q_c\Delta t^3/3$ ve $q_c\Delta t^2/2$'dir: yukarıdaki matris.
+
+**R nereden gelir.** $R$ encoder varyansıdır: burada $\sigma^2 + \Delta^2/12$, yani beyaz noise artı $\Delta$ boyundaki basamaklara yuvarlama (ders 17). $[-\Delta/2, \Delta/2]$ aralığında düzgün dağılmış bir yuvarlama hatasının varyansı $\Delta^2/12$'dir.
+
+**Güven oranı olarak gain.** Tek boyutta ($F = H = 1$) update $\hat x = \hat x^- + K(z - \hat x^-)$, $K = P^-/(P^- + R)$'dir; yani
+
+$$\hat x = \frac{R}{P^- + R}\,\hat x^- + \frac{P^-}{P^- + R}\,z$$
+
+ağırlıkları ters varyanslar olan bir ağırlıklı ortalama. Bu aynı zamanda iki Gauss'un çarpımıdır, öngörü $\mathcal N(\hat x^-, P^-)$ ile ölçüm $\mathcal N(z, R)$: Bayes yorumu (bkz. AIEFS: [Bayes' Theorem](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/07-bayes-theorem)).
+
+**Yalnızca oran önemlidir.** $Q$, $R$ ve başlangıç $P$'sini aynı $c$ katsayısıyla ölçeklemek her $P^-_k$ ve $P_k$'yi $c$ ile ölçekler, $K_k$'yi değiştirmez; tahminler birebir aynıdır. Başlangıç $P$'si geçişten sonra unutulur; pratikte tahmini yalnızca $q_c/R$ belirler.
+
+**Coverage.** Hata, filtrenin iddia ettiği varyansla Gauss ise zamanın yaklaşık %95'inde $\pm 2\sqrt{P_{00}}$ içinde kalır. Çok daha düşük bir oran, filtrenin aşırı emin olduğu anlamına gelir.
+
+Daha derine: [Probability and Distributions](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/06-probability-and-distributions), [Bayes' Theorem](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/07-bayes-theorem); orijinal makale [Kalman 1960](https://doi.org/10.1115/1.3662552); tutorial [Welch & Bishop, TR 95-041](https://techreports.cs.unc.edu/papers/95-041.pdf).
+
+</details>
 
 ## Deney
 
@@ -57,7 +132,9 @@ for k in range(len(z)):
 
 **Tahmin.** $q_c$ çok küçükse filtre constant-velocity modeline güvenir, çok yumuşatır, geride kalır ve aşırı emin olur. Çok büyükse noise'u takip eder.
 
-**Çalıştır:** `python experiments/18-kalman-filter/experiment.py` (MuJoCo 3.17.0, NumPy 2.5.4, Apple M5, deterministic).
+**Çalıştır:** `uv run python experiments/18-kalman-filter/experiment.py` (MuJoCo 3.17.0, NumPy 2.5.4, Apple M5, deterministic).
+
+![Log eksende process noise q_c'ye karşı üç panel: konum hatası q_c = 1'de, hız hatası q_c = 0,1'de en küçük ve ikisi de ders 17'nin en iyi moving average baseline'larının altında; gerçek değerin filtrenin kendi 2-sigma bandında kaldığı örneklerin oranı q_c büyüdükçe %8'den yaklaşık %95'e ve üstüne çıkıyor.](../../experiments/18-kalman-filter/q_sweep.png)
 
 | $q_c$ | Konum RMS (mrad) | Delay (ms) | Hız RMS (rad/s) | $K_q$ | $K_{\dot q}$ | 2σ coverage (%) |
 |---|---|---|---|---|---|---|
@@ -73,10 +150,10 @@ Aynı veride ders 17 baseline'ları: MA N=5, 4,0 ms delay ile 5,17 mrad; MA N=65
 
 **Gözlem.**
 
-1. $q_c = 1$'de filtre, ders 17'nin en iyi konum filtresini sıfır ölçülen delay ile geçer (3,15'e karşı 5,17 mrad); $q_c = 0{,}1$'de en iyi hız filtresini geçer (0,084'e karşı 0,120 rad/s), hem de tek bir filtreyle. Baseline'lar bir örnek ileriye bakan `np.gradient` kullandı; Kalman filter tamamen causal ve yine kazanıyor.
+1. $q_c = 1$'de filtre, ders 17'nin en iyi konum filtresini sıfır ölçülen delay ile geçer (3,15'e karşı 5,17 mrad); $q_c = 0{,}1$'de en iyi hız filtresini geçer (0,084'e karşı 0,120 rad/s), hem de tek bir filtreyle. Baseline'lar bir örnek ileriye bakan `np.gradient` kullandı; Kalman filter tamamen **causal** (yalnızca geçmiş ve şimdiki okumaları kullanır) ve yine kazanıyor.
 2. Sıfır delay sihir değil: predict adımı tahmin edilen hızla ileriye extrapolate eder; yumuşak bir hareket "geçmişe doğru ortalanmaz".
 3. Başlangıç geçişinden sonra gain'ler sabittir (tablo son $K$'yı gösteriyor). Kararlı hâldeki Kalman filter, gain'lerini koda gömebileceğin sabit, iki state'li doğrusal bir filtredir.
-4. Coverage dürüstlük testidir. $q_c = 0{,}001$'de filtre 16 ms geride kalırken küçük bir $P$ iddia ediyor: örneklerin yalnızca %8,0'ı kendi 2σ bandının içinde. Ayarı bozuk bir filtrenin $P$'sini outlier eleme ya da sensor füzyonu gibi kararlar için asla kullanma.
+4. Coverage dürüstlük testidir: filtrenin iddia ettiği belirsizlik gerçek hatasıyla örtüşüyor mu? $q_c = 0{,}001$'de filtre 16 ms geride kalırken küçük bir $P$ iddia ediyor: örneklerin yalnızca %8,0'ı kendi 2σ bandının içinde. Ayarı bozuk bir filtrenin $P$'sini outlier eleme ya da sensor füzyonu gibi kararlar için asla kullanma.
 
 ## Boz
 
@@ -100,12 +177,12 @@ RMS sütunları $q_c$ sweep'ini birebir tekrarlar: $q_c=1$'de $R\times0{,}01$, g
 | 100 | 19,6 | 2,57 | 5,26 |
 | 10000 | 22,3 | 7,74 | 7,98 |
 
-Ayarlı filtre basamakta 44,1 mrad'a kadar geride kalır. $q_c$'yi yüz kat artırmak geçişi yarıya indirir ama yumuşak hareketteki doğruluğu düşürür (3,22'ye karşı 5,26 mrad); $10^4$'te filtre noise'u izler ve hız hatası patlar. Mekanizma: modelin bilinen bir komutu temsil etme yolu yok. Çözüm daha büyük $Q$ değil, daha iyi model: komut edilen ivmeyi ya da motor torkunu control input $Bu$ olarak ver (Welch & Bishop denklem 1.1) ya da bilinen geçişlerde $Q$'yu değiştir.
+Ayarlı filtre basamakta 44,1 mrad'a kadar geride kalır. $q_c$'yi yüz kat artırmak geçişi yarıya indirir ama yumuşak hareketteki doğruluğu düşürür (3,22'ye karşı 5,26 mrad); $10^4$'te filtre noise'u izler ve hız hatası patlar. Mekanizma: modelin bilinen bir komutu temsil etme yolu yok. Çözüm daha büyük $Q$ değil, daha iyi model: komut edilen ivmeyi ya da motor torkunu **control input** $Bu$ olarak, yani öngörüye eklenen bilinen bir terim olarak ver (Welch & Bishop denklem 1.1) ya da bilinen geçişlerde $Q$'yu değiştir.
 
 ## Gerçek robotta
 
 - $R$ tahmin edilmez, ölçülür: her SO-101 eklemini sabit bir pozda ve yavaş bir rampa boyunca logla (prosedür [ders 17](17-sensors-noise-filtering.md)'de). Gerçek kolda henüz ölçülmedi.
-- Seri bus okumaları jitter'lı gelir. $F$ ve $Q$'yu nominal $\Delta t$ ile değil, son örnekten bu yana geçen gerçek süreyle kur; ikisi de yukarıda açıkça $\Delta t$'nin fonksiyonu.
+- Seri bus okumaları jitter'lı (zamanda düzensiz aralıklarla) gelir. $F$ ve $Q$'yu nominal $\Delta t$ ile değil, son örnekten bu yana geçen gerçek süreyle kur; ikisi de yukarıda açıkça $\Delta t$'nin fonksiyonu.
 - SO-101 servoları kendi position loop'larını içeride kapatır (LeRobot onları position moduna alır ve PID gain'lerini yazar, [`so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/so_follower.py)); host tarafındaki bir Kalman filter servonun iç döngüsünü değil, logladığın, policy'ye verdiğin ya da collision tespiti için kullandığın hız ve state tahminlerini iyileştirir.
 - Her ekleme gönderdiğin komutu biliyorsan (biliyorsun), $Q$'yu büyütmeden önce onu modele koy. Yukarıdaki basamak testi, aksi hâlde her hızlı kalkış ve duruşta göreceğin hatadır.
 

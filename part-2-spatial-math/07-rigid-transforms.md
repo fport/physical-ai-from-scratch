@@ -22,7 +22,45 @@ Mixing them up does not crash anything. It silently sends the gripper 10 to 42 c
 
 ## Core idea
 
-A **rigid transform** (pose) of frame $B$ in frame $A$ is a rotation $R_{AB}$ (lesson 06) plus the position $t_{AB}$ of $B$'s origin in $A$. Pack them in a 4×4 **homogeneous transform**:
+### In plain words
+
+"The cube is 15 cm in front of me" is only useful if you know where "me" is and which way I face. Compare it with a GPS coordinate, which means the same thing to everyone. A **frame** is such a reference: an origin plus three axis directions. The world frame is the GPS of the scene; the base, gripper and camera frames are "in front of me" for each part of the robot. The same cube has a different number triple in each.
+
+A **rigid transform** is the recipe for converting between two frames: rotate (lesson 06), then shift. If you know where the gripper is in the base frame and where the camera is in the gripper frame, you can chain the two recipes to get the camera in the base frame. In code that is plain function composition: `world_from_base(base_from_gripper(gripper_from_camera(p)))`. Naming transforms "A from B" keeps the chain honest: neighbouring letters must match, like units.
+
+A robot is a tree of such frames, the **frame tree**. Some edges are fixed (where the base is bolted, where the camera is screwed onto the gripper); others change whenever a joint turns.
+
+```mermaid
+flowchart TD
+    W["world W"] -- "T_WB: base placement<br/>(fixed)" --> B["base B"]
+    W -- "fixed" --> K["cube"]
+    B -- "shoulder → upper arm → lower arm<br/>→ wrist → gripper<br/>(5 joints, change with q)" --> G["gripper site G"]
+    G -- "T_GC: camera mount<br/>(fixed)" --> C["wrist camera C"]
+    C -- "pinhole projection" --> I["pixels u, v"]
+```
+
+### Transforms as code
+
+```python
+import numpy as np
+
+def T(R, t):                     # 4x4 transform from rotation R (3x3) and translation t (3,)
+    M = np.eye(4)
+    M[:3, :3], M[:3, 3] = R, t
+    return M
+
+def T_inv(M):                    # closed-form inverse, no np.linalg.inv needed
+    R, t = M[:3, :3], M[:3, 3]
+    return T(R.T, -R.T @ t)
+
+# Naming: T_AB maps coordinates in frame B to coordinates in frame A ("A from B").
+p_B = np.array([x, y, z, 1.0])   # homogeneous point: append a 1 so the shift is part of the product
+p_A = T_AB @ p_B                 # B -> A
+T_AC = T_AB @ T_BC               # chain = composition; the inner letters cancel
+p_B = T_inv(T_AB) @ p_A          # A -> B
+```
+
+The pose of frame $B$ in frame $A$ is a rotation $R_{AB}$ plus the position $t_{AB}$ of $B$'s origin in $A$, packed in a 4×4 **homogeneous transform**:
 
 $$T_{AB} = \begin{bmatrix} R_{AB} & t_{AB} \\ 0 & 1\end{bmatrix},\qquad p_A = T_{AB}\,p_B\ \ (\text{with } p = [x\ y\ z\ 1]^\top).$$
 
@@ -32,7 +70,26 @@ $$T_{AB} = \begin{bmatrix} R_{AB} & t_{AB} \\ 0 & 1\end{bmatrix},\qquad p_A = T_
 | Invert | $T_{AB}^{-1} = T_{BA} = \begin{bmatrix} R^\top & -R^\top t \\ 0 & 1\end{bmatrix}$ | never call a general matrix inverse |
 | Change frame of a point | $p_B = T_{AB}^{-1}\,p_A$ | the subscript you want goes on the right |
 
-A robot is a **frame tree**: world → base → shoulder → … → gripper → camera. MuJoCo computes the world pose of every node and stores it in `mjData` ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)):
+$T_{AB}$ is the transform that takes coordinates in $B$ to coordinates in $A$; $R_{AB}$ is its 3×3 rotation and $t_{AB}$ its translation in metres; $p_A$ and $p_B$ are the same physical point written in frames $A$ and $B$, with a 1 appended.
+
+<details>
+<summary>Math details: why the inverse is cheap and why distances survive</summary>
+
+**Homogeneous coordinates.** Appending a 1 to a point turns "rotate, then add $t$" into a single matrix product, $T p = [Rp + t;\ 1]$. That is what makes chains of transforms a chain of multiplications.
+
+**Closed-form inverse.** Solve $p_A = R p_B + t$ for $p_B$: $p_B = R^{-1}(p_A - t) = R^\top p_A - R^\top t$, because a rotation matrix satisfies $R^\top R = I$. This is exact and cheaper than a general inverse; the experiment checks it against `np.linalg.inv`.
+
+**Distances are preserved.** For two points, $\lVert T p - T p'\rVert = \lVert R(p - p')\rVert = \lVert p - p'\rVert$. So if two frames are rigidly attached (a constant transform between them), any point moves by the same distance in both: Result 3 shows this for the gripper and the camera.
+
+**Which coordinates change when a joint moves.** $p_F = T_{WF}^{-1}\,p_W$. A joint changes $T_{WF}$ only if it lies on the path from the world to $F$ in the tree, so a joint downstream of $F$ cannot change $F$-coordinates.
+
+Go deeper: AIEFS [Vectors, Matrices & Operations](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/02-vectors-matrices-operations), [Matrix Transformations](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/03-matrix-transformations); Lynch & Park, *Modern Robotics*, Ch. 3.
+
+</details>
+
+### Frame trees in MuJoCo
+
+MuJoCo computes the world pose of every node and stores it in `mjData` ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)):
 
 | Object | Position | Orientation | Filled by |
 |---|---|---|---|
@@ -41,13 +98,13 @@ A robot is a **frame tree**: world → base → shoulder → … → gripper →
 | site | `site_xpos` | `site_xmat` | `mj_kinematics` |
 | camera | `cam_xpos` | `cam_xmat` | `mj_camlight` (part of `mj_forward`) |
 
-Two conventions to memorize. A MuJoCo camera looks along the **−z** axis of its frame, with +x right and +y up in the image ([XML reference: camera](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-camera)). In a `framepos` sensor, `objtype/reftype="body"` means the body's **inertial** frame, while `"xbody"` means its regular frame ([XML reference: framepos](https://mujoco.readthedocs.io/en/stable/XMLreference.html#sensor-framepos)). Vectors and matrix products are covered in AIEFS: [Vectors, Matrices & Operations](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/02-vectors-matrices-operations).
+A **site** is a named, massless frame attached to a body, used to mark points such as the tool tip. Two conventions to memorize. A MuJoCo camera looks along the **−z** axis of its frame, with +x right and +y up in the image ([XML reference: camera](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-camera)). In a `framepos` sensor, `objtype/reftype="body"` means the body's **inertial** frame (origin at the centre of mass), while `"xbody"` means its regular frame ([XML reference: framepos](https://mujoco.readthedocs.io/en/stable/XMLreference.html#sensor-framepos)).
 
 ## Experiment
 
 Script: [`experiments/07-rigid-transforms/experiment.py`](../experiments/07-rigid-transforms/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), deterministic, about 2 s.
 
-**Setup.** The SO-101 base is moved with `MjSpec` to (0.10, −0.05, 0) m and yawed 30°, so world ≠ base. A 3 cm cube sits on the table at (0.2905, 0.0600, 0.015) m in world. The arm is in a pose where the wrist camera sees the cube. Four `framepos` sensors report the cube in base (`xbody`), base (`body`), gripper site and camera.
+**Setup.** The SO-101 base is moved with `MjSpec` (MuJoCo's API for editing a model in code) to (0.10, −0.05, 0) m and yawed 30°, so world ≠ base. A 3 cm cube sits on the table at (0.2905, 0.0600, 0.015) m in world. The arm is in a pose where the wrist camera sees the cube. Four `framepos` sensors report the cube in base (`xbody`), base (`body`), gripper site and camera.
 
 **Predict first.** When you rotate `shoulder_pan`, which of the four coordinate triples of the (unmoving) cube change?
 
@@ -71,9 +128,9 @@ cube_in = {k: (T_inv(Tw) @ np.append(p_world, 1))[:3] for k, Tw in F.items()}
 | gripper G (site `gripperframe`) | (0.0806, −0.0290, −0.0205) | 1.4e-17 |
 | camera C (`wrist_cam`) | (−0.0064, −0.0011, −0.1508) | 4.1e-17 |
 
-The closed-form inverse matches `np.linalg.inv` to 1.1e-15, and $T_{WB}T_{BG}$ reproduces $T_{WG}$ to 5.6e-17. The camera triple has $z = -0.1508$ m: the cube is 15 cm in front of the lens, almost on the optical axis.
+The closed-form inverse matches `np.linalg.inv` to 1.1e-15, and $T_{WB}T_{BG}$ reproduces $T_{WG}$ to 5.6e-17. The camera triple has $z = -0.1508$ m: the cube is 15 cm in front of the lens, almost on the optical axis (the line straight out of the lens).
 
-**Result 2 · from camera frame to pixels.** With $f = (H/2)/\tan(\text{fovy}/2) = 407.4$ px at 640×480, the cube centre projects to $u = 302.7$, $v = 242.8$ px ($u = W/2 + f x/(-z)$, $v = H/2 - f y/(-z)$). Projecting the 8 cube corners and filling their convex hull gives a silhouette with IoU 0.979 against MuJoCo's rendered segmentation mask (9643 vs 9454 px), centroid offset 0.74 px. The silhouette, not the centroid, is the right check (see On the real robot).
+**Result 2 · from camera frame to pixels.** A pinhole camera divides by depth: a point twice as far lands twice as close to the image centre. With focal length $f = (H/2)/\tan(\text{fovy}/2) = 407.4$ px at 640×480, the cube centre projects to $u = 302.7$, $v = 242.8$ px ($u = W/2 + f x/(-z)$, $v = H/2 - f y/(-z)$). Projecting the 8 cube corners and filling their convex hull gives a silhouette with IoU (overlap area divided by union area) 0.979 against MuJoCo's rendered segmentation mask (9643 vs 9454 px), centroid offset 0.74 px. The silhouette, not the centroid, is the right check (see On the real robot).
 
 **Result 3 · sweep `shoulder_pan`.** Other joints fixed; coordinates in cm.
 

@@ -16,25 +16,83 @@
 
 ## Problem
 
-Ders 12'de Unitree'nin gerçek robot için yazdığı ayağa kalkma örneği duruş pozunu tek seferde göndermiyordu: 2 ms'lik 500 ila 1000 tick süren fazlarla ona doğru interpolasyon yapıyordu ([`go2_stand_example.py`](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py)). Robot arayüzleri daha da ileri gider: libfranka'nın `rate_limiting.h` dosyası, 1 ms'lik kontrol periyodunda joint başına en fazla 10 rad/s² ivme, 5000 rad/s³ jerk ve 1000 N·m/s torque değişim hızı tanımlar ve komutları bu sınırlara kırpan `limitRate` fonksiyonları sunar ([`rate_limiting.h`](https://github.com/frankarobotics/libfranka/blob/main/include/franka/rate_limiting.h)). Bir planner ya da IK solver sana *nereye* gideceğini söyler; trajectory generation ise *referansın zamanda nasıl ilerleyeceğine* karar verir. Bu seçim tepe torque'u, yapıyı sarsan jerk'ü ve takip hatasını belirler. Bu ders üçünü de bir Panda üzerinde ölçüyor.
+Ders 12'de Unitree'nin gerçek robot için yazdığı ayağa kalkma örneği duruş pozunu tek seferde göndermiyordu: 2 ms'lik 500 ila 1000 tick süren fazlarla ona doğru interpolasyon yapıyordu ([`go2_stand_example.py`](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py)). Robot arayüzleri daha da ileri gider: libfranka'nın `rate_limiting.h` dosyası, 1 ms'lik kontrol periyodunda joint başına en fazla 10 rad/s² ivme, 5000 rad/s³ jerk (ivmenin değişme hızı) ve 1000 N·m/s torque değişim hızı tanımlar ve komutları bu sınırlara kırpan `limitRate` fonksiyonları sunar ([`rate_limiting.h`](https://github.com/frankarobotics/libfranka/blob/main/include/franka/rate_limiting.h)). Bir planner ya da IK solver sana *nereye* gideceğini söyler; trajectory generation ise *referansın zamanda nasıl ilerleyeceğine* karar verir. Bu seçim tepe torque'u, yapıyı sarsan jerk'ü ve takip hatasını (robotun referansının ne kadar gerisinde kaldığını) belirler. Bu ders üçünü de bir Panda üzerinde ölçüyor.
 
 ## Ana fikir
 
-Her hareketi $q(t) = q_0 + s(t/T)\,\Delta q$ olarak yaz; burada $s(u)$ bir zaman ölçekleme fonksiyonu, $u \in [0,1]$, $s(0) = 0$, $s(1) = 1$ (Lynch & Park, bölüm 9).
+### Sade anlatımla
+
+Controller referansını, yani şu an olması söylenen açıyı kovalar. Referans hedefe ışınlanırsa (**step**), controller oraya anında varmaya çalışır ve devasa bir tork ister. **Trajectory** ise referansı bir zaman çizelgesi olarak yazmaktır: başlangıç ile hedef arasında her tick'te her eklemin nerede olması gerektiği.
+
+Bir asansör düşün. Ucuz bir asansör kalkarken ve dururken sarsar; iyi bir asansör harekete yumuşakça girer, sabit hızda gider ve yumuşakça çıkar. Sarsıntı olarak hissettiğin şey **jerk**'tür: ivmenin değişme hızı. Çizelgenin şekli buna karar verir:
+
+- **linear**: ilk andan itibaren sabit hız; hız iki uçta sıçrar;
+- **trapezoid**: hız artar, sabit gider, azalır; ivme köşelerde sıçrar;
+- **cubic**: hız yumuşaktır ama ivme başta ve sonda yine sıçrar;
+- **quintic**: konum, hız ve ivme başta ve sonda durağandır. Bu, **minimum-jerk** harekettir.
+
+Süre şekilden daha önemlidir: aynı hareketi yarı sürede yaparsan her ivme (ve tork) dört kat, her jerk sekiz kat büyür. İki seçim daha var: eklem açılarında interpolasyon (ucuz ama el bir eğri izler) ya da el için düz bir çizgi (her noktada IK gerekir) ve **feedforward** eklenip eklenmeyeceği: planlanan ivmenin gerektirdiği torku hatanın birikmesini beklemeden önceden göndermek.
+
+```mermaid
+flowchart TD
+    G["hedef eklem açıları<br/>planner ya da IK'dan"] --> TG["trajectory generator<br/>q_r(t) = q0 + s(t/T)·Δq"]
+    TG --> R["q_r, q̇_r, q̈_r<br/>her 2 ms'de"]
+    R --> PD["PD + yerçekimi<br/>q_r, q̇_r'yi takip eder"]
+    R --> FF["feedforward<br/>M(q)·q̈_r"]
+    PD --> S["topla, tork limitlerine kırp"]
+    FF --> S
+    S --> A["Panda"]
+    A -- "ölçülen q, q̇" --> PD
+```
+
+### Time scaling kod olarak
+
+Her hareket "başlangıç + yolun tamamlanan kesri × toplam değişim"dir; zamanla yalnızca `s` kesri değişir.
+
+```python
+def quintic(t, T):
+    u = min(max(t / T, 0.0), 1.0)              # normalised time, 0 at start, 1 at the end
+    s = 10*u**3 - 15*u**4 + 6*u**5             # fraction of the move done, 0 -> 1
+    sd = (30*u**2 - 60*u**3 + 30*u**4) / T     # ds/dt  [1/s]
+    sdd = (60*u - 180*u**2 + 120*u**3) / T**2  # d2s/dt2 [1/s^2]
+    return s, sd, sdd
+
+s, sd, sdd = quintic(t, T)
+q_ref, qd_ref, qdd_ref = q0 + s*dq, sd*dq, sdd*dq      # per-joint reference [rad, rad/s, rad/s^2]
+tau = g(q) + kp*(q_ref - q) + kd*(qd_ref - qd)         # PD tracking + gravity (lesson 12)
+tau += M(q) @ qdd_ref                                  # optional feedforward (lesson 11's M)
+```
 
 | şekil | $s(u)$ | sınır koşulları | tepe $|\ddot q|$ | jerk |
 |---|---|---|---|---|
 | step | 1 | yok | ∞ | ∞ |
 | linear | $u$ | konum | ∞ (hız sıçrar) | ∞ |
-| trapezoidal hız | $T/3$ hızlan, sabit git, $T/3$ yavaşla | konum, hız | $4{,}5\,\Delta q/T^2$ | ∞ (ivme sıçrar) |
+| trapezoidal velocity | $T/3$ hızlan, sabit git, $T/3$ yavaşla | konum, hız | $4{,}5\,\Delta q/T^2$ | ∞ (ivme sıçrar) |
 | cubic | $3u^2 - 2u^3$ | konum, hız | $6\,\Delta q/T^2$ | uçlarda ∞ |
 | quintic | $10u^3 - 15u^4 + 6u^5$ | konum, hız, ivme | $5{,}77\,\Delta q/T^2$ | $60\,\Delta q/T^3$ |
 
-İki uçta hızı ve ivmesi sıfır olan quintic, **minimum-jerk** trajectory'sidir: iki durağan durum arasındaki tüm yumuşak yollar içinde $\int \dddot q^{\,2} dt$'yi en küçük yapan odur (Flash & Hogan 1985; onu insan kol hareketini modellemek için kullandılar). Bütün ivmeler $1/T^2$ ile, jerk'ler $1/T^3$ ile ölçeklenir: süreyi yarıya indirirsen dört kat torque gerekir.
+Burada $q(t) = q_0 + s(t/T)\,\Delta q$, $u = t/T \in [0,1]$ normalize zaman, $s(u)$ ise $s(0) = 0$ ve $s(1) = 1$ olan time scaling'dir (Lynch & Park, böl. 9); $q_0$ başlangıç açıları, $\Delta q$ toplam değişim, $T$ süre, $\ddot q$ eklem ivmesi ve jerk $\dddot q$ onun zaman türevidir. "Sınır koşulları", şeklin iki uçta durağan yaptığı büyüklükleri listeler.
 
-**Joint space mi, Kartezyen mi?** Joint space'te interpolasyon ucuzdur ve iki uç joint limit'lerinin içindeyse yol da içinde kalır, ama el bir eğri çizer. Kartezyen düz çizgi her ara noktada IK ister (ders 10), singularity'lerden ya da joint limit'lerinden geçebilir ve daha fazla joint hareketine mal olur.
+![Linear, trapezoid, cubic ve quintic time scaling'lerin normalize zamana karşı konum, hız ve ivmesi. Yalnızca quintic hem sıfır hız hem sıfır ivmeyle başlayıp bitiyor; cubic'in ivmesi uçlarda 6'ya sıçrıyor, trapezoid'inki köşelerinde sıçrıyor.](../../experiments/13-trajectory-generation/time_scalings.png)
 
-**Feedforward.** $\tau = g(q) + K_p(q_r - q) + K_d(\dot q_r - \dot q)$ biçimindeki bir takip controller'ı, uzuvları hızlandıracak torque'u üretmek için önce hata yapmak zorundadır. Model terimi $M(q)\ddot q_r$'yi eklemek (ders 11) bu torque'u önceden sağlar; yumuşak bir referans $\ddot q_r$'yi elde edilebilir ve sınırlı kılar.
+**Joint space ve Cartesian.** Joint space'te interpolasyon, iki uç da joint limitleri içindeyse limitler içinde kalır ama el bir eğri izler. Cartesian düz çizgi her waypoint'te IK ister (ders 10), singularity'lerden ya da joint limitlerinden geçebilir ve daha fazla joint hareketine mal olur.
+
+**Feedforward.** $\tau = g(q) + K_p(q_r - q) + K_d(\dot q_r - \dot q)$ biçimindeki bir takip controller'ı torku yalnızca bir hatadan üretir. Model terimi $M(q)\ddot q_r$'yi (ders 11) eklemek ivmelendiren torku önceden sağlar; yumuşak bir referans $\ddot q_r$'yi kullanılabilir ve sınırlı kılar.
+
+<details>
+<summary>Matematik ayrıntısı: quintic nereden geliyor, 1/T² ve 1/T³ yasaları</summary>
+
+**Sınır koşullarından polinomlar.** Bir cubic'in dört katsayısı vardır; iki uçta $s$ ve $\dot s$ için yeter: $s(0)=0$, $s(1)=1$, $s'(0)=s'(1)=0$ koşulları $3u^2 - 2u^3$ verir. İvmesi $s'' = 6 - 12u$ uçlarda $\pm 6$'dır ve orada durağan haldeki sıfırdan sıçrar. Bir quintic'in altı katsayısı vardır; $s''(0) = s''(1) = 0$ eklenince $10u^3 - 15u^4 + 6u^5$ çıkar. İvmesi $s'' = 60u - 180u^2 + 120u^3$, $u = (3-\sqrt3)/6$'da $10\sqrt3/3 \approx 5{,}77$ değeriyle tepe yapar; jerk'ü $s''' = 60 - 360u + 360u^2$ uçlarda en büyüktür: 60.
+
+**Minimum jerk.** $\int_0^1 (s''')^2\,du$'yu küçültmek, Euler–Lagrange denklemiyle $s^{(6)} = 0$ verir: beşinci dereceden bir polinom. İki uçta durağanlıkla tam olarak yukarıdaki quintic'tir (Flash & Hogan 1985).
+
+**Süreyle ölçekleme.** Zincir kuralıyla $\dot q = \Delta q\, s'(u)/T$, $\ddot q = \Delta q\, s''(u)/T^2$, $\dddot q = \Delta q\, s'''(u)/T^3$. Şekil tablodaki sabitleri, süre ise $T$'nin kuvvetlerini belirler. Eklem torku $\approx M\ddot q$ + yerçekimi; $T$'yi yarıya indirmek torkun dinamik kısmını dört katına çıkarır.
+
+**Sıçrama neden sonsuz jerk demek.** İvme sonlu bir miktar sıfır zamanda değişirse türevi bir sivri tepedir (2 ms'lik bir simülasyonda: değişimin 2 ms'ye bölümü); deneydeki robot jerk sütunlarının ölçtüğü budur.
+
+Daha derine: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml) (türev, zincir kuralı); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), böl. 9; T. Flash, N. Hogan, [doi:10.1523/JNEUROSCI.05-07-01688.1985](https://doi.org/10.1523/JNEUROSCI.05-07-01688.1985).
+
+</details>
 
 ## Deney
 
@@ -47,7 +105,7 @@ tau = d.qfrc_bias[:7] + KP * (q_ref - q) + KD * (qd_ref - qd)    # PD + gravity/
 tau = np.clip(tau, -lim, lim)
 ```
 
-Kp = (600, 600, 600, 600, 250, 150, 50), Kd = (50, 50, 50, 50, 20, 12, 4). "Robot" sütunları simülasyonda `qacc`'den ölçülüyor; robot jerk'ü onun 2 ms'deki sonlu farkı. Tam script: [`experiments/13-trajectory-generation/experiment.py`](../../experiments/13-trajectory-generation/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministik, ~4 s.
+Kp = (600, 600, 600, 600, 250, 150, 50), Kd = (50, 50, 50, 50, 20, 12, 4). "Robot" sütunları simülasyonda `qacc`'den ölçülüyor; robot jerk'ü onun 2 ms'deki sonlu farkı. "Saturation'daki adımlar", herhangi bir joint torkunun limitinde kırpıldığı kontrol adımlarının payıdır. Tam script: [`experiments/13-trajectory-generation/experiment.py`](../../experiments/13-trajectory-generation/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministik, ~4 s.
 
 **Tahmin et.** Hangi şeklin takip hatası en küçük? Hangisinin jerk'ü en küçük?
 

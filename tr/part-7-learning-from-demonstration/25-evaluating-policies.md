@@ -16,27 +16,91 @@
 
 ## Problem
 
-Bölüm 7 policy'ler eğitiyor ve her birine tek bir soru soruyor: küpü kaldırıyor mu? "%90 başarı" gibi cevaplar genellikle 10 ya da 20 rollout'a dayanır. 10 denemeyle, uzun vadeli oranı 0,74 olan bir policy beş evaluation'dan birinde 9/10 ya da daha iyisini yapar (aşağıda ölçüldü); yani tek bir "9/10", 0,74'lük bir policy'yi 0,88'lik birinden ayıramaz. Bir şey eğitmeden önce bu ders kitabın geri kalanının kullandığı evaluation protokolünü kuruyor: neyin başarı sayıldığı, kaç deneme gerektiği, hangi aralığın raporlanacağı ve iki policy'nin gerçekten ne zaman farklı olduğu.
+Bölüm 7 policy'ler eğitiyor ve her birine tek bir soru soruyor: küpü kaldırıyor mu? "%90 başarı" gibi cevaplar genellikle 10 ya da 20 rollout'a dayanır (bir rollout = policy'nin baştan sona bir koşusu). 10 denemeyle, uzun vadeli oranı 0,74 olan bir policy beş evaluation'dan birinde 9/10 ya da daha iyisini yapar (aşağıda ölçüldü); yani tek bir "9/10", 0,74'lük bir policy'yi 0,88'lik birinden ayıramaz. Bir şey eğitmeden önce bu ders kitabın geri kalanının kullandığı evaluation protokolünü kuruyor: neyin başarı sayıldığı, kaç deneme gerektiği, hangi aralığın raporlanacağı ve iki policy'nin gerçekten ne zaman farklı olduğu.
 
 ## Ana fikir
 
-**Başarı bir Bernoulli sonucudur.** Deneme $i$, fiziksel bir testin karar verdiği $X_i \in \{0, 1\}$ ile biter. Bizimki [ders 16](../part-4-dynamics-and-control/16-grasping-and-pick-place.md)'dan: sonda küpün altı zeminden ≥ 4 cm yukarıda ve iki çene de küpe değiyor; weld ya da bağlantı yok. Denemeler bağımsız ve aynı oran $p$'ye sahipse $k = \sum X_i$ binom dağılır ve $\hat p = k/n$ (bkz. AIEFS: [Statistics for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/15-statistics-for-ml)).
+### Sade anlatımla
 
-**Wilson aralığı.** Ders kitabındaki (Wald) aralık $\hat p \pm z\sqrt{\hat p(1-\hat p)/n}$, $k = 0$ ya da $k = n$'de sıfır genişliğe çöker ve küçük $n$'de gerektiğinden az kapsar. Wilson (1927) bunun yerine score testini tersine çevirir:
+Bir avuç denemeyle ölçülen bir success rate (başarı oranı), örneklemi çok küçük bir kamuoyu anketidir. Bir anketçi 10 kişiye sorsa ve 9'u evet dese, ciddi hiç kimse "ülkenin %90'ı katılıyor" diye yazmaz; "yaklaşık %90, ama hata payı geniş" der. Robot evaluation'ı da aynı biçimde işler. Her deneme bir katılımcıdır, policy'nin uzun vadeli success rate'i bütün ülkenin görüşüdür ve hata payını deneme sayısı belirler. İstatistikçiler bu hata payına **confidence interval** der: birçok evaluation boyunca gerçek oranı belirtilen bir sıklıkla (burada %95) içerecek biçimde hesaplanan bir aralık.
 
-$$\frac{\hat p + \frac{z^2}{2n}}{1 + \frac{z^2}{n}} \;\pm\; \frac{z}{1 + \frac{z^2}{n}}\sqrt{\frac{\hat p(1-\hat p)}{n} + \frac{z^2}{4n^2}},\qquad \%95 \text{ için } z = 1{,}96.$$
+Buradan üç kural çıkar. Başlamadan önce neyin "evet" sayılacağına karar ver: bir denemeyi başarılı sayan fiziksel bir test. Sonucu hata payıyla birlikte raporla: n denemede k başarı, artı bir aralık. Ve iki policy'yi, aralıklarının örtüşüp örtüşmediğine göz kararı bakarak değil, karşılaştırma için yapılmış bir testle karşılaştır.
 
-Brown, Cai ve DasGupta (2001), Wald aralığının kapsamasının düzensiz olduğunu gösterir ve küçük $n$ için Wilson'ı (ya da Jeffreys'i) önerir.
+Hata payı yavaş küçülür. Onu yarıya indirmek dört kat deneme ister; her deneme de robot zamanı ve bir küp reset'i demektir.
 
-**Gereken deneme sayısı.** Yarı genişlik $1/\sqrt n$ gibi küçülür: yarıya indirmek dört kat deneme ister.
+### Evaluation protokolü
 
-**Varyansın birden fazla kaynağı var.** Binom aralığı yalnız evaluation gürültüsünü kapsar. Öğrenilmiş bir policy training seed'leri ve veri alt kümeleri arasında da değişir; bir *yöntem* hakkındaki iddia, her biri aynı test konumlarında evaluate edilen birkaç training koşusu ister. Ders 28 seed başına ve birleşik sonuçları raporluyor.
+```mermaid
+flowchart TD
+    T["başarı testini yaz<br/>(küp 4 cm yukarıda, iki çene üstünde)"] --> P["test konumlarını sabitle<br/>(her policy için aynı)"]
+    P --> R["n deneme koş<br/>her biri 1 ya da 0 ile biter"]
+    R --> K["k başarıyı say"]
+    K --> W["k/n raporla<br/>+ Wilson %95 aralığı"]
+    K --> F["iki policy mi?<br/>Fisher exact testi"]
+```
 
-**İki policy'yi karşılaştırmak.** Örtüşen aralıklar eşitliği kanıtlamaz ve ayrık %95 aralıkları doğrudan bir karşılaştırmadan daha katı bir testtir. $k_A/n_A$ ile $k_B/n_B$ için iki örneklemli bir test kullan, örneğin 2 × 2 tablo üzerinde Fisher'ın exact testi ([SciPy `fisher_exact`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.fisher_exact.html)).
+### Aralık, kod olarak
+
+Her deneme, hileli bir yazı-tura gibi 1 (başarı) ya da 0 (başarısızlık) ile biter; istatistikçiler buna Bernoulli denemesi, n atıştaki tura sayısına da binom sayımı der. Ders kitabındaki aralık (Wald) ve bu kitabın kullandığı aralık (Wilson, 1927) birkaç satırdır:
+
+```python
+import math
+
+def wald(k, n, z=1.96):              # k successes in n trials; z = 1.96 for 95%
+    p = k / n                        # observed success rate
+    half = z * math.sqrt(p * (1 - p) / n)          # zero when p is 0 or 1
+    return max(0.0, p - half), min(1.0, p + half)
+
+def wilson(k, n, z=1.96):
+    p = k / n
+    den = 1 + z * z / n
+    center = (p + z * z / (2 * n)) / den           # pulled toward 0.5
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den  # never zero
+    return max(0.0, center - half), min(1.0, center + half)
+
+wilson(9, 10)    # (0.596, 0.982): a "9/10" fits a mediocre or an excellent policy
+wald(10, 10)     # (1.0, 1.0): claims certainty after ten trials
+```
+
+| Büyüklük | Formül |
+|---|---|
+| gözlenen oran | $\hat p = k/n$ |
+| Wald aralığı | $\hat p \pm z\sqrt{\hat p(1-\hat p)/n}$ |
+| Wilson aralığı | $\dfrac{\hat p + \frac{z^2}{2n}}{1 + \frac{z^2}{n}} \;\pm\; \dfrac{z}{1 + \frac{z^2}{n}}\sqrt{\dfrac{\hat p(1-\hat p)}{n} + \dfrac{z^2}{4n^2}}$ |
+| yarı genişlik | $1/\sqrt n$ gibi küçülür |
+
+Burada $k$ başarılı deneme sayısı, $n$ deneme sayısı, $\hat p$ gözlenen oran, $p$ onun tahmin ettiği uzun vadeli oran ve $z = 1{,}96$ de %95 güven veren çarpandır. Başarı testimiz [ders 16](../part-4-dynamics-and-control/16-grasping-and-pick-place.md)'dan: sonda küpün altı zeminden ≥ 4 cm yukarıda ve iki çene de küpe değiyor; weld ya da bağlantı yok.
+
+<details>
+<summary>Matematik ayrıntısı: iki aralık nereden geliyor</summary>
+
+**Binom modeli.** Deneme $i$, $X_i \in \{0, 1\}$ ile biter. Denemeler bağımsızsa ve aynı oran $p$'yi paylaşıyorsa $k = \sum X_i$ binom dağılır; $\hat p = k/n$'nin ortalaması $p$, varyansı $p(1-p)/n$'dir (bkz. AIEFS: [Statistics for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/15-statistics-for-ml)). Normal yaklaşımla $z = 1{,}96$ için $|\hat p - p| \le z\sqrt{p(1-p)/n}$ yaklaşık %95 olasılıkla sağlanır.
+
+**Wald**, karekökün altındaki bilinmeyen $p$'nin yerine $\hat p$ koyar. $k = 0$ ya da $k = n$'de tahmin edilen varyans tam sıfırdır ve aralık bir noktaya çöker; $np$ ya da $n(1-p)$ küçükken normal yaklaşım kötüdür ve kapsama %95'in altına düşer.
+
+**Wilson**, $p$'yi varyansta tutar ve eşitsizliği $p$ için çözer ("score testini tersine çevirir"). Karesini almak $(\hat p - p)^2 = z^2 p(1-p)/n$ ikinci derece denklemini verir, yani
+
+$$p^2\Big(1 + \tfrac{z^2}{n}\Big) - p\Big(2\hat p + \tfrac{z^2}{n}\Big) + \hat p^2 = 0;$$
+
+iki kökü yukarıdaki Wilson sınırlarıdır. Merkez $z^2/2n$ kadar 0,5'e doğru kayar ve $z^2/4n^2$ terimi $\hat p = 0$ ya da 1'de bile genişliği pozitif tutar. Brown, Cai ve DasGupta (2001), Wald aralığının kapsamasının düzensiz olduğunu gösterir ve küçük $n$ için Wilson'ı (ya da Jeffreys'i) önerir.
+
+**Neden dört kat deneme.** Yarı genişlik yaklaşık $z\sqrt{p(1-p)/n}$'dir; yarıya indirmek için $n$ dört kat büyümeli. $p = 0{,}5$ civarında varyans $p(1-p)$ en büyüktür; aynı hassasiyet en çok denemeyi orada ister.
+
+**İlk bozulan varsayım** bağımsızlıktır: servolarda, kamerada ya da reset'lerde kayma denemeleri birbirine bağlar ve binom aralığı o zaman fazla dar kalır.
+
+Daha derine: [Statistics for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/15-statistics-for-ml), [Model Evaluation](https://aiengineeringfromscratch.com/lesson?path=phases/02-ml-fundamentals/09-model-evaluation); aşağıdaki kaynaklarda Wilson (1927) ve Brown, Cai, DasGupta (2001).
+
+</details>
+
+### Aralığın kapsamadıkları
+
+**Varyansın birden fazla kaynağı var.** Binom aralığı yalnız evaluation gürültüsünü kapsar. Öğrenilmiş bir policy training seed'leri (başlangıç ağırlıklarını ve batch sırasını belirleyen rastgele sayı) ve veri alt kümeleri arasında da değişir; bir *yöntem* hakkındaki iddia, her biri aynı test konumlarında evaluate edilen birkaç training koşusu ister. Ders 28 seed başına ve birleşik sonuçları raporluyor.
+
+**İki policy'yi karşılaştırmak.** Örtüşen aralıklar eşitliği kanıtlamaz ve ayrık %95 aralıkları doğrudan bir karşılaştırmadan daha katı bir testtir. $k_A/n_A$ ile $k_B/n_B$ için iki örneklemli bir test kullan, örneğin başarı ve başarısızlıkların 2 × 2 tablosu üzerinde Fisher'ın exact testi ([SciPy `fisher_exact`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.fisher_exact.html)). Sorduğu soru şu: iki policy'nin oranı aynı olsaydı, en az bu kadar büyük bir fark ne kadar olası olurdu? 0,05'in altındaki bir p-değeri "farklı" demek için alışılmış eşiktir.
 
 ## Deney
 
-Oranı bilinmeyen bir "policy": ders 16'nın scripted pick'i, küpün gürültülü bir tahminine nişan alıyor; gerçek konum + eksen başına $\mathcal N(0, \sigma^2)$, sanki kusurlu bir algı modülünden geliyormuş gibi. Küp konumları x ∈ [16, 28] cm, y ∈ [−8, 8] cm içinde düzgün dağılımlı. Policy A'da σ = 9 mm, policy B'de σ = 6 mm. Her biri 300 simüle denemelik bir havuz alıyor; havuzun oranı uzun vadeli oran $p$'nin yerine geçiyor. $n$ denemelik evaluation'lar sonra havuzdan iadeli çekiliyor. Tam script: [`experiments/25-evaluating-policies/experiment.py`](../../experiments/25-evaluating-policies/experiment.py), çıktı: [`output.txt`](../../experiments/25-evaluating-policies/output.txt). MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), deterministik, yaklaşık 1 dk CPU (yaklaşık; çok yüklü bir makinede duvar saati süresi birkaç kat uzundu).
+Oranı bilinmeyen bir "policy": ders 16'nın scripted pick'i, küpün gürültülü bir tahminine nişan alıyor; gerçek konum + eksen başına $\mathcal N(0, \sigma^2)$, sanki kusurlu bir algı modülünden geliyormuş gibi. Küp konumları x ∈ [16, 28] cm, y ∈ [−8, 8] cm içinde düzgün dağılımlı. Policy A'da σ = 9 mm, policy B'de σ = 6 mm. Her biri 300 simüle denemelik bir havuz alıyor; havuzun oranı uzun vadeli oran $p$'nin yerine geçiyor. $n$ denemelik bir evaluation sonra havuzdan rastgele ve iadeli $n$ deneme seçilerek simüle ediliyor (aynı deneme iki kez seçilebilir); bu, robotu yeniden koşmaktan çok daha ucuz. Tam script: [`experiments/25-evaluating-policies/experiment.py`](../../experiments/25-evaluating-policies/experiment.py), çıktı: [`output.txt`](../../experiments/25-evaluating-policies/output.txt). MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), deterministik, yaklaşık 1 dk CPU (yaklaşık; çok yüklü bir makinede duvar saati süresi birkaç kat uzundu).
 
 ```python
 def wilson(k, n, z=1.96):
@@ -66,7 +130,10 @@ Son sütun aynı denemelerde sayılan daha gevşek bir kriter: çene, iki çene 
 | 50 | 0,235 | 0,951 | 0,916 | 0,947 | 0,914 | 0,62–0,84 |
 | 100 | 0,169 | 0,942 | 0,942 | 0,946 | 0,945 | 0,66–0,81 |
 
-"Exact", $p$ = 0,737'de binom dağılımından hesaplanan kapsama; yeniden örneklenen sütunlar onunla uyuşuyor. 10 denemede aralık 0,46 genişliğinde ve gözlenen oran 0,50 ile 0,90 arasında herhangi bir yere düşüyor. Wilson %95'in yaklaşık bir puan yakınında kalıyor (0,942–0,987; küçük $n$'de biraz temkinli); Wald $n = 5$'te 0,76'ya düşüyor.
+"p'yi kapsıyor", aralığı havuz oranını içeren evaluation'ların payı; %95'lik bir aralık için yaklaşık 0,95 olmalı. "Exact", aynı kapsamanın $p$ = 0,737'de binom dağılımından hesaplanmış hâli; yeniden örneklenen sütunlar onunla uyuşuyor.
+
+![Solda: ortalama Wilson aralık genişliği 5 denemede 0,577'den 100 denemede 0,169'a, 1/√n biçimini izleyerek düşüyor. Sağda: Wilson kapsaması her n'de 0,95 civarında kalıyor, Wald kapsaması ise 5 denemede 0,764'e düşüyor.](../../experiments/25-evaluating-policies/interval_width_vs_trials.png)
+ 10 denemede aralık 0,46 genişliğinde ve gözlenen oran 0,50 ile 0,90 arasında herhangi bir yere düşüyor. Wilson %95'in yaklaşık bir puan yakınında kalıyor (0,942–0,987; küçük $n$'de biraz temkinli); Wald $n = 5$'te 0,76'ya düşüyor.
 
 **C. "9/10" ne demek.** 9/10 için Wilson %95 [0,596, 0,982]; 10/10 için [0,722, 1,000]. ≥ 9/10 görme olasılığı:
 
@@ -86,7 +153,7 @@ Bir 9/10 iki policy ile de tutarlı ve B evaluation'ların yaklaşık üçte bir
 | 0,90 | 34 | 141 | 864 |
 | 0,95 | 24 | 82 | 465 |
 
-**E. B, A'dan iyi mi?** Gerçek fark 0,14. Her biri $n$ denemelik 1000 evaluation çifti:
+**E. B, A'dan iyi mi?** Gerçek fark 0,14. Her biri $n$ denemelik 1000 evaluation çifti; ilk sütun, Fisher testinin farkı ne sıklıkla anlamlı bulduğu (testin *power*'ı):
 
 | policy başına n | Fisher p < 0,05 | Wilson aralıkları ayrık | B ≤ A skor yapıyor |
 |---|---|---|---|

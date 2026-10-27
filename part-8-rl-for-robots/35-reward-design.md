@@ -16,11 +16,45 @@
 
 ## The problem
 
-The Go2 training config sums ten reward terms with nonzero weights, from `tracking_lin_vel = 1.0` to `action_rate = -0.01` and `torques = -0.0002`, and it carries one line that exists only because of how an agent exploits rewards: `only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)` ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)). This lesson measures, on the SO-101 reach, what different reward shapes do with a fixed PPO and budget, produces a reward hack on purpose, and sweeps a smoothness penalty.
+The Go2 training config sums ten reward terms with nonzero weights, from `tracking_lin_vel = 1.0` to `action_rate = -0.01` and `torques = -0.0002`, and it carries one line that exists only because of how an agent exploits rewards: `only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)` ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)). This lesson measures, on the SO-101 reach, what different reward shapes do with a fixed PPO and budget, produces a **reward hack** on purpose (a policy that scores well on the written reward without doing the task), and sweeps a smoothness penalty.
 
 ## Core idea
 
-The MDP reward itself is on AIEFS ([MDPs, States, Actions & Rewards](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/01-mdps-states-actions-rewards)). Robot rewards are built from four kinds of terms:
+### In plain words
+
+A reward is a metric, and RL is a team that optimizes the metric with no common sense at all. Pay programmers per line of code and you get long code, not good code. Pay an arm for being close to the target and end the game the moment it arrives, and it learns to hover just outside, because arriving stops the payments.
+
+You have four kinds of building blocks. A **sparse** reward pays only on success: it says exactly what you want, but early on nobody ever succeeds, so it is silent, like a test suite with one end-to-end test that never passes yet. A **dense** reward pays a little every step for being closer: informative, but a proxy for the real goal. **Shaping** adds hints; the safe kind (potential-based) pays for progress and takes it back on retreat; over any loop the payments cancel, so it cannot be farmed by going back and forth. **Regularizers** are small penalties for jerky or expensive motion; they trade task success for smoothness.
+
+Finally, how an episode ends is part of the reward. After the end every future reward is zero. If the per-step reward is positive, ending is a loss and the agent avoids it; if it is negative, ending is a gain and the agent seeks it.
+
+### Where termination flips the incentive
+
+```mermaid
+flowchart TD
+    S["state after a step"] --> T{"does the episode<br/>end here?"}
+    T -- "no" --> R["collect reward:<br/>task + shaping − penalties"]
+    R --> S
+    T -- "yes" --> Z["every future reward is 0"]
+    Z --> Q{"sign of the<br/>per-step reward"}
+    Q -- "positive" --> H["ending is a loss:<br/>hover near the goal"]
+    Q -- "negative" --> E["ending is a gain:<br/>rush in, or fall early"]
+```
+
+### Shaping and termination, as code
+
+```python
+# Potential-based shaping: F = gamma * Phi(s') - Phi(s), with Phi = -20 * distance
+def shaping(dist, dist_prev, gamma=0.95):
+    return gamma * (-20 * dist) - (-20 * dist_prev)   # > 0 when closer; also 20*(1-gamma)*dist when standing still
+
+# It cannot be farmed: summed along any trajectory it telescopes to the two endpoints,
+#   sum_t gamma^t * F_t = gamma^T * Phi(s_T) - Phi(s_0)
+
+# What ending the episode costs: the discounted value of staying forever
+def value_of_staying(r_per_step, gamma=0.95):
+    return r_per_step / (1 - gamma)   # ending forfeits this: a relief if r < 0, a loss if r > 0
+```
 
 | Term | Example (reach, distance $d$ in m) | Role |
 |---|---|---|
@@ -29,9 +63,18 @@ The MDP reward itself is on AIEFS ([MDPs, States, Actions & Rewards](https://aie
 | potential-based shaping | $F = \gamma\Phi(s') - \Phi(s)$ | adds guidance without changing the optimal policy |
 | regularizers | $-w\lVert a_t - a_{t-1}\rVert^2$, $-w\lVert\tau\rVert^2$ | trade task performance for smoothness and energy |
 
-**Potential-based shaping.** Ng, Harada and Russell showed that adding $F(s,s') = \gamma\Phi(s') - \Phi(s)$ for any potential $\Phi$ leaves the optimal policy unchanged, and that, without further knowledge of the MDP, this form is also necessary for that guarantee ([ICML 1999, pp. 278–287](https://mlanthology.org/icml/1999/ng1999icml-policy/)). Along a trajectory the shaping terms telescope, $\sum_t \gamma^t F_t = \gamma^T \Phi(s_T) - \Phi(s_0)$, so they cannot be farmed. We use $\Phi = -20\,d$ with the PPO discount $\gamma = 0.95$.
+$d$ is the gripper-to-target distance, $\mathbb 1[\cdot]$ is 1 when the condition holds and 0 otherwise, $\Phi$ is any function of the state (the potential), $s$ and $s'$ are the states before and after a step, $\gamma$ the discount, $w$ a penalty weight, $a_t$ the action and $\tau$ the joint torque.
 
-**Termination changes the meaning of the sign.** After a terminal state every future reward is 0. If per-step rewards are negative, ending the episode is attractive; if they are positive, ending it is a loss. The agent will steer toward whichever is better for the written sum. In locomotion, falling terminates the episode, so a total made mostly of negative penalty terms makes an early fall attractive; the Go2 config clips the total at zero and names the reason "early termination problems". The reverse case is the hack we build below.
+<details>
+<summary>Math details: why potential-based shaping is safe and why termination matters</summary>
+
+**Potential-based shaping.** Ng, Harada and Russell showed that adding $F(s,s') = \gamma\Phi(s') - \Phi(s)$ for any potential $\Phi$ leaves the optimal policy unchanged, and that, without further knowledge of the MDP, this form is also necessary for that guarantee ([ICML 1999, pp. 278–287](https://mlanthology.org/icml/1999/ng1999icml-policy/)). Along a trajectory the shaping terms telescope, $\sum_t \gamma^t F_t = \gamma^T \Phi(s_T) - \Phi(s_0)$: every policy gets the same bonus up to terms that depend only on where it starts and ends, so shaping changes how fast you learn, not what is optimal. We use $\Phi = -20\,d$ with the PPO discount $\gamma = 0.95$.
+
+**Termination.** A policy that could stay in a state forever while collecting $r$ per step would earn $\sum_{t\ge0}\gamma^t r = r/(1-\gamma)$. Entering a terminal state replaces that with 0. For $r > 0$ that is a loss the agent learns to avoid; for $r < 0$ it is a gain the agent learns to seek. In locomotion, falling terminates the episode, so a total made mostly of negative penalty terms makes an early fall attractive; the Go2 config clips the total at zero and names the reason "early termination problems". The reverse case is the hack we build below.
+
+Go deeper: [MDPs, States, Actions & Rewards](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/01-mdps-states-actions-rewards); Ng, Harada, Russell, ICML 1999 (link above).
+
+</details>
 
 ## Experiment
 
@@ -53,7 +96,7 @@ def r_action_rate(w):
 
 **Predict:** with the closeness reward and an episode that ends the moment the gripper is within 2 cm, what will the trained arm do?
 
-MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). Deterministic per seed. The whole script (33 runs, six in parallel) took 1904 s wall-clock (about 32 minutes) on a heavily loaded machine. `python experiment.py --only close+end,pbrs` trains just those cells for all three seeds; this rerun reproduced their lines in the tables below exactly. `--quick` trains seed 0 only, which reproduces the first "success per seed" entry of every row but not the pooled columns.
+MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). Deterministic per seed. The whole script (33 runs, six in parallel) took 1904 s wall-clock (about 32 minutes) on a heavily loaded machine. `python experiment.py --only close+end,pbrs` trains just those cells for all three seeds; this rerun reproduced their lines exactly. `--quick` trains seed 0 only, which reproduces the first "success per seed" entry of every row but not the pooled columns.
 
 **A. Reward shape** (no termination; success = within 2 cm at the 1.6 s time limit):
 
@@ -78,7 +121,7 @@ Two control measurements make the hack explicit:
 - The scripted IK controller, which reaches every target, scores a written return of only **2.28** under the closeness-plus-termination reward. The hacking policy scores 22.67: it beats the correct controller on the objective it was given by doing the task less.
 - Run without termination, the same hacking policy ends at a median of **30.8 mm** from the target: it parks the gripper about 3 cm away, just outside the success ball, and collects roughly 0.45 per step for the rest of the episode.
 
-The mechanism is the one in the Core idea: entering the ball ends the episode and with it all future positive reward, so the agent learns to approach and stop short. The 95 successes are episodes in which it still ended up inside the ball. The same termination rule with a negative reward ($-d$) gives the opposite incentive: the agent hurries in (9.2 steps on average) because every step costs. Positive reward without termination also works (298/300). The hack lives in the combination, which is why it is easy to write by accident.
+The mechanism is the one in the diagram: entering the ball ends the episode and with it all future positive reward, so the agent learns to approach and stop short. The 95 successes are episodes in which it still ended up inside the ball. The same termination rule with a negative reward ($-d$) gives the opposite incentive: the agent hurries in (9.2 steps on average) because every step costs. Positive reward without termination also works (298/300). The hack lives in the combination, which is why it is easy to write by accident.
 
 ## Break it
 
@@ -92,6 +135,8 @@ Smoothness penalties are where the trade-off becomes a cliff. Sweep the weight $
 | 0.3 | 41 / 9 / 94 | 144/300 | 42.4–53.6% | 25.6 | 850 | 8.20 |
 | 1.0 | 7 / 35 / 14 | 56/300 | 14.7–23.5% | 39.2 | 674 | 6.54 |
 | 3.0 | 27 / 6 / 26 | 59/300 | 15.6–24.5% | 31.9 | 743 | 5.64 |
+
+![Left: success against the action-rate penalty weight w, from 298/300 at w 0 through 263/300 at 0.1 down to about a fifth at w 1.0 and 3.0, with per-seed points spread from 9 to 94 at w 0.3. Right: torque rate falls only from 1002 to between 674 and 850 N·m/s over the same range.](../experiments/35-reward-design/success_vs_penalty.png)
 
 Up to $w = 0.1$ the policy loses 6 to 12 percentage points of success (279/300 and 263/300 against 298/300) and gains little smoothness (torque rate 1002 → 901 N·m/s). From $w = 0.3$ on, success collapses and the seeds disagree wildly (9 vs 94 out of 100): the penalty for moving the setpoint is now comparable to the distance reward, and the outcome depends on the seed. Power falls (9.66 → 5.64 W) largely because the arm moves less: the median final distance grows to 25.6–39.2 mm. Two lessons: a regularizer's weight must be set relative to the task term's scale (here $-d$ is a few centimetres per step), and with a stiff servo, smoothing the policy's targets barely smooths the torque. If smooth torque is the goal, change the interface or the gains (lesson 34) before raising $w$.
 
@@ -127,4 +172,4 @@ Next: [lesson 36](36-legged-locomotion.md), legged locomotion and massively para
 - [`unitree_rl_gym` · `legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py), [`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py) (`_reward_action_rate`, `_reward_torques`) (BSD-3-Clause).
 - J. Schulman et al., "Proximal Policy Optimization Algorithms", 2017. [arXiv 1707.06347](https://arxiv.org/abs/1707.06347)
 - [Gymnasium · `Env` API](https://gymnasium.farama.org/api/env/) (terminated vs truncated).
-- Code: [`experiment.py`](../experiments/35-reward-design/experiment.py), [`output.txt`](../experiments/35-reward-design/output.txt); env and PPO from [lesson 32](../experiments/32-rl-environment/reach_env.py) and [lesson 33](../experiments/33-ppo/ppo.py).
+- Code: [`experiment.py`](../experiments/35-reward-design/experiment.py), [`output.txt`](../experiments/35-reward-design/output.txt); env and PPO from [lesson 32](../experiments/32-rl-environment/reach_env.py) and [lesson 33](../experiments/33-ppo/ppo.py); figure from [`plot.py`](../experiments/35-reward-design/plot.py).

@@ -20,30 +20,75 @@ Unitree's open base training config (the one its Go2 config inherits) randomizes
 
 ## Core idea
 
-### Coulomb friction and the ramp
+### In plain words
 
-Static friction can supply at most $\mu N$. On a ramp of angle $\theta$:
+Friction is a budget. A surface can push sideways on an object, but only up to a limit, and that limit is proportional to how hard the object presses on the surface. The proportionality factor is the friction coefficient μ.
 
-| | |
+Put a phone on a book and tilt the book slowly. Tilting does two things at once: less of the phone's weight presses into the book (smaller budget) and more of it pulls the phone downhill (bigger demand). At some angle the demand exceeds the budget and the phone slides. A heavy phone presses harder, but it is also pulled harder by exactly the same factor, so weight cancels: the slip angle depends only on μ.
+
+A simulator has to represent that budget. The exact rule says the sideways force may point in any direction, up to the same limit, so the allowed forces form a round cone. MuJoCo's default approximates the round cone with a pyramid, whose flat faces make the limit depend on direction. And because MuJoCo's contact is soft ([lesson 03](03-contact.md)), friction is soft too: below the limit an object can still creep slowly.
+
+```mermaid
+flowchart TD
+    W["weight m·g"] --> N["pressing into the ramp<br/>m·g·cos θ"]
+    W --> P["pulling downhill<br/>m·g·sin θ"]
+    N --> B["friction budget<br/>μ · m·g·cos θ"]
+    B --> C{"pull larger<br/>than budget?"}
+    P --> C
+    C -- "no" --> H["cube holds"]
+    C -- "yes" --> S["cube slips"]
+```
+
+### The slip test, as code
+
+```python
+from math import sin, cos, atan, degrees
+
+def coulomb_slips(theta, mu, m, g):      # theta in radians, g = gravity (m/s²)
+    pull = m * g * sin(theta)              # gravity component along the ramp (N)
+    budget = mu * m * g * cos(theta)       # largest friction force the surface can supply (N)
+    return pull > budget                   # m and g cancel: same as tan(theta) > mu
+
+slip_angle = degrees(atan(mu))             # e.g. mu = 0.5 -> 26.57°
+accel = g * (sin(theta) - mu * cos(theta)) # downhill acceleration once it slides
+
+def in_elliptic_cone(f_n, f_t1, f_t2, mu):  # MuJoCo's round cone, condim 3
+    return f_n >= 0 and f_t1**2 + f_t2**2 <= (mu * f_n)**2
+```
+
+| Quantity | Formula |
 |---|---|
 | force pulling the cube downhill | $m g \sin\theta$ |
 | friction limit | $\mu\, m g \cos\theta$ |
 | slip condition | $\tan\theta > \mu$ |
+| acceleration while sliding | $a = g(\sin\theta - \mu\cos\theta)$ |
+| elliptic cone | $f_1 \ge 0,\ f_1^2 \ge \sum_i f_i^2/\mu_{i-1}^2$ |
 
-$m$ cancels: the slip angle depends only on $\mu$ ([OpenStax University Physics 1, §6.2](https://openstax.org/books/university-physics-volume-1/pages/6-2-friction)). Above the threshold the cube accelerates at $a = g(\sin\theta - \mu\cos\theta)$.
+$m$ is the cube's mass, $g$ gravity, $\theta$ the ramp angle and $\mu$ the sliding friction coefficient; $f_1$ is the contact force along the surface normal and $f_2, f_3$ (more with higher `condim`) the tangential components, each limited by its own coefficient $\mu_{i-1}$.
+
+<details>
+<summary>Math details: Coulomb's law on a ramp, and why the simulated cone deviates</summary>
+
+**Slip condition.** Static friction can supply at most $\mu N$, where $N = m g\cos\theta$ is the normal force on a ramp. The cube holds while $m g\sin\theta \le \mu\, m g\cos\theta$. Dividing by $m g\cos\theta$ gives $\tan\theta \le \mu$: mass and gravity cancel ([OpenStax University Physics 1, §6.2](https://openstax.org/books/university-physics-volume-1/pages/6-2-friction)). Above the threshold the net downhill force is $m g(\sin\theta - \mu\cos\theta)$, hence the acceleration in the table.
+
+**Cones.** A contact force $f$ is admissible if it lies in the friction cone ([Computation · Contact](https://mujoco.readthedocs.io/en/stable/computation/index.html#cocontact)). The elliptic cone is the inequality in the table. The pyramidal cone is built from $2(n-1)$ non-negative edge forces, where $n$ is `condim`; for `condim=3` that is 4 edges. A pyramid has flat faces, so its cross-section is a polygon, not a circle, and the friction limit it allows depends on the direction of sliding relative to the contact frame. The docs call elliptic cones the better model of physical reality, with pyramidal cones sometimes faster and more robust ([option/cone](https://mujoco.readthedocs.io/en/stable/XMLreference.html#option)).
+
+**Creep.** The friction constraint is solved softly, like the normal one, so a small steady sliding speed below the threshold is allowed. The docs call this slow slippage and list two mitigations: elliptic cones with `impratio` > 1, or the `noslip` solver ([Modeling · Slow slippage](https://mujoco.readthedocs.io/en/stable/modeling.html#cslowslippage)).
+
+**One μ.** `geom/friction` holds three numbers (sliding, torsional, rolling; default `1 0.005 0.0001`). There is one sliding coefficient, so no separate static and kinetic friction. For a contact pair, the element-wise maximum is used unless one geom has higher `priority` ([geom/friction](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom-friction), [Contact parameters](https://mujoco.readthedocs.io/en/stable/modeling.html#ccontact)).
+
+Go deeper: [Vectors, Matrices & Operations](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/02-vectors-matrices-operations) (AIEFS: splitting a force into components); [OpenStax University Physics 1, §6.2](https://openstax.org/books/university-physics-volume-1/pages/6-2-friction); [MuJoCo Computation · Contact](https://mujoco.readthedocs.io/en/stable/computation/index.html#cocontact).
+
+</details>
 
 ### Friction cones in MuJoCo
-
-A contact force $f$ (normal $f_1$, tangential $f_2, f_3$) is admissible if it lies in the friction cone ([Computation · Contact](https://mujoco.readthedocs.io/en/stable/computation/index.html#cocontact)):
 
 | `option/cone` | Definition | Rows per `condim=3` contact |
 |---|---|---|
 | `pyramidal` (default) | $2(n-1)$ non-negative edge forces of a pyramid | 4 |
 | `elliptic` | $f_1 \ge 0,\ f_1^2 \ge \sum f_i^2/\mu_{i-1}^2$ | 3 |
 
-The docs call elliptic cones the better model of physical reality, with pyramidal cones sometimes faster and more robust ([option/cone](https://mujoco.readthedocs.io/en/stable/XMLreference.html#option)). `geom/friction` holds three numbers (sliding, torsional, rolling; default `1 0.005 0.0001`). There is one sliding coefficient, so no separate static and kinetic friction. For a contact pair, the element-wise maximum is used unless one geom has higher `priority` ([geom/friction](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom-friction), [Contact parameters](https://mujoco.readthedocs.io/en/stable/modeling.html#ccontact)).
-
-Because contact is soft ([lesson 03](03-contact.md)), friction is also a soft constraint: below the threshold the cube can creep at a small constant speed. The docs call this slow slippage and list two mitigations: elliptic cones with `impratio` > 1, or the `noslip` solver ([Modeling · Slow slippage](https://mujoco.readthedocs.io/en/stable/modeling.html#cslowslippage)).
+A *row* is one scalar unknown the constraint solver has to find for that contact.
 
 ## Experiment
 
@@ -66,7 +111,7 @@ def xml(theta_deg, mu, mass, cone="pyramidal"):
 </mujoco>"""
 ```
 
-2 s are simulated; $v_1$ and $v_2$ are the mean downhill speeds over 0.5–1.0 s and 1.5–2.0 s. Because of creep, "slipping" needs two conditions:
+2 s are simulated; $v_1$ and $v_2$ are the mean downhill speeds over 0.5–1.0 s and 1.5–2.0 s. Because of creep (slow sliding below the threshold, see Math details), "slipping" needs two conditions:
 
 ```python
 def slips(v1, v2):
@@ -103,6 +148,10 @@ Rotate the cube 45° about the ramp normal. Coulomb friction is isotropic, so no
 | 0.8 | elliptic | 38.60° | −0.06° | 0.34 cm/s |
 
 With the default pyramidal cone the rotated cube slips almost 1° early at μ = 0.8 and slides at up to 27.24 cm/s where it should hold. The elliptic cone stays within one or two grid steps. A plausible mechanism is that the pyramid's edges are tied to the contact frame, so the admissible tangential force depends on direction, but this was not isolated here (box–box contact point placement also changes with rotation). Treat it as a measured warning: **if friction limits matter (grasping, foot slip), use `cone="elliptic"` or verify with a sweep.**
+
+The speed curves behind these numbers, for μ = 0.8, show both deviations at once ([`plot.py`](../experiments/04-friction/plot.py) re-runs the same `sweep()`; the per-angle speeds are not in `output.txt`):
+
+![Steady downhill speed against ramp angle for μ = 0.8 on a log axis. The aligned cube with the pyramidal cone creeps at a steady speed below the threshold (up to 1.42 cm/s) and accelerates from 38.70°; the 45°-rotated cube with the pyramidal cone already slides at several cm/s far below the threshold; the rotated cube with the elliptic cone stays slowest and slips from 38.60°, apart from one isolated angle just below.](../experiments/04-friction/speed_vs_angle.png)
 
 ## On the real robot
 

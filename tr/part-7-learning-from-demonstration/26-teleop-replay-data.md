@@ -20,7 +20,60 @@ LeRobot kaydedilmiş bir episode'u kolda tekrar oynatan bir komutla gelir: `lero
 
 ## Ana fikir
 
-**Open loop ve closed loop.** Open-loop bir controller önceden hesaplanmış bir komut dizisini $u_0, u_1, \dots$ sonucu ölçmeden uygular. Closed-loop bir controller $u_t = \pi(o_t)$'yi o anki gözlem $o_t$'den hesaplar (Lynch & Park, *Modern Robotics*, bölüm 11). Replay tüm görev boyunca open loop'tur. [Ders 16](../part-4-dynamics-and-control/16-grasping-and-pick-place.md)'nın scripted pick'i görev seviyesinde closed loop'tur: küpün yerini okur, IK çözer ve algılanan bir çene koşulunu bekler.
+### Sade anlatımla
+
+Bir masaüstü uygulamasındaki makro kaydedici, tıklamalarını sabit ekran koordinatlarında saklar ve sonra tekrar oynatır. Her pencere kayıt sırasında durduğu yerde durduğu sürece çalışır. Bir pencereyi kaydır, makro boşluğa tıklar. Önce ekrana bakan, düğmeyi bulan, sonra tıklayan bir script ise bu kaymadan sağ çıkar. Replay makrodur. Hareket etmeden önce küpün yerini okuyan bir controller ise script'tir.
+
+Teleoperation, robot kayıtlarının yapılma biçimidir: bir insan robotu bir **leader kol** üzerinden sürer (kolun elle hareket ettirilen hafif, pasif bir kopyası) ve gerçek kol (**follower**) onun joint açılarını kopyalar. Kayıt sırasında ekrana bakan insandır. Böyle bir kayıttan sonradan öğrenebilmek için kayıt her anın iki yarısını da saklamalı: robotun ne gördüğünü (**observation**) ve ona ne yapmasının söylendiğini (**action**). Replay yalnız action'ları tutar, observation'ları çöpe atar.
+
+### Demonstration'dan policy'ye
+
+```mermaid
+flowchart TD
+    H["insan leader kolu hareket ettirir"] --> FW["follower onun joint'lerini kopyalar"]
+    FW --> REC["kayıt aracı frame başına<br/>(observation, action) saklar"]
+    REC --> DS["episode'lardan dataset<br/>(ders 27)"]
+    DS --> RP["replay: action'ları geri gönder,<br/>observation'ları yok say"]
+    DS --> TR["çiftler üzerinde policy eğit<br/>(ders 28)"]
+    TR --> EV["yeni küp konumlarında evaluate et<br/>(ders 25)"]
+```
+
+### Open loop ve closed loop, kod olarak
+
+```python
+# Replay = macro recorder: a fixed list indexed by time; the cube never enters the loop
+def replay(actions):
+    for a in actions:                # a = 6 joint targets recorded at one frame
+        robot.apply(a)
+        robot.step(1 / fps)          # hold it for one frame (zero-order hold)
+
+# Closed loop = a program that looks at the screen before every move
+def run(policy, T):
+    for t in range(T):
+        o = robot.observe()          # joints, jaw, cube position
+        robot.apply(policy(o))       # decide from what is seen now
+        robot.step(1 / fps)
+
+# Recording a demonstration keeps both halves of each frame
+episode = []
+for t in range(T):
+    o = robot.observe()              # what the robot sees
+    a = leader.read_joints()         # what the human commands
+    robot.apply(a)
+    robot.step(1 / fps)
+    episode.append((o, a))           # the pair a policy will learn from
+```
+
+| Mod | Formül |
+|---|---|
+| open loop (replay) | $u_t = u^{\text{rec}}_t$, sabit bir dizi $u_0, u_1, \dots$ |
+| closed loop | $u_t = \pi(o_t)$ |
+| kaydedilmiş bir episode | $\big\{(o_t, a_t)\big\}_{t=0}^{T-1}$ artı bir görev metni |
+| zero-order hold | $k/f \le \tau < (k+1)/f$ için $a(\tau) = a_k$ |
+
+Burada $u_t$ adım $t$'de gönderilen komut, $o_t$ o adımdaki observation (robot state'i, gerçek robotta artı görüntüler), $\pi$ bir observation'ı komuta eşleyen controller ya da policy, $a_t$ kaydedilen action ($t$ anında gönderilen joint hedefleri), $T$ bir episode'daki frame sayısı, $f$ Hz cinsinden kayıt hızı ve $\tau$ sürekli zamandır. 25 Hz'deki sim kaydımızda frame $k$, $t = k/25$ s'deki observation'ı ve expert'in sonraki 40 ms'nin sonunda komutladığı joint hedeflerini saklar.
+
+### Loop'u kim kapatıyor
 
 | Mod | Loop'u kim kapatıyor | Kaymış küpe genelleşir mi? |
 |---|---|---|
@@ -29,19 +82,28 @@ LeRobot kaydedilmiş bir episode'u kolda tekrar oynatan bir komutla gelir: `lero
 | Leader–follower teleoperation | insan, leader kol üzerinden | evet, insan uyum sağlar |
 | Öğrenilmiş policy $\pi_\theta(o_t)$ | network | 28–29. derslerin ölçtüğü şey |
 
-**Data collection olarak teleoperation.** Leader–follower teleoperation'da insan pasif bir leader kolu hareket ettirir, follower onun joint açılarını takip eder. Bir kayıt, sabit bir hızda şu çiftleri saklar:
+IK, inverse kinematics'tir: gripper'ı istenen bir poza götüren joint açıları ([ders 10](../part-3-kinematics/10-inverse-kinematics.md)).
 
-$$\big(o_t,\; a_t\big),\qquad o_t = \text{robot state'i (+ görüntüler)},\quad a_t = t\text{ anında gönderilen joint hedefleri},$$
+<details>
+<summary>Matematik ayrıntısı: open loop, closed loop ve bir kaydın içermesi gerekenler</summary>
 
-bunlar bir görev metniyle episode'lara gruplanır. Veri üretilirken loop'u insan kapattı; $(o_t, a_t)$ üzerinde eğitilen bir policy onu çalışma anında yeniden kapatmak zorunda. $a_{0:T}$'yi replay etmek $o_t$'yi çöpe atar.
+**Tanımlar.** Open-loop bir controller önceden hesaplanmış bir komut dizisini $u_0, u_1, \dots$ sonucu ölçmeden uygular. Closed-loop (feedback) bir controller $u_t = \pi(o_t)$'yi o anki observation'dan hesaplar (Lynch & Park, *Modern Robotics*, bölüm 11). Replay tüm görev boyunca open loop'tur. [Ders 16](../part-4-dynamics-and-control/16-grasping-and-pick-place.md)'nın scripted pick'i görev seviyesinde closed loop'tur: küpün yerini okur, IK çözer ve algılanan bir çene koşulunu bekler. Her segmentin içinde servolar yine kendi pozisyon loop'larını çalıştırır; yani buradaki "open loop", görev seviyesinde açık demektir.
 
-**Frame hızı ve action'ın anlamı.** $f$ Hz'de kaydedilen bir action $1/f$ s boyunca tutulur (zero-order hold). 25 Hz'deki sim kaydımızda frame $k$, $t = k/25$ s'deki gözlemi ve expert'in sonraki 40 ms'nin sonunda komutladığı joint hedeflerini saklar.
+**Replay neden biraz da olsa tolere eder.** Kaydedilen çene açıklığı küpten geniştir. Küple çene arasındaki boşluktan küçük bir kayma yine küpü çenelerin arasında bırakır; daha büyüğü bırakmaz. Bu yüzden tolerans kaydın değil gripper geometrisinin bir özelliğidir ve yöne göre değişir (Boz).
+
+**Kaydın tutması gerekenler.** Teleoperation sırasında insan $a_t = \pi_{\text{insan}}(o_t^{\text{insan}})$'yi gördüğünden hesaplar. Bir öğrenen bu eşlemeyi ancak dataset $o_t$'yi $a_t$'nin yanında, zamanda hizalı olarak saklıyorsa taklit edebilir. $a_{0:T}$'yi replay etmek $o_t$'yi ve onunla birlikte farklı bir başlangıç state'ine tepki verme şansını atar.
+
+**Zero-order hold.** Frame'ler arasında son action sabit tutulur. Daha düşük bir frame hızı tutulan basamakları uzatır; kayıt, ancak bu basamaklar hareketin en hızlı segmentine (bizde çene rampası) göre kısa kaldıkça expert'in geçerli bir tarifi olarak kalır. C kısmı bunu 25 Hz için kontrol ediyor.
+
+Daha derine: Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), bölüm 11; LeRobot, [Imitation learning on real-world robots](https://huggingface.co/docs/lerobot/il_robots).
+
+</details>
 
 ## Deney
 
 Tam script: [`experiments/26-teleop-replay-data/experiment.py`](../../experiments/26-teleop-replay-data/experiment.py), çıktı: [`output.txt`](../../experiments/26-teleop-replay-data/output.txt). MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), deterministik. A kısmı önceki notebook'un ([`notebooks/26-teleop-replay-data.ipynb`](../../notebooks/26-teleop-replay-data.ipynb)) port'udur; sayıları birebir tekrarlandı.
 
-**A. Replay ve yeniden planlama.** SO-101, (22, 0) cm'deki 3 cm'lik, 30 g'lık bir küpü sabit 4,5 s'lik bir zaman çizelgesiyle alıyor (bekle, üstüne, in, kapat, kaldır, tut). Her 2 ms'lik adımın 6 komutu kaydediliyor: 2250 × 6. Sonra küp 8 yönde 0,5–5 cm kaydırılıyor (artı kayıt noktası: 81 deneme). *Replay* listeyi değiştirmeden gönderir; *feedback* zaman çizelgesini korur ama üç IK pozunu küpün gerçek yerinden yeniden çözer. Başarı fiziksel, weld yok: 4,5 s'de küpün altı zeminden ≥ 4 cm yukarıda ve iki çene de küpe değiyor.
+**A. Replay ve yeniden planlama.** SO-101, (22, 0) cm'deki 3 cm'lik, 30 g'lık bir küpü sabit 4,5 s'lik bir zaman çizelgesiyle alıyor (bekle, üstüne, in, kapat, kaldır, tut). Her 2 ms'lik adımın 6 komutu kaydediliyor: 2250 × 6. Sonra küp 8 yönde 0,5–5 cm kaydırılıyor (artı kayıt noktası: 81 deneme). *Replay* listeyi değiştirmeden gönderir; *feedback* zaman çizelgesini korur ama üç IK pozunu (üstüne, in, kaldır) küpün gerçek yerinden yeniden çözer. Başarı fiziksel, weld yok: 4,5 s'de küpün altı zeminden ≥ 4 cm yukarıda ve iki çene de küpe değiyor.
 
 ```python
 rec_ctrl, _ = plan_a(m, d, I, CUBE_HOME)        # record once
@@ -68,6 +130,8 @@ ok_f, kind_f, _ = run_a(xy, ctrl)
 | **toplam** | **27/81** | | **81/81** | |
 
 "İtti" = çeneler küpe değdi ama küp zeminde kaldı; "ıskaladı" = çeneler küpe hiç değmedi. Aralıklar [ders 25](25-evaluating-policies.md)'in Wilson formülüyle; satır başına 8 denemeyle geniş oldukları için tek tek satırları değil eğilimi okuyun.
+
+![Solda: replay başarısı küp kayması 0,5 cm'de 8/8'den 4,5 cm'de 0/8'e geniş Wilson aralıklarıyla düşüyor; küp pozundan yeniden planlama ise her kaymada 8/8'de kalıyor. Sağda: yön başına en uzak başarılı replay kaymasının polar grafiği; +y'ye (hareketli çene) doğru 4 cm, −y'ye (sabit çene) doğru 0,5 cm.](../../experiments/26-teleop-replay-data/replay_vs_shift.png)
 
 **B. 27–29. dersler için demonstration'lar.** Ders 16'nın `scripted_pick`'i, x ∈ [16, 28] cm, y ∈ [−8, 8] cm içinde düzgün dağılımla çekilen 120 küp konumunda (seed 26), 25 Hz'de kaydediliyor:
 

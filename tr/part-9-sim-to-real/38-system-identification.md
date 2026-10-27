@@ -20,13 +20,74 @@ Menagerie SO-101 her STS3215 joint'ine aynı `damping="0.60" frictionloss="0.052
 
 ## Ana fikir
 
-**Parametrik model.** Simülatörün yapısını koru, bir parametre vektörü $\theta$ aç ve onu, *log'lanmış komutlara* verilen simüle tepki *log'lanmış ölçümlere* uyacak şekilde fit et (output-error ya da simulation-error kriteri):
+### Sade anlatımla
 
-$$\hat\theta = \arg\min_\theta \sum_k \big\| y_k - \hat y_k(\theta; u_{0:k}) \big\|^2 .$$
+System identification bir regression fit etmektir; yalnız burada model simülatörün kendisi, ağırlıklar da fiziksel sabitlerdir. Gerçek kola ne komut verdiğini ve kolun gerçekte ne yaptığını log'larsın. Aynı komutları simülatörde tekrar oynatır, iki trajectory'yi karşılaştırır ve tekrar oynatma log'a uyana kadar simülatörün düğmelerini (kütle, sürtünme, servo stiffness'ı, gecikme) çevirirsin. Her regression'da olduğu gibi sonucu fit etmediğin veride değerlendirirsin.
 
-Model bir kara kutuysa (bir MuJoCo rollout'u), bunu finite-difference Jacobian'larla bir nonlinear least-squares yöntemiyle çöz (`scipy.optimize.least_squares`; bkz. AIEFS: [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization)). Tork ölçümü olan torque-controlled kollarda rigid-body dynamics eylemsizlik parametrelerine göre doğrusaldır; bu yüzden $\tau = Y(q,\dot q,\ddot q)\,\pi$ regressor'ü üzerinde sıradan least squares klasik yoldur (Khalil & Dombre). Hobi sınıfı bir position servo kalibre edilmiş joint torku raporlamaz; burada model simülatörün kendisi.
+Sıradan regression'dan iki farkı var. Birincisi, veriyi sen üretirsin; yani girişleri sen seçersin: kolu, her düğmenin sensor noise'undan büyük bir iz bırakacağı şekilde hareket ettir. Buna *excitation* denir. İkincisi, modelde bir mekanizma eksikse fit hata vermez; eksik olanı taklit etmek için diğer bütün düğmeleri büker, tıpkı regression'daki omitted-variable bias gibi.
 
-**Bir kolda ne önemli** (MuJoCo adlarıyla):
+```mermaid
+flowchart TD
+    U["log'lanmış komutlar"] --> R["gerçek kol"]
+    U --> S["θ parametreli<br/>simülatör"]
+    R --> Y["log'lanmış pozisyonlar"]
+    S --> P["simüle pozisyonlar"]
+    Y --> E["residual:<br/>log'lanan − simüle"]
+    P --> E
+    E --> O["least_squares<br/>θ'yı ayarlar"]
+    O --> S
+```
+
+### Fit, kod olarak
+
+```python
+from scipy.optimize import least_squares
+
+def simulate(theta, cmd):
+    """Replay logged commands in MuJoCo with parameters theta; return joint positions."""
+    ...   # theta: mass scale, armature, damping, frictionloss, kp scale, delay
+
+def residuals(theta):
+    return (simulate(theta, cmd_fit) - q_fit).ravel()    # one entry per joint per sample
+
+theta_hat = least_squares(residuals, theta_nominal).x    # minimizes the sum of squared residuals
+
+# Judge it on a run the fit never saw, like a test set
+val_rms = np.sqrt(np.mean((simulate(theta_hat, cmd_val) - q_val) ** 2))
+```
+
+| Ne | Formül |
+|---|---|
+| Output-error fit'i | $\hat\theta = \arg\min_\theta \sum_k \big\| y_k - \hat y_k(\theta; u_{0:k}) \big\|^2$ |
+| Validation hatası | ayrılmış bir koşuda $y_k - \hat y_k(\hat\theta; u_{0:k})$'nın RMS'i |
+| Parametrelere göre doğrusal (tork ölçümlü kollar) | $\tau = Y(q,\dot q,\ddot q)\,\pi$ |
+
+$\theta$ parametre vektörü, $u_k$ ve $y_k$ örnek $k$'daki log'lanmış komut ve log'lanmış joint pozisyonları, $\hat y_k(\theta; u_{0:k})$ simülatörün $k$'ya kadarki komutlardan ürettiği pozisyonlar, $\tau$ joint torkları, $Y$ ölçülen hareketten ($q$, $\dot q$, $\ddot q$) hesaplanan bir matris ve $\pi$ eylemsizlik parametreleridir.
+
+Simüle edilmiş bütün trajectory'leri log'la karşılaştırmak *output-error* (ya da simulation-error) kriteridir. Model bir kara kutuysa (bir MuJoCo rollout'u), bunu finite-difference Jacobian'larla bir nonlinear least-squares yöntemiyle çöz (`scipy.optimize.least_squares`; bkz. AIEFS: [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization)). Tork ölçümü olan torque-controlled kollarda rigid-body dynamics eylemsizlik parametrelerine göre doğrusaldır; bu yüzden $\tau = Y\pi$ regressor'ü üzerinde sıradan least squares klasik yoldur (Khalil & Dombre). Hobi sınıfı bir position servo kalibre edilmiş joint torku raporlamaz; burada model simülatörün kendisi.
+
+<details>
+<summary>Matematik ayrıntısı: solver nasıl çalışır ve bazı parametreler neden sabitlenemez</summary>
+
+**Tek satırda Gauss–Newton.** Bütün residual'ları bir $r(\theta)$ vektörüne diz ve doğrusallaştır: $r(\theta + \delta) \approx r(\theta) + J\delta$, burada $J = \partial r/\partial\theta$. $\|r + J\delta\|^2$'yi küçültmek $\delta = -(J^\top J)^{-1} J^\top r$ adımını verir. `least_squares` bu adımın trust-region varyantlarını kullanır (varsayılan `trf` yöntemi sınırları da destekler). Kara kutu bir simülatörde $J$'nin her sütunu bir finite difference'tır: her iterasyonda parametre başına bir rollout daha.
+
+**Parametreleme.** Deney nominal değerlere oranların logaritmasını fit ediyor: fiziksel ölçekler pozitif kalıyor ve belli bir yüzde değişim her parametre için aynı görünüyor.
+
+**Identifiability.** Bir parametre ancak $J$'deki sütunu noise'a göre büyükse ve başka bir sütuna neredeyse paralel değilse identify edilebilir. İki parametre değişimi çıktıyı hemen hemen aynı şekilde oynatıyorsa $J^\top J$'nin bu kombinasyon yönünde çok küçük bir özdeğeri olur: noise tahmini bu *sloppy* yönde çok uzağa taşırken tahmin edilen çıktı neredeyse değişmez. Aşağıdaki B bölümü tam olarak bu.
+
+**Excitation.** $J$'nin sütunlarının ne kadar büyük ve ne kadar farklı olacağını giriş belirler. Çok büyük bir giriş, modelin iyi tarif ettiği bölgenin dışına çıkar: servo tork limitine dayandığında torku artık `kp`'ye ya da damping'e bağlı değildir, bu yüzden onların sütunları küçülür (A bölümü, 0,4 rad).
+
+**Noise modeli.** Ölçüm noise'u beyaz, Gaussian ve her örnekte eşit büyüklükteyse least squares maximum-likelihood tahminidir. Gerçek encoder'lar quantize edilmiştir ve bias'lı olabilir; o zaman tahmin yine işe yarar ama artık optimal değildir.
+
+**Eksik mekanizma.** Gerçek sistemde modelin içermediği bir terim varsa least squares onun etkisini var olan parametrelerin üzerine yansıtır. Bütün parametreler aynı anda saptırılabilir (Boz).
+
+Daha derine: [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization) (AIEFS); L. Ljung, *System Identification: Theory for the User*; W. Khalil, E. Dombre, *Modeling, Identification and Control of Robots*; [SciPy `least_squares`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html).
+
+</details>
+
+### Bir kolda ne önemli
+
+MuJoCo adlarıyla:
 
 | Parametre | MuJoCo alanı | Nasıl görünür |
 |---|---|---|
@@ -38,7 +99,7 @@ Model bir kara kutuysa (bir MuJoCo rollout'u), bunu finite-difference Jacobian'l
 | Tork limiti | `actuator_forcerange` | maksimum ivme |
 | Gecikme | (modelin dışında) | komut ile hareket arasındaki faz kayması |
 
-**Excitation.** Bir parametre ancak ölçülen sinyali gürültüden daha fazla değiştiriyorsa identify edilebilir. Giriş *persistently exciting* olmalı (Ljung): frekansça zengin ve genliği yeterince büyük, ama modelin geçerli olduğu ve robotun güvende olduğu bölgenin içinde.
+**Uygulamada excitation.** Bir parametre ancak ölçülen sinyali noise'tan daha fazla değiştiriyorsa identify edilebilir. Giriş *persistently exciting* olmalı (Ljung): frekansça zengin ve genliği yeterince büyük, ama modelin geçerli olduğu ve robotun güvende olduğu bölgenin içinde.
 
 ## Deney
 
@@ -49,7 +110,7 @@ Model bir kara kutuysa (bir MuJoCo rollout'u), bunu finite-difference Jacobian'l
 | nominal | 1,000 | 0,028 | 0,600 | 0,052 | 1,000 | 0 ms |
 | gizli "gerçek" | 1,200 | 0,040 | 0,900 | 0,100 | 0,700 | 15 ms |
 
-Beş kol joint'i bir orta pozun etrafında 4 s boyunca bir multisine ile (0,5–3,5 Hz, her joint'e farklı fazlar) sürülüyor; pozisyonlar beyaz gürültüyle 100 Hz'de log'lanıyor; fizik 5 ms. Fit log üzerinde çalışıyor; farklı, ayrılmış bir trajectory (yumuşatılmış rastgele hedefler) tahmini kontrol ediyor. Hiç fit yapmadan önce, validation trajectory'sinde nominal ile gerçek arası: 9,54 mrad RMS.
+Beş kol joint'i bir orta pozun etrafında 4 s boyunca bir multisine ile (sinüslerin toplamı, 0,5–3,5 Hz, her joint'e farklı fazlar) sürülüyor; pozisyonlar beyaz noise'la 100 Hz'de log'lanıyor; fizik 5 ms. Fit log üzerinde çalışıyor; farklı, ayrılmış bir trajectory (yumuşatılmış rastgele hedefler) tahmini kontrol ediyor. Hiç fit yapmadan önce, validation trajectory'sinde nominal ile gerçek arası: 9,54 mrad RMS.
 
 ```python
 def resid(x):                                    # x: log-ratios to nominal, delay in 10 ms units
@@ -59,7 +120,7 @@ r = least_squares(resid, x0, bounds=(lb, ub), diff_step=1e-3)
 
 Tam script: [`experiments/38-system-identification/experiment.py`](../../experiments/38-system-identification/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Python 3.14, Apple Silicon Mac (Apple M5), deterministik, bir dakikadan çok daha az CPU.
 
-**A. Excitation genliğinin sweep'i** (gürültü σ = 2 mrad). Değerler: fit sonrası parametre hatası, gerçek değerin yüzdesi olarak (gecikme: ms cinsinden hata); validation RMS mrad cinsinden; `sat` = bir servo'nun 2,94 N·m limitinde olduğu adımların payı. *Tahmin et:* hangi genlik en iyi identify eder?
+**A. Excitation genliğinin sweep'i** (noise σ = 2 mrad). Değerler: fit sonrası parametre hatası, gerçek değerin yüzdesi olarak (gecikme: ms cinsinden hata); validation RMS mrad cinsinden; `sat` = bir servo'nun 2,94 N·m limitinde olduğu adımların payı. *Tahmin et:* hangi genlik en iyi identify eder?
 
 | genlik | kütle | armature | damping | sürtünme | kp | gecikme [ms] | fit sonrası val. [mrad] | sat |
 |---|---|---|---|---|---|---|---|---|
@@ -70,9 +131,11 @@ Tam script: [`experiments/38-system-identification/experiment.py`](../../experim
 | 0,200 rad | −%0,2 | +%1,5 | +%2,1 | −%48,2 | −%8,1 | −0,5 | 0,13 | %41,0 |
 | 0,400 rad | −%6,9 | −%23,4 | −%35,4 | −%68,3 | +%13,3 | −3,7 | 6,67 | %100,0 |
 
-Çok küçükse gürültü baskın: 0,005 rad'da 2 mrad'lık gürültü excitation genliğinin %40'ı; damping, sürtünme ve kütlenin etkisi bu küçük sinyalin küçük bir parçası. Çok büyükse bir servo hep tork limitinde: servo, gain'i ve damping'i pek önemli olmayan bir tork kaynağına dönüşüyor ve fit validation'da başarısız (6,67 mrad, neredeyse nominal kadar kötü). Arada (0,1–0,2 rad) validation hatası 9,54'ten 0,09–0,13 mrad'a düşüyor. 0,02 ile 0,2 rad arasında gecikme 0,5 ms içinde bulunuyor; en kolay parametre o, çünkü her örneği kaydırıyor.
+![Solda: fit edilmiş modelin validation hatası excitation genliğine karşı, logaritmik eksenlerde, nominal modelin 9,54 mrad'ıyla birlikte; hata 0,1 rad'da 0,09 mrad'a iniyor ve saturation'lı adımların payı %100'e çıktıkça yeniden yükseliyor. Sağda: validation hatası ölçüm noise'uyla yavaşça büyüyor, 30 mrad'da 1,49 mrad'a kadar; gecikme terimi olmayan fit ise noise olmadan bile ancak 6,23 mrad'a iniyor.](../../experiments/38-system-identification/fit_error.png)
 
-**B. Gürültünün sweep'i**, 0,1 rad'da:
+Çok küçükse noise baskın: 0,005 rad'da 2 mrad'lık noise excitation genliğinin %40'ı; damping, sürtünme ve kütlenin etkisi bu küçük sinyalin küçük bir parçası. Çok büyükse bir servo hep tork limitinde: servo, gain'i ve damping'i pek önemli olmayan bir tork kaynağına dönüşüyor ve fit validation'da başarısız (6,67 mrad, neredeyse nominal kadar kötü). Arada (0,1–0,2 rad) validation hatası 9,54'ten 0,09–0,13 mrad'a düşüyor. 0,02 ile 0,2 rad arasında gecikme 0,5 ms içinde bulunuyor; en kolay parametre o, çünkü her örneği kaydırıyor.
+
+**B. Noise'un sweep'i**, 0,1 rad'da:
 
 | σ | kütle | armature | damping | sürtünme | kp | gecikme [ms] | fit sonrası val. [mrad] |
 |---|---|---|---|---|---|---|---|
@@ -81,17 +144,17 @@ Tam script: [`experiments/38-system-identification/experiment.py`](../../experim
 | 10 mrad | +%27,8 | −%4,3 | −%0,5 | +%120,4 | +%19,3 | +0,8 | 0,76 |
 | 30 mrad | −%81,4 | −%6,1 | −%0,7 | +%131,3 | −%13,4 | +0,4 | 1,49 |
 
-Gürültüsüz fit altı parametrenin hepsini tam olarak buluyor. Gürültüyle armature, damping ve gecikme %6,1 / 1 ms içinde kalıyor, kütle ve sürtünme ise −%81,4 ve +%131,3'e kadar savruluyor; buna rağmen validation hatası 1,49 mrad'da kalıyor, nominalden altı kat iyi. Parametre hatası ile tahmin hatası farklı şeyler: bazı parametre kombinasyonları çıktıyı neredeyse hiç değiştirmiyor ("sloppy" bir yön); veri onları sabitleyemiyor ve tahmin için bu pek önemli değil. A ve B'deki 2 mrad satırları aynı ayar, farklı gürültü çekilişleri (0,09 ve 0,25 mrad): tek bir gürültü gerçekleşmesi tek bir örnektir.
+Noise'suz fit altı parametrenin hepsini tam olarak buluyor. Noise'la armature, damping ve gecikme %6,1 / 1 ms içinde kalıyor, kütle ve sürtünme ise −%81,4 ve +%131,3'e kadar savruluyor; buna rağmen validation hatası 1,49 mrad'da kalıyor, nominalden altı kat iyi. Parametre hatası ile tahmin hatası farklı şeyler: bazı parametre kombinasyonları çıktıyı neredeyse hiç değiştirmiyor ("sloppy" bir yön); veri onları sabitleyemiyor ve tahmin için bu pek önemli değil. A ve B'deki 2 mrad satırları aynı ayar, farklı noise çekilişleri (0,09 ve 0,25 mrad): tek bir noise gerçekleşmesi tek bir örnektir.
 
 ## Boz
 
-0,1 rad'lık log'u yanlış model yapısıyla fit et: gecikme parametresi yok (gecikme 0'a sabit), gürültü yok.
+0,1 rad'lık log'u yanlış model yapısıyla fit et: gecikme parametresi yok (gecikme 0'a sabit), noise yok.
 
 | | kütle | armature | damping | sürtünme | kp | fit sonrası val. [mrad] |
 |---|---|---|---|---|---|---|
 | gecikme terimi yok | −%50,7 | +%35,4 | +%40,9 | +%46,0 | −%67,8 | 6,23 |
 
-Fit değerleri: kp ölçeği 0,226 (gerçek 0,700), damping 1,268 (gerçek 0,900), kütle ölçeği 0,591 (gerçek 1,200). Optimizer 15 ms gecikmeyi temsil edemiyor, bu yüzden gecikmeyi yumuşak, aşırı sönümlü, hafif bir servo ile taklit ediyor. Fit kendi verisinde "iyi", validation'da 6,23 mrad; bu, gecikme terimiyle 30 mrad gürültüde elde edilenden kötü. Eksik bir mekanizma tek bir yanlış parametre olarak görünmez; hepsini bozar. Gecikmeyi her zaman dahil et (ders 37) ve fit etmediğin veride kontrol et.
+Fit değerleri: kp ölçeği 0,226 (gerçek 0,700), damping 1,268 (gerçek 0,900), kütle ölçeği 0,591 (gerçek 1,200). Optimizer 15 ms gecikmeyi temsil edemiyor, bu yüzden gecikmeyi yumuşak, aşırı sönümlü, hafif bir servo ile taklit ediyor. Fit kendi verisinde "iyi", validation'da 6,23 mrad; bu, gecikme terimiyle 30 mrad noise'ta elde edilenden kötü. Eksik bir mekanizma tek bir yanlış parametre olarak görünmez; hepsini bozar. Gecikmeyi her zaman dahil et (ders 37) ve fit etmediğin veride kontrol et.
 
 ## Gerçek robotta
 
@@ -99,7 +162,7 @@ Gerçek SO-101 için prosedür (gerçek kolda henüz ölçülmedi):
 
 1. **Calibrate et ve bağlan**, ders 40'taki gibi. LeRobot joint pozisyonlarını varsayılan olarak kalibre edilmiş aralığın ortasına göre derece cinsinden raporluyor (`use_degrees = True`; [`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py), [`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py)). Bu dereceler ile Menagerie joint açıları arasındaki ofset ve işaret bilinmiyor: kolu bilinen iki poza koyup önce bunları fit et ya da $\theta$'ya ekle.
 2. **Bir komut akışını log'la**: Python API'si ile (`robot.send_action`, `robot.get_observation`, [LeRobot rehberi](https://huggingface.co/docs/lerobot/il_robots)) sabit hızlı bir döngüde, her komutun ve her okumanın zaman damgasını kaydederek. Bus'ın izin verdiği döngü hızı burada ölçülmedi.
-3. **Önce her joint'i tek tek uyar**, sonra hepsini birlikte: büyüyen step'ler ve bir chirp ya da multisine; birkaç dereceden başla, kalibre edilmiş aralığın içinde kal, masadan uzak dur, ders 15'in safety katmanları açık olsun. Gürültüyü görmek için her koşuyu tekrarla.
+3. **Önce her joint'i tek tek uyar**, sonra hepsini birlikte: büyüyen step'ler ve bir chirp (frekansı giderek artan bir sinüs) ya da multisine; birkaç dereceden başla, kalibre edilmiş aralığın içinde kal, masadan uzak dur, ders 15'in safety katmanları açık olsun. Noise'u görmek için her koşuyu tekrarla.
 4. **Fit et**: aynı altı parametreyi (artı ofsetleri), log'lanmış komutları log'lanmış zaman damgalarıyla MuJoCo'da tekrar oynatarak, `experiment.py`'deki gibi. Menagerie gain'leri servo P gain'inin 16 olduğu varsayılarak türetilmiş (`so101.xml` içindeki yorum); bu, LeRobot'un varsayılan `position_p_coefficient = 16` değeriyle uyuşuyor.
 5. **Doğrula**: ayrılmış bir koşuda ve gerçek bir görev hareketinde. Fit yalnızca kendi verisinde çalışıyorsa bir mekanizma eksiktir (Menagerie dosyasının tanımladığı ama kullanmadığı backlash; kablo kuvvetleri; sıcaklığa bağlı sürtünme).
 
@@ -111,14 +174,14 @@ Gerçek SO-101 için prosedür (gerçek kolda henüz ölçülmedi):
 
 ### Cevaplar
 
-1. Gecikme bütün tepkiyi zamanda kaydırır; bu yüzden hızı sıfır olmayan her örnek onun hakkında bilgi taşır. Damping ise tepkiyi yalnızca hızla orantılı bir kuvvetle değiştirir; küçük genlikte bu etki gürültüden küçüktür.
-2. Sert servo kolu yerçekimine karşı çok küçük bir sarkmayla tutuyor: ders 12, çıplak kol için 0,033° omuz sarkması ölçtü. Kütle o zaman yalnızca hızlı hareketlerde eylemsizlik yoluyla, fit'in iyi identify ettiği armature ile birlikte etki ediyor. Kütleyi değiştirmek pozisyonları çok az değiştiriyor, bu yüzden gürültü onu gizliyor; aynı sebeple tahmini de pek etkilemiyor.
-3. Validation hatası 6,67'den 0,82 mrad'a iyileşiyor, parametreler ise iyileşmiyor: fit edilen tork limiti ölçeği 0,820 (gerçek 1,000), kp hatası −%50,0. Saturation'lı veri limiti sabitler, servo gain'ini değil; ek parametre diğerlerinin hatasını emiyor. A bölümüyle aynı gürültü çekilişi; `output.txt`'de "Exercise 3" bölümü.
+1. Gecikme bütün tepkiyi zamanda kaydırır; bu yüzden hızı sıfır olmayan her örnek onun hakkında bilgi taşır. Damping ise tepkiyi yalnızca hızla orantılı bir kuvvetle değiştirir; küçük genlikte bu etki noise'tan küçüktür.
+2. Sert servo kolu yerçekimine karşı çok küçük bir sarkmayla tutuyor: ders 12, çıplak kol için 0,033° omuz sarkması ölçtü. Kütle o zaman yalnızca hızlı hareketlerde eylemsizlik yoluyla, fit'in iyi identify ettiği armature ile birlikte etki ediyor. Kütleyi değiştirmek pozisyonları çok az değiştiriyor, bu yüzden noise onu gizliyor; aynı sebeple tahmini de pek etkilemiyor.
+3. Validation hatası 6,67'den 0,82 mrad'a iyileşiyor, parametreler ise iyileşmiyor: fit edilen tork limiti ölçeği 0,820 (gerçek 1,000), kp hatası −%50,0. Saturation'lı veri limiti sabitler, servo gain'ini değil; ek parametre diğerlerinin hatasını emiyor. A bölümüyle aynı noise çekilişi; `output.txt`'de "Exercise 3" bölümü.
 
 ## Akılda kalanlar ve kaynaklar
 
 - Simülatörü log'lanmış komutlara ve ölçümlere fit et (output error); iyi bir excitation ile validation hatası 9,54'ten 0,09 mrad'a düşüyor.
-- Excitation'ın bir penceresi var: çok küçüğü gürültüde boğulur, çok büyüğü actuator'ü saturation'a sokar ve servo parametrelerini gizler.
+- Excitation'ın bir penceresi var: çok küçüğü noise'ta boğulur, çok büyüğü actuator'ü saturation'a sokar ve servo parametrelerini gizler.
 - Parametre hatası tahmin hatası değildir ve eksik bir mekanizma (gecikme) diğer bütün parametreleri saptırır: ayrılmış veride doğrula.
 
 Sonraki: [ders 39 · Domain randomization](39-domain-randomization.md).

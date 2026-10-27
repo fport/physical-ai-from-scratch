@@ -16,11 +16,31 @@
 
 ## The problem
 
-A PD loop tuned in simulation ([lesson 12](../part-4-dynamics-and-control/12-joint-control.md)) assumes the controller sees the joint *now* and the torque acts *now*. On a real robot the reading is old by the time it arrives, the command is computed on a clock, sent over a bus and held until the next tick. LeRobot's recording examples run the robot loop at 30 frames per second ([LeRobot imitation-learning guide](https://huggingface.co/docs/lerobot/il_robots)), so a policy that outputs one action per frame is already 33 ms coarse before any compute time. How much delay can a loop take, why does it go unstable instead of just "slower", and what can you do about it?
+A PD loop tuned in simulation ([lesson 12](../part-4-dynamics-and-control/12-joint-control.md)) assumes the controller sees the joint *now* and its torque acts *now*. On a real robot the reading is already old when it arrives, and the command is computed on a clock tick, sent over a bus and held until the next tick. LeRobot's recording examples run the robot loop at 30 frames per second ([LeRobot imitation-learning guide](https://huggingface.co/docs/lerobot/il_robots)), so a policy that outputs one action per frame works in 33 ms steps before any compute time is added. How much delay can a loop take, why does it go unstable instead of just "slower", and what can you do about it?
 
 ## Core idea
 
-**Where latency comes from.** End-to-end latency is the time from a physical event to the actuator's response to it:
+### In plain words
+
+Imagine steering a car while watching the road on a screen that shows the video half a second late. On a straight road with gentle corrections you manage. Steer hard and you correct for where the car *was*: you overshoot, see it late, correct back too hard, and the weaving grows until you leave the road. The delay did not make you slower. It made your corrections arrive at the wrong moment.
+
+A feedback controller does the same. It pushes the joint toward the target based on an old reading. A gentle loop barely notices. A stiff, fast loop has already pushed too far by the time it sees the effect, and beyond some delay every correction feeds the next swing instead of damping it.
+
+Two facts follow. The loop only sees the *total* delay: sensor, filter, bus, compute and waiting for the next tick all add up. And the budget for that total is set by the loop itself: the faster the loop reacts, the less delay it can afford.
+
+### The latency chain
+
+```mermaid
+flowchart TD
+    M["joint moves"] --> S["sensor sampling<br/>+ filtering"]
+    S --> B["bus / USB transfer<br/>OS scheduling"]
+    B --> C["compute<br/>estimator, policy"]
+    C --> H["command held<br/>until the next tick"]
+    H --> A["servo responds"]
+    A --> M
+```
+
+End-to-end latency is the time once around this chain, from a physical event to the actuator's response to it:
 
 | Stage | Source of delay |
 |---|---|
@@ -31,15 +51,62 @@ A PD loop tuned in simulation ([lesson 12](../part-4-dynamics-and-control/12-joi
 | Sample and hold | a command computed at tick $k$ is held for a period $T$: on average $T/2$ old |
 | Actuation | the servo's own response time, torque saturation |
 
-**Why delay destabilizes.** A pure delay $d$ multiplies the loop transfer function by $e^{-sd}$: gain unchanged, phase reduced by $\omega d$. A loop is stable while it has phase margin left at its gain-crossover frequency $\omega_c$ (where $|L(j\omega_c)| = 1$), so
+### The delay budget, as code
+
+Control engineers measure the budget with the *phase margin*. Every loop has a *crossover frequency* $\omega_c$: roughly how fast it corrects, the frequency at which a correction comes back exactly as large as it went out. The phase margin is the timing slack left at that frequency before corrections arrive exactly out of step and start to reinforce the error. A delay $d$ eats $\omega_c d$ of that slack. For a PD loop on one joint:
+
+```python
+from math import atan, sqrt
+
+# Total delay the loop sees (s): just add the stages
+d = t_sense + t_filter + t_bus + t_compute + T / 2   # T = 1 / control rate; add T if applied a tick late
+
+# PD on one joint: torque = kp * (target - q) - kd * qdot
+I, kp, zeta = 0.0901, 20.0, 0.7         # inertia (kg m^2), stiffness, damping ratio
+kd = 2 * zeta * sqrt(kp * I)            # damping gain for that ratio
+
+# Crossover: |kp + j*kd*w| / (I*w^2) == 1 is a quadratic in w^2
+w_c = sqrt((kd**2 + sqrt(kd**4 + 4 * I**2 * kp**2)) / (2 * I**2))   # 22.99 rad/s
+pm = atan(kd * w_c / kp)                # phase margin, rad (65.2 deg)
+d_max = pm / w_c                        # largest total delay before it oscillates: 49.5 ms
+```
+
+| Quantity | Formula |
+|---|---|
+| Loop (PD on an inertia) | $L(s) = \dfrac{K_p + K_d s}{I s^2}$ |
+| Crossover | $I^2\omega_c^4 = K_p^2 + K_d^2\omega_c^2$ |
+| Phase margin | $\mathrm{PM} = \arctan(K_d\omega_c/K_p)$ |
+| Delay margin | $d_{\max} = \mathrm{PM}/\omega_c$ |
+| Delay added by a controller at rate $f$ | $T/2 = 1/(2f)$, plus $T$ per tick of compute |
+
+$I$ is the joint inertia, $K_p$ and $K_d$ the PD gains, $s$ the Laplace variable (read it as "frequency"), $\omega_c$ the crossover frequency where the loop gain $|L|$ equals 1, PM the phase margin in radians, $d_{\max}$ the delay margin, $f$ the control rate and $T = 1/f$ its period.
+
+Three consequences: a stiffer loop (higher $\omega_c$) tolerates *less* delay; at the limit the loop oscillates at $\omega_c$, with period $2\pi/\omega_c$; and control rate and latency are different knobs: a 1 kHz loop with 50 ms of camera delay is still a 50 ms loop.
+
+<details>
+<summary>Math details: why delay costs phase, and where T/2 comes from</summary>
+
+**A delay is pure phase.** Delaying a signal by $d$ multiplies its Laplace transform by $e^{-sd}$. On the frequency axis $s = j\omega$, $|e^{-j\omega d}| = 1$ and its angle is $-\omega d$: the gain at every frequency is unchanged, the phase drops by $\omega d$, more at higher frequencies.
+
+**Phase margin.** A loop with a single crossover is stable while its phase at $\omega_c$ stays above $-180°$; PM is the distance to $-180°$. The delay does not move $\omega_c$ (the gain is unchanged) but subtracts $\omega_c d$ there, so stability is lost when $\omega_c d = \mathrm{PM}$:
 
 $$d_{\max} = \frac{\mathrm{PM}}{\omega_c}.$$
 
-For PD on an inertia, $L(s) = \frac{K_p + K_d s}{I s^2}$, the crossover solves $I^2\omega^4 = K_p^2 + K_d^2\omega^2$ and $\mathrm{PM} = \arctan(K_d\omega_c/K_p)$. Two consequences: a faster loop (higher $\omega_c$) tolerates *less* delay, and at the limit the loop oscillates at $\omega_c$.
+**PD on an inertia.** $|L(j\omega)| = \sqrt{K_p^2 + K_d^2\omega^2}/(I\omega^2) = 1$ is the quadratic in $\omega^2$ used in the code. The double integrator $1/(Is^2)$ contributes $-180°$ and the PD numerator gives back $\arctan(K_d\omega/K_p)$, which is PM at $\omega_c$. At constant ζ, $K_d \propto \sqrt{K_p}$ and $\omega_c \propto \sqrt{K_p}$, so PM stays the same while $d_{\max}$ shrinks as $1/\sqrt{K_p}$ (Break it: 98.9 ms at $K_p$ = 5, 49.5 ms at $K_p$ = 20).
 
-**Control rate vs latency.** A controller at rate $f$ adds about $T/2 = 1/(2f)$ of delay from the hold, plus one full $T$ if the result is only applied at the next tick. Rate and latency are different knobs: a 1 kHz loop with 50 ms of camera delay is still a 50 ms loop.
+**Sample and hold.** A zero-order hold has the transfer function $(1 - e^{-sT})/(sT)$, whose phase is exactly $-\omega T/2$: holding a command for one period acts like a delay of $T/2$. If the command computed from a reading is applied only at the next tick, add one full $T$: $3T/2$ in total.
 
-**Mitigations.** (1) Lower the loop gain (slower, but more margin). (2) Predict: integrate a model from the delayed state over the delay, using the commands already sent (Smith-predictor idea). (3) Plan ahead in open loop: action chunking predicts a sequence of future actions per inference ([lesson 31](../part-7-learning-from-demonstration/31-act.md)); LeRobot's ACT defaults to `chunk_size = 100` and `n_action_steps = 100` ([`configuration_act.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py)), and its rollout tool offers `--inference.type=rtc` "for smooth execution with slow VLA models" ([LeRobot guide](https://huggingface.co/docs/lerobot/il_robots)). Chunking trades reaction time for smoothness: while a chunk plays, the policy does not react to new observations.
+**Assumptions.** Linear loop, one crossover, no actuator saturation. Part D shows how a saturating servo breaks the estimate.
+
+Go deeper: [Stochastic Processes](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/22-stochastic-processes) (AIEFS, signals over time); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), ch. 11; Tan et al., [arXiv 1804.10332](https://arxiv.org/abs/1804.10332) (latency in sim-to-real).
+
+</details>
+
+### Three mitigations
+
+1. **Lower the loop gain**: slower, but more margin.
+2. **Predict**: integrate a model from the delayed state over the delay, using the commands already sent, and control the predicted present state (the Smith-predictor idea; exact only when the model is, part C).
+3. **Plan ahead in open loop**: action chunking predicts a sequence of future actions per inference ([lesson 31](../part-7-learning-from-demonstration/31-act.md)). LeRobot's ACT defaults to `chunk_size = 100` and `n_action_steps = 100` ([`configuration_act.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py)), and its rollout tool offers `--inference.type=rtc` "for smooth execution with slow VLA models" ([LeRobot guide](https://huggingface.co/docs/lerobot/il_robots)). Chunking trades reaction time for smoothness: while a chunk plays, the policy does not react to new observations.
 
 ## Experiment
 
@@ -59,6 +126,8 @@ u = kp * (TARGET - q_m) - kd * v_m
 |---|---|---|---|---|---|---|---|---|
 | overshoot % | 4.45 | 4.47 | 4.51 | 5.02 | 11.51 | 31.23 | 215.84 | diverges |
 | settle 2% [s] | 0.398 | 0.376 | 0.351 | 0.291 | 0.331 | 0.926 | never | never |
+
+![Left: overshoot of the PD loop versus measurement delay on a log scale, almost flat up to 20 ms and rising steeply towards the predicted 49.5 ms limit, diverging beyond it. Right: predicted delay margin falling as Kp rises at fixed damping ratio; the two stiffest gains drop below the 30 ms delay line and diverge.](../experiments/37-latency/delay_margin.png)
 
 Bisection on whole milliseconds: stable at 48 ms, unstable at 49 ms. The oscillation at 49 ms has a period of 272 ms; $2\pi/\omega_c$ = 273 ms. Up to about 20 ms the delay costs almost nothing (it even shortens the settling time); the last 20 ms before the limit cost everything.
 
@@ -88,7 +157,7 @@ The $T/2$ and $3T/2$ rules predict the trend: 30 Hz with immediate application b
 
 With an exact model and no disturbances, prediction removes the delay completely. With a wrong model it still helps here, but it changes the closed-loop response: knowing the delay and the dynamics (lesson 38) is what makes prediction safe.
 
-**D. SO-101 at 30 Hz.** Menagerie SO-101, `shoulder_pan` servo (2 ms step). An outer "policy" loop at 30 Hz nudges the servo target from delayed readings: `target += K*T*(goal - q_delayed)`, $K$ = 10 s⁻¹. For an ideal servo, an integrator with delay is unstable when $K(d + T/2) > \pi/2$, i.e. above 140 ms (exact discrete-time analysis: from 5 ticks = 167 ms). But the servo is not ideal: alone, it reaches 50% of a 0.02 / 0.10 / 0.50 rad step after 18 / 44 / 110 ms. Every one of these steps drives the servo into its 2.94 N·m torque limit (with $k_p$ = 998 N·m/rad that takes only 2.94/998 ≈ 3 mrad of error), so the move is acceleration-limited and a larger step takes longer.
+**D. SO-101 at 30 Hz.** Menagerie SO-101, `shoulder_pan` servo (2 ms step). An outer "policy" loop at 30 Hz nudges the servo target from delayed readings: `target += K*T*(goal - q_delayed)`, $K$ = 10 s⁻¹. For an ideal servo, this integrator with delay is unstable when $K(d + T/2) > \pi/2$, i.e. above 140 ms (exact discrete-time analysis: from 5 ticks = 167 ms). The model servo is not ideal: alone, it reaches 50% of a 0.02 / 0.10 / 0.50 rad step after 18 / 44 / 110 ms. It *saturates* (hits its torque limit) on every one of these steps: with $k_p$ = 998 N·m/rad, only 2.94/998 ≈ 3 mrad of error already demands its full 2.94 N·m. The move is then acceleration-limited, and a larger step takes longer.
 
 | delay [ms] | 0 | 33 | 50 | 67 | 100 | 117 | 133 |
 |---|---|---|---|---|---|---|---|
@@ -101,7 +170,7 @@ For small corrections the loop keeps oscillating only at 133 ms, close to the id
 
 ## Break it
 
-Fix the delay at 30 ms and make the PD loop stiffer at constant ζ = 0.7:
+Fix the delay at 30 ms and make the PD loop stiffer at constant ζ = 0.7 (right panel of the figure above):
 
 | $K_p$ | 5 | 10 | 20 | 40 | 80 | 160 |
 |---|---|---|---|---|---|---|
@@ -109,7 +178,7 @@ Fix the delay at 30 ms and make the PD loop stiffer at constant ζ = 0.7:
 | $d_{\max}$ [ms] | 98.9 | 70.0 | 49.5 | 35.0 | 24.7 | 17.5 |
 | overshoot % | 4.73 | 5.30 | 11.51 | 37.78 | diverges | diverges |
 
-The damping ratio is the same in every row, yet the loop dies at $K_p$ = 80. Stiffness raises $\omega_c$, and the same 30 ms costs $\omega_c \cdot d$ of phase. The formula predicts the failing rows exactly (24.7 and 17.5 ms are below 30 ms). Gains tuned in a zero-delay simulation are tuned for a loop that does not exist.
+The damping ratio is the same in every row, yet the loop dies at $K_p$ = 80. Stiffness raises $\omega_c$, and the same 30 ms then costs $\omega_c \cdot d$ of phase. The formula predicts the failing rows exactly (24.7 and 17.5 ms are below 30 ms). Gains tuned in a zero-delay simulation are tuned for a loop that does not exist.
 
 ## On the real robot
 

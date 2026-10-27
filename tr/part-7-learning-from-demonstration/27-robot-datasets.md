@@ -20,40 +20,104 @@ Ders 26, scripted SO-101 demonstration'larından 13680 frame üretti. Bunlar üz
 
 ## Ana fikir
 
-**Bir frame ne tutar.** Bir robot dataset'i episode'lardan $e$ oluşan bir kümedir; her biri sabit hızda frame'lerden $t = 0 \dots T_e - 1$ oluşan bir dizidir:
+### Sade anlatımla
+
+Bir robot dataset'i, her frame için bir satır olan büyük bir tabloya benzer, ama aslında kısa kayıtlardan (**episode**'lardan) oluşan bir kümedir; her biri bir zaman serisidir. Bu tek gerçek iki kararı belirler.
+
+**Satıra göre değil, episode'a göre böl.** Bir uygulamanın tıklama log'undan churn modeli kuruyorsan aynı kullanıcının rastgele satırlarını hem training'e hem validation'a koymazsın: model kalıbı öğrenmek yerine kullanıcıyı tanır. Kullanıcıları bütün olarak dışarıda tutarsın. Aynı episode'da 40 ms arayla gelen iki frame, aynı kullanıcının bir saniye arayla yaptığı iki tıklama kadar birbirine benzer; bu yüzden validation episode'ları bütün olarak dışarıda tutmalı. Yoksa validation skoru, modelin zaten gördüğü frame'ler arasındaki minik boşlukları ne kadar iyi doldurduğunu ölçer.
+
+**Training verisinin istatistikleriyle ölçekle.** Her girdi, training kümesinde hesaplanan sayılarla (ortalama ve yayılım ya da minimum ve maksimum) yeniden ölçeklenir ve bu sayılar eğitilmiş policy ile birlikte gider. O zaman birinin küpü metre mi milimetre mi logladığı önemini yitirir.
+
+### Verinin yolu
+
+```mermaid
+flowchart TD
+    E["120 episode<br/>(her biri bir küp konumu)"] --> S["episode_index'e göre böl"]
+    S --> TR["training episode'ları"]
+    S --> VA["validation episode'ları"]
+    TR --> ST["yalnız training'den istatistik<br/>(mean, std, min, max)"]
+    ST --> N["girdileri ve hedefleri normalize et"]
+    VA --> N
+    N --> M["eğit, sonra validation'da ölç"]
+```
+
+### Bölme ve normalization, kod olarak
+
+```python
+import numpy as np
+
+# Wrong: split by frame. Near-identical neighbours land on both sides.
+idx = rng.permutation(n_frames)
+train, val = idx[: int(0.8 * n_frames)], idx[int(0.8 * n_frames):]
+
+# Right: split by episode, like splitting a click log by user, not by row.
+eps = rng.permutation(np.unique(episode_index))      # episode ids, shuffled
+val = np.isin(episode_index, eps[: len(eps) // 5])   # 20% of episodes, all their frames
+train = ~val
+
+# Normalize with statistics of the training frames only (one value per feature)
+mu, sd = X[train].mean(0), X[train].std(0)
+lo, hi = X[train].min(0), X[train].max(0)
+mean_std = (X - mu) / sd                 # MEAN_STD: zero mean, unit spread
+min_max = 2 * (X - lo) / (hi - lo) - 1   # MIN_MAX: mapped to [-1, 1]
+```
+
+| Büyüklük | Formül |
+|---|---|
+| MEAN_STD | $\tilde x = \dfrac{x - \mu}{\sigma}$ |
+| MIN_MAX | $\tilde x = 2\,\dfrac{x - x_{\min}}{x_{\max} - x_{\min}} - 1$ |
+| bir frame'in global satırı | her episode $T$ frame ise `index` $= e \cdot T + t$ |
+| episode bölmesi | validation = dışarıda tutulan episode'ların her frame'i |
+
+Burada $x$ ham bir feature değeri, $\tilde x$ onun normalize edilmiş değeri, $\mu$ ve $\sigma$ o feature'ın training frame'leri üzerindeki ortalaması ve standart sapması, $x_{\min}$ ve $x_{\max}$ training frame'leri üzerindeki minimumu ve maksimumu, $e$ episode id'si (`episode_index`), $t$ episode içindeki konum (`frame_index`) ve $T$ frame cinsinden episode uzunluğudur.
+
+### Bir frame ne tutar
+
+Bir dataset episode'lardan $e$ oluşan bir kümedir; her biri sabit hızda frame'lerden $t = 0 \dots T_e - 1$ oluşan bir dizidir:
 
 | Sütun | Anlamı | Bizim veri |
 |---|---|---|
-| `observation.state` | propriosepsiyon (joint pozisyonları), burada artı küp pozu | 9 float |
+| `observation.state` | propriosepsiyon (robotun kendi joint pozisyonlarını okuması), burada artı küp pozu | 9 float |
 | `observation.images.*` | kamera frame'leri | yok (state tabanlı) |
 | `action` | bu frame'de gönderilen komut | 6 joint hedefi |
 | `timestamp` | episode başından beri saniye | $t/25$ |
 | `frame_index`, `episode_index`, `index` | episode içindeki konum, episode id, global satır | int |
 | `task_index` | hangi doğal dil görevi | 0: "pick up the cube" |
 
-**LeRobot formatı (v3.0).** Dokümantasyonda ve kodda doğrulandı ([LeRobotDataset v3.0](https://huggingface.co/docs/lerobot/lerobot-dataset-v3); [`dataset_metadata.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/datasets/dataset_metadata.py) içinde `CODEBASE_VERSION = "v3.0"`):
+### LeRobot formatı (v3.0)
+
+Dokümantasyonda ve kodda doğrulandı ([LeRobotDataset v3.0](https://huggingface.co/docs/lerobot/lerobot-dataset-v3); [`dataset_metadata.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/datasets/dataset_metadata.py) içinde `CODEBASE_VERSION = "v3.0"`):
 
 - `meta/info.json`: şema (feature adları, dtype'lar, shape'ler), fps, codebase sürümü, yol şablonları.
-- `meta/stats.json`: normalizasyon için feature başına istatistikler; kod min, max, mean, std, count ve 0,01, 0,10, 0,50, 0,90, 0,99 quantile'larını hesaplıyor ([`compute_stats.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/datasets/compute_stats.py)).
+- `meta/stats.json`: normalization için feature başına istatistikler; kod min, max, mean, std, count ve 0,01, 0,10, 0,50, 0,90, 0,99 quantile'larını hesaplıyor ([`compute_stats.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/datasets/compute_stats.py)).
 - `meta/episodes/`: episode başına kayıtlar (uzunluk, görevler, ortak dosyalardaki offset'ler), parçalı Parquet olarak.
 - `meta/tasks.parquet`: tamsayı id'lere eşlenmiş görev metinleri (dokümantasyon sayfası hâlâ `tasks.jsonl` diyor; kod onu eski yol olarak tutuyor, [`utils.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/datasets/utils.py)).
 - `data/chunk-000/file-000.parquet`: frame satırları, dosya başına birçok episode; `videos/<kamera>/chunk-000/file-000.mp4` de öyle.
 
 `timestamp`, `frame_index`, `episode_index`, `index` ve `task_index` kullanıcı tarafından değil, kayıt aracı tarafından doldurulur ([`feature_utils.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/datasets/feature_utils.py)). v3'te episode sınırları dosya adlarında değil, metadata'da yaşar.
 
-**Normalizasyon.** Girdiler ve hedefler training'den önce dataset istatistikleriyle yeniden ölçeklenir:
+LeRobot MIN_MAX, MEAN_STD, IDENTITY, QUANTILES ve QUANTILE10 normalization modlarını tanımlıyor ([`types.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/configs/types.py)); ACT config'i state ve action için varsayılan olarak MEAN_STD, Diffusion Policy config'i MIN_MAX kullanıyor ([ACT](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py), [Diffusion](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/diffusion/configuration_diffusion.py)).
 
-$$\text{MEAN\_STD: } \tilde x = \frac{x - \mu}{\sigma}, \qquad \text{MIN\_MAX: } \tilde x = 2\,\frac{x - x_{\min}}{x_{\max} - x_{\min}} - 1 .$$
+<details>
+<summary>Matematik ayrıntısı: frame bölmesi neden sızdırır ve istatistikler neden policy ile gider</summary>
 
-LeRobot MIN_MAX, MEAN_STD, IDENTITY, QUANTILES ve QUANTILE10'u tanımlıyor ([`types.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/configs/types.py)); ACT config'i state ve action için varsayılan olarak MEAN_STD, Diffusion Policy config'i MIN_MAX kullanıyor ([ACT](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py), [Diffusion](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/diffusion/configuration_diffusion.py)). İstatistikler training verisinden gelmeli ve policy ile birlikte taşınmalı: farklı istatistiklerle evaluate edilen bir policy farklı girdiler görür.
+**Bağımsız birim episode'dur.** Bir episode içinde frame $t+1$, yumuşak bir hareketin 40 ms ilerletilmiş frame $t$'sidir; komşu satırlar güçlü biçimde korelelidir. Episode'lar arasında ise küp konumu bağımsız çekilir. Bir validation kümesinin amacı *yeni, bağımsız* girdilerdeki hatayı tahmin etmektir; frame bölmesinde neredeyse her validation frame'inin 40 ms ötede bir training komşusu vardır ve skor bunun yerine interpolation hatasını tahmin eder. Validation, [ders 25](25-evaluating-policies.md)'teki evaluation'ın test konumlarını dışarıda tutması gibi, episode'ları bütün olarak dışarıda tutmalı.
 
-**Bölme.** Bir episode içindeki frame'ler güçlü biçimde korelelidir; bağımsız birimler episode'lardır (burada: küp konumları). Validation, [ders 25](25-evaluating-policies.md)'teki evaluation'ın test konumlarını dışarıda tutması gibi, episode'ları bütün olarak dışarıda tutmalı.
+**Sızıntı veri büyüdükçe küçülür.** Çok episode'la training kümesi küp alanını sık kaplar; gerçekten yeni bir episode'un bile yakın komşuları olur ve iki tahmin birbirine yaklaşır. Az episode'la en çok ayrışırlar; robot dataset'leri ise genellikle küçüktür.
+
+**Ölçek neden önemli.** Bir MLP'nin ilk katmanı girdilerinin ağırlıklı toplamlarını alır. Küp milimetre olarak loglanınca değerleri metreye göre yaklaşık 1000 kat büyür, joint açıları ise 1 rad mertebesinde kalır; ağırlıklar birime uyum sağlamadıkça toplamlara küp feature'ları hâkim olur ve varsayılan başlangıç ağırlıkları ile learning rate'ler 1 mertebesinde girdiler varsayar. Her feature'ı ortak bir aralığa ölçeklemek birimlere bağımlılığı ortadan kaldırır.
+
+**İstatistikler modele aittir.** $\mu, \sigma$ (ya da $x_{\min}, x_{\max}$) training verisine fit edilir ve policy'nin parçasıdır: farklı istatistiklerle evaluate edilince aynı ham observation farklı bir network girdisine dönüşür. Onları validation verisiyle birlikte hesaplamak ikinci, daha küçük bir sızıntıdır.
+
+Daha derine: [Model Evaluation](https://aiengineeringfromscratch.com/lesson?path=phases/02-ml-fundamentals/09-model-evaluation); [LeRobotDataset v3.0](https://huggingface.co/docs/lerobot/lerobot-dataset-v3) ve [`compute_stats.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/datasets/compute_stats.py).
+
+</details>
 
 ## Deney
 
-Girdi: ders 26'dan [`demos.npz`](../../experiments/26-teleop-replay-data/demos.npz). Model: 9 state değerinden 6 action değerini tahmin eden bir MLP (2 × 256 ReLU, Adam, batch 256 ile 4000 adım), ders 28'in eğittiği network'ün aynısı, orada iki ek bileşenle (bkz. AIEFS: [Model Evaluation](https://aiengineeringfromscratch.com/lesson?path=phases/02-ml-fundamentals/09-model-evaluation)). Hata, derece cinsinden action RMSE'si, open loop (simülasyon yok). Tam script: [`experiments/27-robot-datasets/experiment.py`](../../experiments/27-robot-datasets/experiment.py), çıktı: [`output.txt`](../../experiments/27-robot-datasets/output.txt). NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5), deterministik.
+Girdi: ders 26'dan [`demos.npz`](../../experiments/26-teleop-replay-data/demos.npz). Model: 9 state değerinden 6 action değerini tahmin eden bir MLP (2 × 256 ReLU, Adam, batch 256 ile 4000 adım), ders 28'in eğittiği network'ün aynısı, orada iki ek bileşenle (bkz. AIEFS: [Model Evaluation](https://aiengineeringfromscratch.com/lesson?path=phases/02-ml-fundamentals/09-model-evaluation)). Hata, derece cinsinden action RMSE'si (tahmin edilen ve kaydedilen joint hedefleri arasındaki farkın karesel ortalamasının kökü); open loop ölçülüyor: robotu koşmadan, kaydedilmiş frame'ler üzerinde. Tam script: [`experiments/27-robot-datasets/experiment.py`](../../experiments/27-robot-datasets/experiment.py), çıktı: [`output.txt`](../../experiments/27-robot-datasets/output.txt). NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5), deterministik.
 
-**A. Anatomi.** 120 episode, 13680 frame, 25 fps, 120'si de başarılı; episode sınırları 0, 114, 228, …, 13566. satırlarda. İstatistikler `stats.json`'ın tutacağı biçimde (alıntı):
+**A. Anatomi.** 120 episode, 13680 frame, 25 fps, 120'si de başarılı; episode sınırları 0, 114, 228, …, 13566. satırlarda. İstatistikler `stats.json`'ın tutacağı biçimde (alıntı; q01 ve q99, %1 ve %99 persentilleri):
 
 | Feature | mean | std | min | max | q01 | q99 |
 |---|---|---|---|---|---|---|
@@ -89,6 +153,8 @@ Metre cinsinden ham feature'larımız zaten 0,01–1 mertebesinde; normalizasyon
 | 90 | episode | 0,343 | 0,323 | 0,94 |
 
 Frame seviyesi validation hatası dataset büyüklüğü ne olursa olsun 0,25–0,28°'de kalıyor. Modelin zaten gördüğü frame'ler arasındaki 40 ms'lik boşlukları ne kadar iyi doldurduğunu ölçüyor ve 10 episode'la yeni küp konumlarındaki gerçek hatayı 6,33 kat küçük gösteriyor. Episode seviyesi sayı test hatasıyla birlikte hareket ediyor. Yalnız 2 validation episode'uyla (10 episode'luk satır) hâlâ iyimser, çünkü 2 episode küçük bir örneklem.
+
+![Solda: kullanılan episode sayısına göre action RMSE. Frame bölmesinin validation hatası 0,25–0,28 derece civarında düz kalırken görülmemiş episode'lardaki test hatası 1,595'ten 0,279'a düşüyor; episode bölmesinin validation hatası test hatasını izliyor. Sağda: test/validation oranı; 10 episode'da frame bölmesi için 6,33, episode bölmesi için 2,82; 90 episode'da ikisi de 1 civarında.](../../experiments/27-robot-datasets/split_val_vs_test.png)
 
 ## Boz
 

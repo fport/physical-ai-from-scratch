@@ -20,17 +20,61 @@ Unitree'nin bacaklı robotları için açık eğitim kodu (Isaac Gym) fiziği `s
 
 ## Ana fikir
 
-### Semi-implicit Euler
+### Sade anlatımla
 
-MuJoCo ivmeleri sürekli zamanda hesaplar, sonra integre eder. Default `Euler` integrator'ı semi-implicit'tir: konum güncellemesi *yeni* hızı kullanır ([Computation · Numerical integration](https://mujoco.readthedocs.io/en/stable/computation/index.html#geintegration)):
+Simülatör karanlık bir odadaki çakar ışık gibi çalışır. Düşen bir küpü kesintisiz izlemez; her timestep'te bir kez çakar, o anda her şeyin nerede olduğunu hesaplar ve bir sonraki çakışa atlar. İki çakış arasında olan hiçbir şey hesaplanmaz.
 
-$$v_{t+h} = v_t + h\,a_t, \qquad q_{t+h} = q_t + h\,v_{t+h}$$
+Çarpışmalar yalnızca çakışlarda bulunur. Hızlı bir küp bir çakışta ince bir tablanın üstünde, sonrakinde altındaysa, engine onun masaya değdiğini hiç görmez. Bir çakış küpü tablanın *içinde* yakalarsa, engine onu yakın yüzden dışarı iter; küpün merkezi tablanın ortasını geçmişse bu yakın yüz alt yüzdür. İlk temas doğru tarafta yakalansa bile yumuşak bir contact, küpün durmadan önce ortayı geçecek kadar batmasına izin verebilir; o zaman küp alttan dışarı itilir.
 
-Bir adımda cisim $v h$ kadar sıçrar. $t$ ile $t+h$ arasında olan hiçbir şey hesaplanmaz. (Bir ODE'yi ayrıklaştırmak: bkz. AIEFS: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml).)
+Yani timestep yalnızca bir doğruluk ayarı değildir. Cismin hızı ve engelin kalınlığıyla birlikte, bir contact'ın oluşup oluşmayacağına karar verir.
+
+```mermaid
+flowchart TD
+    S["t anındaki state<br/>konum q, hız v"] --> CD["collision detection<br/>yalnızca bu q'da"]
+    CD --> F["yerçekimi + contact kuvvetleri<br/>ivme a'yı verir"]
+    F --> V["v = v + h·a"]
+    V --> Q["q = q + h·v<br/>(yeni v ile)"]
+    Q -- "t = t + h" --> S
+```
+
+### Tek timestep, kod olarak
+
+```python
+h = 0.002                          # timestep in seconds (MuJoCo's default)
+while t < t_end:
+    contacts = detect(q)           # overlaps at THIS position only, never along the path
+    a = acceleration(q, v, contacts)   # gravity plus contact forces, divided by mass
+    v = v + h * a                  # update the velocity first ...
+    q = q + h * v                  # ... then move with the NEW velocity: a jump of v*h
+    t = t + h
+```
+
+| Büyüklük | Formül |
+|---|---|
+| semi-implicit Euler adımı | $v_{t+h} = v_t + h\,a_t, \qquad q_{t+h} = q_t + h\,v_{t+h}$ |
+| bir adımda sıçranan mesafe | $\Delta q = v\,h$ |
+| $H$ yüksekliğinden serbest düşüş sonrası hız | $v = \sqrt{2 g H}$ |
+
+$q$ konum, $v$ hız, $a$ ivme, $h$ timestep (`dt`), $t$ zaman, $g$ yerçekimi, $H$ bırakma yüksekliğidir.
+
+<details>
+<summary>Matematik ayrıntısı: neden "semi-implicit" ve bir integrator neyi düzeltir, neyi düzeltemez</summary>
+
+**Ayrıklaştırma.** Fizik bir diferansiyel denklemdir: $\dot q = v$, $\dot v = a(q, v)$. Bir integrator onu $t$'den $t + h$'ye sıçrayan bir kuralla değiştirir. MuJoCo ivmeleri sürekli zamanda hesaplar, sonra integre eder ([Computation · Numerical integration](https://mujoco.readthedocs.io/en/stable/computation/index.html#geintegration)).
+
+**Explicit ve semi-implicit Euler.** Explicit Euler *eski* hızla ilerler: $q_{t+h} = q_t + h v_t$. MuJoCo'nun default'u olan semi-implicit Euler (`Euler`) *yeni* hızla ilerler. Fark bir yayda görünür: $a = -\omega^2 q$. Explicit Euler salınım genliğini her adımda $\sqrt{1 + h^2\omega^2} > 1$ ile çarpar, yani her $h$'de enerji kazanır. Semi-implicit Euler'de adım matrisinin determinantı 1'dir ve $h\omega < 2$ olduğu sürece özdeğerleri birim çember üzerinde kalır: salınım ne büyür ne söner. $h\omega = 2$'nin ötesinde patlar. Bu limit [ders 03](03-contact.md) ve [ders 05](05-joints-and-actuators.md)'te geri dönüyor.
+
+**Integrator'lar neyi değiştirir.** Diğer integrator'lar kuvvet terimlerinin daha fazlasını implicit çözer (yeni state'te) ya da adım başına birkaç kuvvet hesabı yapar (RK4). Bu, sert damping'e ve düzgün harekete yardım eder. Hiçbiri continuous collision detection eklemez: contact'lar yine yalnızca örneklenen state'lerde bulunur.
+
+**Orta düzlem neden önemli.** İnce bir tabla için, küpün merkezi tablanın orta düzlemini geçtiği anda çakışmadan en kısa çıkış yolu aşağıya doğrudur; ölçülen contact normal'i de tam orada ters döner (aşağıda Gözlemle'nin 2. ve 3. maddeleri).
+
+Daha derine: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml), [Numerical Stability](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/13-numerical-stability) (AIEFS); [MuJoCo Computation · Integrators](https://mujoco.readthedocs.io/en/stable/computation/index.html#geintegrators).
+
+</details>
 
 ### Contact yalnızca adımlarda kontrol edilir
 
-Collision detection her adımdaki konumlar üzerinde çalışır. Hızlı bir cisim ve ince bir engel için üç şey ters gidebilir:
+Hızlı bir cisim ve ince bir engel için üç şey ters gidebilir:
 
 | Hata | Koşul | Sonuç |
 |---|---|---|
@@ -38,9 +82,11 @@ Collision detection her adımdaki konumlar üzerinde çalışır. Hızlı bir ci
 | yanlış taraftan çakışma | ilk çakışma zaten tablanın orta düzleminin ötesinde | box–box contact normal'i *aşağı* bakar; solver küpü içinden iter |
 | fazla yumuşak contact | contact doğru tarafta görülür ama soft constraint küpün orta düzlemin ötesine batmasına izin verir | normal çarpma sırasında ters döner |
 
-Üçüncüsü aslında bir timestep problemi değil; onu `solref` belirler ([ders 03](03-contact.md)).
+*Contact normal'i*, contact'ın ittiği yöndür. Üçüncüsü aslında bir timestep problemi değil; onu contact'ın yumuşaklığı olan `solref` belirler ([ders 03](03-contact.md)).
 
 ### Integrator'lar
+
+*Integrator*, ivmeleri bir sonraki hıza ve konuma çeviren kuraldır. "Implicit", bir kuvvet teriminin yeni, henüz bilinmeyen state'te hesaplanması demektir (bir lineer çözüm gerektirir ama sert kuvvetlere dayanır); "explicit" ise mevcut state'te hesaplanması.
 
 | `integrator` | Neyi implicit çözer | Neyi iyileştirir |
 |---|---|---|
@@ -50,7 +96,7 @@ Collision detection her adımdaki konumlar üzerinde çalışır. Hızlı bir ci
 | `RK4` | hiçbiri; 4. mertebe, çok aşamalı | düzgün hareketin doğruluğu, adım başına 4 kuvvet hesabı |
 | `discrete` | hız *ve* konum stiffness'ı, constraint'lerle birlikte | explicit limitin çok ötesinde sert yaylar ve position servo'lar |
 
-Kaynak: [Computation · Integrators](https://mujoco.readthedocs.io/en/stable/computation/index.html#geintegrators), [option/integrator](https://mujoco.readthedocs.io/en/stable/XMLreference.html#option-integrator). Hiçbiri continuous collision detection eklemez: contact'lar yalnızca örneklenen state'lerde bulunur, aradaki yolda asla. Seçimin burada önemli olup olmadığı aşağıda ölçülüyor.
+Kaynak: [Computation · Integrators](https://mujoco.readthedocs.io/en/stable/computation/index.html#geintegrators), [option/integrator](https://mujoco.readthedocs.io/en/stable/XMLreference.html#option-integrator). Seçimin düşen küp için önemli olup olmadığı aşağıda ölçülüyor.
 
 ## Deney
 
@@ -73,7 +119,7 @@ m = mujoco.MjModel.from_xml_string(XML)
 m.opt.timestep = dt_ms / 1000          # <- the swept number
 ```
 
-Script her `dt` için şunları kaydediyor: tablayla ilk çakışan adımda küp merkezinin yüksekliği, masa contact'ı bulunup bulunmadığı, çarpma sırasındaki en alçak merkez ve son sonuç. Sweep'i daha sert bir contact'la, iki geom'a da `solref="0.005 1"` vererek tekrarlıyor (contact iki geom'un değerlerinin ortalamasını kullanır; `dt` 2,5 ms'nin üstündeyken solver 0,005'i 2·`dt`'ye yükseltir, bkz. [ders 03](03-contact.md)).
+Script her `dt` için şunları kaydediyor: tablayla ilk çakışan adımda (engine'in ilk kez contact oluşturabileceği adım) küp merkezinin yüksekliği, masa contact'ı bulunup bulunmadığı, çarpma sırasındaki en alçak merkez ve son sonuç. Sweep'i daha sert bir contact'la, iki geom'a da `solref="0.005 1"` vererek tekrarlıyor (contact iki geom'un değerlerinin ortalamasını kullanır; `dt` 2,5 ms'nin üstündeyken solver 0,005'i 2·`dt`'ye yükseltir, bkz. [ders 03](03-contact.md)).
 
 **Tahmin et.** Çarpma hızı $\sqrt{2 \cdot 9{,}81 \cdot 0{,}975}$ = 4,37 m/s, yani bir adım 2 ms'de 0,87 cm, 10 ms'de 4,37 cm. Küp nerede içinden geçer?
 
@@ -93,6 +139,8 @@ Script her `dt` için şunları kaydediyor: tablayla ilk çakışan adımda küp
 | 15 | 6,56 | **27,36** | evet | — | **geçti** | **geçti** |
 | 20 | 8,75 | 30,72 | evet | 30,72 | kaldı | kaldı |
 | 25, 30, 40, 50 | 10,93–21,87 | — | **hayır** | — | **geçti** | **geçti** |
+
+![Default contact'ta, tablayla ilk çakışan adımdaki küp merkezi yüksekliğinin timestep'e göre grafiği. 2, 4, 6, 8, 12 ve 20 ms'de küp kalıyor; 0,5, 1 ve 3 ms orta düzlemin üstünde değiyor ama yine de geçiyor; 10 ve 15 ms ilk kez 29,5 cm'lik orta düzlemin altında çakışıp geçiyor; 25 ms'den itibaren hiçbir adım çakışmıyor.](../../experiments/02-timestep/first_overlap_vs_dt.png)
 
 **Gözlemle.** Üç hata türünün üçü de görünüyor:
 
@@ -120,7 +168,7 @@ Hiçbir integrator başarısız bir durumu kurtarmıyor; RK4 ve `discrete`, Eule
 
 - SO-101'de Menagerie modeli zaten `timestep="0.005"` ve `integrator="implicitfast"` ayarlıyor ([so101.xml](https://github.com/google-deepmind/mujoco_menagerie/blob/f3b6013/robotstudio_so101/so101.xml)). Orta hızla ince bir nesneye (bir kart, bir kablo) kapanan bir gripper parmağı, bu küp ve tablayla aynı geometridir.
 - Prosedür: simülasyondaki bir grasp'e güvenmeden önce grasp'i 5, 2 ve 1 ms'de çalıştır ve nesnenin son pose'unu karşılaştır. `dt` ile değişen bir sonuç grasp'in özelliği değil, simülasyon artefaktıdır. **Gerçek kolda henüz ölçülmedi**; gerçek dünyadaki karşılığıyla karşılaştırılmadı.
-- RL'de `decimation`, control hızını fizik hızından ayırır: policy 50 Hz'de çalışırken fizik 200 Hz'de çalışabilir.
+- RL'de (reinforcement learning) `decimation`, control hızını fizik hızından ayırır: policy 50 Hz'de çalışırken fizik 200 Hz'de çalışabilir.
 
 ## Kendini dene
 

@@ -20,7 +20,60 @@ LeRobot ships a command that plays a recorded episode back on the arm: `lerobot-
 
 ## Core idea
 
-**Open loop vs closed loop.** An open-loop controller applies a precomputed command sequence $u_0, u_1, \dots$ without measuring the result. A closed-loop controller computes $u_t = \pi(o_t)$ from the current observation $o_t$ (Lynch & Park, *Modern Robotics*, ch. 11). Replay is open loop over the whole task. The scripted pick of [lesson 16](../part-4-dynamics-and-control/16-grasping-and-pick-place.md) is closed loop at the task level: it reads the cube position, solves IK, and waits on a sensed jaw condition.
+### In plain words
+
+A macro recorder in a desktop app stores your clicks at fixed screen coordinates and plays them back. It works as long as every window sits exactly where it sat during the recording. Move one window and the macro clicks empty space. A script that first looks at the screen, finds the button and then clicks it survives the move. Replay is the macro. A controller that reads the cube position before moving is the script.
+
+Teleoperation is how people make robot recordings: a human drives the robot through a **leader arm**, a light, passive copy of the arm moved by hand, and the real arm (the **follower**) copies its joint angles. During the recording the human is the one looking at the screen. To learn from such a recording later, it must keep both halves of every moment: what the robot saw (the **observation**) and what it was told to do (the **action**). Replay keeps only the actions and throws the observations away.
+
+### From demonstration to policy
+
+```mermaid
+flowchart TD
+    H["human moves the leader arm"] --> FW["follower copies its joints"]
+    FW --> REC["recorder stores<br/>(observation, action) per frame"]
+    REC --> DS["dataset of episodes<br/>(lesson 27)"]
+    DS --> RP["replay: send the actions back,<br/>ignore the observations"]
+    DS --> TR["train a policy on the pairs<br/>(lesson 28)"]
+    TR --> EV["evaluate on new cube positions<br/>(lesson 25)"]
+```
+
+### Open loop and closed loop, as code
+
+```python
+# Replay = macro recorder: a fixed list indexed by time; the cube never enters the loop
+def replay(actions):
+    for a in actions:                # a = 6 joint targets recorded at one frame
+        robot.apply(a)
+        robot.step(1 / fps)          # hold it for one frame (zero-order hold)
+
+# Closed loop = a program that looks at the screen before every move
+def run(policy, T):
+    for t in range(T):
+        o = robot.observe()          # joints, jaw, cube position
+        robot.apply(policy(o))       # decide from what is seen now
+        robot.step(1 / fps)
+
+# Recording a demonstration keeps both halves of each frame
+episode = []
+for t in range(T):
+    o = robot.observe()              # what the robot sees
+    a = leader.read_joints()         # what the human commands
+    robot.apply(a)
+    robot.step(1 / fps)
+    episode.append((o, a))           # the pair a policy will learn from
+```
+
+| Mode | Formula |
+|---|---|
+| open loop (replay) | $u_t = u^{\text{rec}}_t$, a fixed sequence $u_0, u_1, \dots$ |
+| closed loop | $u_t = \pi(o_t)$ |
+| one recorded episode | $\big\{(o_t, a_t)\big\}_{t=0}^{T-1}$ plus a task string |
+| zero-order hold | $a(\tau) = a_k$ for $k/f \le \tau < (k+1)/f$ |
+
+Here $u_t$ is the command sent at step $t$, $o_t$ the observation at that step (robot state, plus images on a real robot), $\pi$ the controller or policy that maps an observation to a command, $a_t$ the recorded action (the joint targets sent at $t$), $T$ the number of frames in an episode, $f$ the recording rate in Hz and $\tau$ continuous time. In our sim recording at 25 Hz, frame $k$ stores the observation at $t = k/25$ s and the joint targets the expert commands at the end of the next 40 ms.
+
+### Who closes the loop
 
 | Mode | Who closes the loop | Generalizes to a moved cube? |
 |---|---|---|
@@ -29,19 +82,28 @@ LeRobot ships a command that plays a recorded episode back on the arm: `lerobot-
 | Leader–follower teleoperation | the human, through the leader arm | yes, the human adapts |
 | Learned policy $\pi_\theta(o_t)$ | the network | what lessons 28–29 measure |
 
-**Teleoperation as data collection.** In leader–follower teleoperation the human moves a passive leader arm and the follower tracks its joint angles. A recording stores, at a fixed rate, pairs
+IK is inverse kinematics: the joint angles that put the gripper at a desired pose ([lesson 10](../part-3-kinematics/10-inverse-kinematics.md)).
 
-$$\big(o_t,\; a_t\big),\qquad o_t = \text{robot state (+ images)},\quad a_t = \text{joint targets sent at } t,$$
+<details>
+<summary>Math details: open loop, closed loop and what a recording must contain</summary>
 
-grouped into episodes with a task string. The human closed the loop when the data was made; a policy trained on $(o_t, a_t)$ must close it again at run time. Replaying $a_{0:T}$ throws $o_t$ away.
+**Definitions.** An open-loop controller applies a precomputed command sequence $u_0, u_1, \dots$ without measuring the result. A closed-loop (feedback) controller computes $u_t = \pi(o_t)$ from the current observation (Lynch & Park, *Modern Robotics*, ch. 11). Replay is open loop over the whole task. The scripted pick of [lesson 16](../part-4-dynamics-and-control/16-grasping-and-pick-place.md) is closed loop at the task level: it reads the cube position, solves IK, and waits on a sensed jaw condition. Inside each segment the servos still run their own position loops, so "open loop" here means open at the task level.
 
-**Frame rate and action meaning.** An action recorded at $f$ Hz is held for $1/f$ s (zero-order hold). In our sim recording at 25 Hz, frame $k$ stores the observation at $t = k/25$ s and the joint targets the expert commands at the end of the next 40 ms.
+**Why replay tolerates anything at all.** The recorded jaw opening is wider than the cube. A shift smaller than the gap between cube and jaw still ends with the cube between the jaws; a larger one does not. The tolerance is therefore a property of the gripper geometry, not of the recording, and it differs by direction (Break it).
+
+**What the recording must keep.** During teleoperation the human computes $a_t = \pi_{\text{human}}(o_t^{\text{human}})$ from what they see. A learner can only imitate that mapping if the dataset stores $o_t$ next to $a_t$, aligned in time. Replaying $a_{0:T}$ discards $o_t$ and with it any chance of reacting to a different start state.
+
+**Zero-order hold.** Between frames the last action is held constant. A slower frame rate makes the held steps longer; the recording stays a valid description of the expert only while those steps are short compared with the motion's fastest segment (the jaw ramp, in our case). Part C checks this for 25 Hz.
+
+Go deeper: Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), ch. 11; LeRobot, [Imitation learning on real-world robots](https://huggingface.co/docs/lerobot/il_robots).
+
+</details>
 
 ## Experiment
 
 Full script: [`experiments/26-teleop-replay-data/experiment.py`](../experiments/26-teleop-replay-data/experiment.py), output: [`output.txt`](../experiments/26-teleop-replay-data/output.txt). MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), deterministic. Part A is a port of the earlier notebook ([`notebooks/26-teleop-replay-data.ipynb`](../notebooks/26-teleop-replay-data.ipynb)); its numbers reproduced exactly.
 
-**A. Replay vs re-planning.** The SO-101 picks a 3 cm, 30 g cube at (22, 0) cm along a fixed 4.5 s timeline (settle, above, down, close, lift, hold). The 6 commands of every 2 ms step are recorded: 2250 × 6. Then the cube is shifted 0.5–5 cm in 8 directions (plus the recorded spot: 81 trials). *Replay* sends the list unchanged; *feedback* keeps the timeline but re-solves the three IK poses from the cube's true position. Success is physical, no weld: at 4.5 s the cube bottom is ≥ 4 cm above the floor and both jaws touch it.
+**A. Replay vs re-planning.** The SO-101 picks a 3 cm, 30 g cube at (22, 0) cm along a fixed 4.5 s timeline (settle, above, down, close, lift, hold). The 6 commands of every 2 ms step are recorded: 2250 × 6. Then the cube is shifted 0.5–5 cm in 8 directions (plus the recorded spot: 81 trials). *Replay* sends the list unchanged; *feedback* keeps the timeline but re-solves the three IK poses (above, down, lift) from the cube's true position. Success is physical, no weld: at 4.5 s the cube bottom is ≥ 4 cm above the floor and both jaws touch it.
 
 ```python
 rec_ctrl, _ = plan_a(m, d, I, CUBE_HOME)        # record once
@@ -68,6 +130,8 @@ ok_f, kind_f, _ = run_a(xy, ctrl)
 | **total** | **27/81** | | **81/81** | |
 
 "Pushed" = the jaws touched the cube but it stayed on the floor; "missed" = the jaws never touched it. The intervals use the Wilson formula of [lesson 25](25-evaluating-policies.md); with 8 trials per row they are wide, so read the trend, not single rows.
+
+![Left: replay success falls from 8/8 at 0.5 cm to 0/8 at 4.5 cm of cube shift, with wide Wilson intervals, while re-planning from the cube pose stays at 8/8 for every shift. Right: a polar chart of the farthest successful replay shift per direction, 4 cm toward +y (the moving jaw) and 0.5 cm toward -y (the fixed jaw).](../experiments/26-teleop-replay-data/replay_vs_shift.png)
 
 **B. Demonstrations for lessons 27–29.** The lesson 16 `scripted_pick` on 120 cube positions drawn uniformly in x ∈ [16, 28] cm, y ∈ [−8, 8] cm (seed 26), recorded at 25 Hz:
 

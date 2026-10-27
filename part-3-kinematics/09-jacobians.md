@@ -22,19 +22,71 @@ You also need that matrix to be exactly right: lesson 10 iterates with it hundre
 
 ## Core idea
 
-Differentiate forward kinematics. For the tool site with linear velocity $v$ and angular velocity $\omega$ (both in world coordinates):
+### In plain words
 
-$$\begin{bmatrix} v \\ \omega \end{bmatrix} = J(q)\,\dot q = \begin{bmatrix} J_p(q) \\ J_r(q) \end{bmatrix}\dot q ,\qquad J \in \mathbb R^{6\times n}.$$
+Turn one motor a little and watch the gripper: it moves a little in some direction, at some speed. Do that for each motor and write the answers down, one column per motor. That table is the **Jacobian**: "which way and how fast the hand moves when each motor turns a little". Turn several motors at once and the hand's velocity is simply the sum of those columns, each scaled by its motor's speed. The table changes with the pose, because the lever arms change: the shoulder moves the hand much faster when the arm is stretched out than when it is folded.
 
-For a hinge $i$ with world axis $\hat a_i$ through point $o_i$, column $i$ is $J_{p,i} = \hat a_i \times (p - o_i)$, $J_{r,i} = \hat a_i$: the **geometric Jacobian** (Lynch & Park, *Modern Robotics*, Ch. 5). MuJoCo returns it with `mj_jac` (any world point attached to a body), `mj_jacBody` and `mj_jacSite` ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)).
+The same table, read backwards (its **transpose**), answers the force question. Push on the gripper and each motor feels a torque equal to the push times its lever arm, which is exactly what its column encodes. A long lever multiplies the torque, like a long wrench.
 
-**Static force map.** By virtual work, for the tool to exert a force $F$ and moment $M$ on the environment the joints must supply
+If you cannot write the table down analytically, you can measure it: nudge one joint by a small step, see how far the tool moved, divide. That is a **finite difference**, the same trick as a numerical gradient check in ML. Too large a step and the curvature of the motion spoils the estimate; too small and floating-point round-off does.
 
-$$\tau = J^\top \begin{bmatrix} F \\ M \end{bmatrix};$$
+```mermaid
+flowchart TD
+    Q["current pose q<br/>(joint angles)"] -.-> J["Jacobian J(q)<br/>6 rows × 5 columns,<br/>one column per joint"]
+    QD["joint speeds q̇"] --> M1["multiply by J"]
+    J -.-> M1
+    M1 --> V["tool velocity:<br/>linear v, angular ω"]
+    F["force and moment<br/>at the tool (F, M)"] --> M2["multiply by Jᵀ"]
+    J -.-> M2
+    M2 --> T["joint torques τ"]
+```
 
-an external wrench $(F, M)$ pushing on the tool is held by $-J^\top[F;M]$.
+### Jacobians as code
 
-**Finite differences** approximate column $i$ by $\frac{x(q + \varepsilon e_i) - x(q)}{\varepsilon}$ (forward, error $O(\varepsilon)$) or $\frac{x(q+\varepsilon e_i) - x(q-\varepsilon e_i)}{2\varepsilon}$ (central, error $O(\varepsilon^2)$). Floating-point round-off adds an error of about $\epsilon_{\text{mach}}\lvert x\rvert/\varepsilon$, so each scheme has a best step: roughly $\sqrt{\epsilon_{\text{mach}}}$ for forward and $\sqrt[3]{\epsilon_{\text{mach}}}$ for central differences. Derivatives and linear maps: AIEFS [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems).
+```python
+import numpy as np
+
+def hinge_column(axis, o, p):    # axis: joint axis (unit, world), o: point on the axis, p: tool point
+    jp = np.cross(axis, p - o)   # tool linear velocity per 1 rad/s of this joint (m/s)
+    jr = axis                    # tool angular velocity per 1 rad/s of this joint (rad/s)
+    return np.r_[jp, jr]
+
+J = np.column_stack([hinge_column(a, o, p) for a, o in zip(axes, origins)])   # 6 x n
+twist = J @ qdot                 # [v; w]: tool velocity for joint speeds qdot
+tau = J.T @ np.r_[F, M]          # joint torques for the tool to push with force F and moment M
+
+def fd_column(tool_pos, q, i, eps=1e-5):   # central difference for column i (position rows)
+    dq = np.zeros_like(q)
+    dq[i] = eps
+    return (tool_pos(q + dq) - tool_pos(q - dq)) / (2 * eps)
+```
+
+| Quantity | Formula |
+|---|---|
+| Velocity map | $\begin{bmatrix} v \\ \omega \end{bmatrix} = J(q)\,\dot q = \begin{bmatrix} J_p(q) \\ J_r(q) \end{bmatrix}\dot q ,\qquad J \in \mathbb R^{6\times n}$ |
+| Column $i$ of a hinge | $J_{p,i} = \hat a_i \times (p - o_i)$, $\ J_{r,i} = \hat a_i$ |
+| Static force map | $\tau = J^\top \begin{bmatrix} F \\ M \end{bmatrix}$ |
+| Forward difference | $\frac{x(q + \varepsilon e_i) - x(q)}{\varepsilon}$, error $O(\varepsilon)$ |
+| Central difference | $\frac{x(q+\varepsilon e_i) - x(q-\varepsilon e_i)}{2\varepsilon}$, error $O(\varepsilon^2)$ |
+
+$q$ and $\dot q$ are the joint angles and speeds; $v$ and $\omega$ are the tool's linear and angular velocity in world coordinates; $J_p$ and $J_r$ are the three position and three rotation rows of $J$; $\hat a_i$ is hinge $i$'s unit axis in world coordinates and $o_i$ any point on it; $p$ is the tool point; $F$ and $M$ are the force and moment the tool exerts on the environment; $\tau$ is the vector of joint torques; $x(q)$ is the tool position, $e_i$ the unit vector for joint $i$ and $\varepsilon$ the step.
+
+This is the **geometric Jacobian** (Lynch & Park, *Modern Robotics*, Ch. 5). MuJoCo returns it with `mj_jac` (any world point attached to a body), `mj_jacBody` and `mj_jacSite` ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)). An external wrench (force plus moment) $(F, M)$ pushing on the tool is held by $-J^\top[F;M]$.
+
+<details>
+<summary>Math details: the column formula, virtual work and the best finite-difference step</summary>
+
+**Column of a hinge.** Turning hinge $i$ at 1 rad/s rotates everything beyond it about the axis $\hat a_i$ through $o_i$. A point $p$ on a rigid body rotating with angular velocity $\omega$ about a line through $o$ moves with $\omega \times (p - o)$, which gives $J_{p,i} = \hat a_i \times (p - o_i)$ and $J_{r,i} = \hat a_i$.
+
+**Static force map by virtual work.** In equilibrium the power the joints put in equals the power the tool delivers: $\tau^\top \dot q = [F; M]^\top [v; \omega] = [F; M]^\top J\dot q$ for every $\dot q$, hence $\tau = J^\top [F; M]$. Friction, backlash and gravity are extra terms (gravity enters in Break it).
+
+**Finite-difference error.** A Taylor expansion gives a truncation error of order $\varepsilon$ for the forward difference and $\varepsilon^2$ for the central one. Floating-point round-off adds an error of about $\epsilon_{\text{mach}}\lvert x\rvert/\varepsilon$, where $\epsilon_{\text{mach}}$ is the machine epsilon (the relative precision of a double). Minimizing the sum gives a best step of roughly $\sqrt{\epsilon_{\text{mach}}}$ for forward and $\sqrt[3]{\epsilon_{\text{mach}}}$ for central differences.
+
+**Rotation columns are special.** Moving one hinge by $\varepsilon$ rotates the tool by exactly $\varepsilon$ about that hinge's axis, so the orientation difference quotient has no truncation error, only round-off (Step 2).
+
+Go deeper: AIEFS [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems); Lynch & Park, *Modern Robotics*, Ch. 5 "Velocity Kinematics and Statics".
+
+</details>
 
 ## Experiment
 
@@ -66,9 +118,11 @@ mujoco.mj_jacSite(m, d, jp, jr, site_id)   # 3 x nv each, world frame
 
 The translational error is V-shaped. To the right of the minimum, truncation (error falls 10× per decade for forward, 100× for central); to the left, round-off (error rises 10× per decade). The best forward step is 1e-8 (error 9.8e-09), the best central step 1e-5 (error 5.6e-12). For comparison, $\sqrt{\epsilon_{\text{mach}}} = $ 1.5e-08 and $\sqrt[3]{\epsilon_{\text{mach}}} = $ 6.1e-06.
 
+![Finite-difference Jacobian error versus step size on log axes. For the translational columns both schemes trace a V: the forward difference is best near 1e-8 rad, the central difference near 1e-5 rad, and both get worse for smaller steps. For the rotational columns the error only grows as the step shrinks.](../experiments/09-jacobians/fd_step_sweep.png)
+
 The rotational columns have **no truncation error at all**: moving one hinge by ε rotates the site by exactly ε about that hinge's axis, so the difference quotient is exact and only round-off remains (4.8e-15 at ε = 0.1, growing as ε shrinks).
 
-**Step 3 · verify τ = Jᵀ F in simulation.** Gravity and joint friction loss are switched off so only the external force acts. The arm holds a pose with its position servos; a constant force is applied at the gripper site through `xfrc_applied` (force plus the moment $r\times F$, because `xfrc_applied` acts at the body's centre of mass). After 20 s of simulation the joints are at rest (max |q̇| = 8.5e-15 rad/s) and the servo torques are compared with $J^\top F$:
+**Step 3 · verify τ = Jᵀ F in simulation.** Gravity and joint friction loss are switched off so only the external force acts. The arm holds a pose with its position servos (motors that push back toward a commanded angle); a constant force is applied at the gripper site through `xfrc_applied` (force plus the moment $r\times F$, because `xfrc_applied` acts at the body's centre of mass). After 20 s of simulation the joints are at rest (max |q̇| = 8.5e-15 rad/s) and the servo torques are compared with $J^\top F$:
 
 | F at site (N) | $J^\top F$ (N m), joints 1–5 | servo torque (N m), sign flipped | max diff |
 |---|---|---|---|

@@ -20,9 +20,55 @@ To hold a Franka Panda still in its `home` pose, joint 2 needs about 29 N·m and
 
 ## Core idea
 
-For a rigid open chain with joint positions $q \in \mathbb{R}^n$ (Lynch & Park, *Modern Robotics*, ch. 8):
+### In plain words
 
-$$M(q)\,\ddot q + C(q,\dot q)\,\dot q + g(q) = \tau + J^\top(q)\, f$$
+Moving a robot arm is Newton's "force = mass × acceleration", written once for the whole chain of links. Three things decide how a joint accelerates:
+
+- **How heavy the arm feels right now.** A figure skater spins faster with arms pulled in: the same body is harder to turn when its mass is far from the axis. A robot shoulder feels a stretched arm as much heavier than a folded one, and moving one joint also drags on the others.
+- **Forces that act even when you send nothing.** Gravity pulls every link down. When joints already move, the links also push on each other sideways (the Coriolis and centrifugal effects you feel on a merry-go-round). Together these are called the **bias force**: what you must cancel just to keep things as they are.
+- **What you push with, and what pushes back.** Motor torques, and contact forces from the table or an object.
+
+You can ask the equation two questions. **Forward dynamics**: "I apply these torques; how does the arm accelerate?" That is what a simulator does every step. **Inverse dynamics**: "I want this acceleration; what torques does it take?" That is what a controller needs. The second half of the lesson is about time: a simulator advances the arm in small steps, like a game loop, and the way it takes each step (the **integrator**) can quietly add or remove energy.
+
+```mermaid
+flowchart TD
+    T["motor torques τ<br/>+ contact forces"] --> FD["forward dynamics<br/>mj_forward"]
+    S["current state<br/>q, q̇"] --> FD
+    FD --> A["joint accelerations q̈"]
+    A --> I["integrator<br/>Euler / RK4 / implicit"]
+    I -- "one timestep later" --> S
+    D["desired q̈"] --> ID["inverse dynamics<br/>mj_inverse"]
+    S --> ID
+    ID --> TN["torques needed"]
+```
+
+### The equation of motion as code
+
+```python
+# n joints. Every array is recomputed by MuJoCo for the current pose and speed.
+M = mass_matrix(q)         # (n, n) how heavy each joint feels in this pose      -> mj_fullM
+c = bias_force(q, qd)      # (n,)   gravity + Coriolis/centrifugal               -> qfrc_bias
+tau_c = J_c.T @ f_contact  # (n,)   contact forces mapped onto the joints        -> qfrc_constraint
+
+# Forward dynamics (simulator): torques in, accelerations out
+qdd = np.linalg.solve(M, tau + tau_c - c)
+
+# Inverse dynamics (controller): accelerations in, torques out
+tau_needed = M @ qdd_desired + c - tau_c
+
+# One step of semi-implicit Euler, MuJoCo's default integrator
+qd = qd + dt * qdd         # new velocity first ...
+q = q + dt * qd            # ... then position, using the new velocity
+```
+
+| Formula | What it is |
+|---|---|
+| $M(q)\,\ddot q + C(q,\dot q)\,\dot q + g(q) = \tau + J^\top(q)\, f$ | equation of motion of a rigid open chain (Lynch & Park, *Modern Robotics*, ch. 8) |
+| $\ddot q = M^{-1}\big(\tau + J^\top f - c\big)$, $\;c = C\dot q + g$ | forward dynamics |
+| $\tau = M\ddot q_d + c - J^\top f$ | inverse dynamics |
+| $c = g(q)$ when $\dot q = 0$ | torque that holds the arm still (gravity compensation) |
+
+Here $q \in \mathbb{R}^n$ are the joint angles, $\dot q$ and $\ddot q$ their velocities and accelerations, $M(q)$ is the joint-space inertia matrix, $C(q,\dot q)\dot q$ the Coriolis/centrifugal forces, $g(q)$ the gravity torques, $c$ their sum (the bias force), $\tau$ the torques you apply, $f$ the contact forces and $J$ the Jacobian that maps them onto the joints (lesson 09).
 
 | Term | Meaning | Where MuJoCo stores it |
 |---|---|---|
@@ -31,14 +77,24 @@ $$M(q)\,\ddot q + C(q,\dot q)\,\dot q + g(q) = \tau + J^\top(q)\, f$$
 | $\tau$ | forces you apply: actuators and user forces | `qfrc_actuator`, `qfrc_applied` |
 | $J^\top f$ | contact and other constraint forces mapped to the joints | `qfrc_constraint` |
 
-MuJoCo writes the same equation as $M\dot v + c = \tau + J^\top f$ and computes $c$ with the recursive Newton–Euler algorithm at zero acceleration ([Computation](https://mujoco.readthedocs.io/en/stable/computation/index.html)). Two calls give you both directions:
+MuJoCo writes the same equation as $M\dot v + c = \tau + J^\top f$. `mj_forward` computes `qacc` from $q, \dot q, \tau$; it is what `mj_step` does before integrating. `mj_inverse` computes `qfrc_inverse` from $q, \dot q, \ddot q$ ("qacc must be set before calling") ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)). With $\dot q = 0$ the bias is pure gravity, so `qfrc_bias` at rest is the gravity-compensation torque you will feed forward in lesson 12. The matrix $M$ is what turns a desired acceleration into torque in lessons 13 and 14.
 
-- **Forward dynamics** `mj_forward`: given $q, \dot q, \tau$, compute $\ddot q$ (`qacc`). This is what `mj_step` does before integrating.
-- **Inverse dynamics** `mj_inverse`: given $q, \dot q, \ddot q$ ("qacc must be set before calling"), compute the force that produces it (`qfrc_inverse`) ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)).
+**Integrators.** MuJoCo offers `Euler` (semi-implicit: new velocity first, then position with the new velocity, as in the code above), `RK4` (four force evaluations per step, averaged), `implicit` (also uses the derivatives of velocity-dependent forces) and `implicitfast` (the same without the Coriolis/centripetal derivatives; recommended by the docs for most models, although the default is still `Euler`) ([Computation · Numerical integration](https://mujoco.readthedocs.io/en/stable/computation/index.html)). A frictionless pendulum must keep its energy constant, so energy drift is a clean measure of integration error.
 
-With $\dot q = 0$ the bias is pure gravity, so `qfrc_bias` at rest is the gravity-compensation torque you will feed forward in lesson 12. The matrix $M$ is what turns a desired acceleration into torque in lessons 13 and 14.
+<details>
+<summary>Math details: where the equation comes from, and why integrators drift</summary>
 
-The second half of the lesson is about time. MuJoCo integrates the equation with one of several schemes: `Euler` (semi-implicit: new velocity first, then position with the new velocity), `RK4`, `implicit` (includes the derivatives of velocity-dependent forces) and `implicitfast` (the same but without the Coriolis/centripetal derivatives; recommended by the docs for most models, although the default is still `Euler`) ([Computation · Numerical integration](https://mujoco.readthedocs.io/en/stable/computation/index.html)). A frictionless pendulum must conserve energy, so energy drift is a clean measure of integration error.
+**Origin.** With kinetic energy $T = \tfrac12 \dot q^\top M(q)\dot q$ and potential energy $U(q)$, the Euler–Lagrange equations $\frac{d}{dt}\frac{\partial T}{\partial \dot q} - \frac{\partial T}{\partial q} + \frac{\partial U}{\partial q} = \tau$ give exactly $M\ddot q + C\dot q + g = \tau$. The $C\dot q$ term collects everything that comes from $M$ changing with $q$; it is quadratic in the velocities, which is why it vanishes at rest. $g = \partial U/\partial q$. Contact forces enter through virtual work as $J^\top f$.
+
+**Why $M$ is symmetric positive definite.** $T = \tfrac12 \dot q^\top M \dot q$ is positive for every non-zero velocity of a physical arm, so $M \succ 0$ and the forward-dynamics solve always has a unique answer. Its condition number (largest over smallest eigenvalue) says how unequal the "heaviest" and "lightest" directions are.
+
+**How MuJoCo computes $c$.** It runs the recursive Newton–Euler algorithm with the acceleration set to zero: the torques needed for zero acceleration at the current $q, \dot q$ are exactly $C\dot q + g$ ([Computation](https://mujoco.readthedocs.io/en/stable/computation/index.html)).
+
+**Energy drift.** Without friction and actuators, $E = T + U$ is constant. A first-order integrator makes an error proportional to $\Delta t$ per unit of simulated time, which is why the experiment's error halves when the step halves. Semi-implicit Euler is symplectic (it keeps the energy error bounded instead of letting it accumulate) only when $M$ is constant and no force depends on velocity; the double pendulum breaks both conditions (see "Break it"). Implicit schemes linearise the velocity-dependent forces, which adds numerical damping.
+
+Go deeper: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml) (derivatives, chain rule), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems) (solving $M\ddot q = b$); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), ch. 8; MuJoCo [Computation](https://mujoco.readthedocs.io/en/stable/computation/index.html).
+
+</details>
 
 ## Experiment
 
@@ -77,6 +133,8 @@ mujoco.mj_forward(m, d)              # must give back qdd
 | `implicit` | 3.093 / −3.093 | 6.007 / −6.007 | 11.352 / −11.352 | 24.317 / −24.317 | 39.105 / −39.105 | 55.292 / −54.794 |
 | `implicitfast` | identical to `Euler` in every cell | | | | | |
 
+![Energy change after 10 s versus timestep on a log axis: Euler rises from +3.467% at 0.5 ms to +124.182% at 20 ms, implicit falls from −3.093% to −54.794%, RK4 stays at zero.](../experiments/11-rigid-body-dynamics/energy_vs_timestep.png)
+
 What the table says:
 
 - **Euler gains energy, implicit loses it**, both roughly in proportion to the timestep (halve dt, halve the error: 6.984 → 3.467). At the default 2 ms, the frictionless double pendulum gains 14.357% energy in 10 s.
@@ -84,7 +142,7 @@ What the table says:
 - **`implicit` dissipates.** Linearising the Coriolis forces adds numerical damping. That is often welcome in a robot with contacts; it is wrong if you are studying energy.
 - **RK4 is in another class**: 0.000% (to three decimals) up to 5 ms, at four force evaluations per step.
 
-**Result 3: the same quantities on robots.** With $\dot q = 0$:
+**Result 3: the same quantities on robots.** With $\dot q = 0$ (a keyframe is a named pose stored in the model file):
 
 | Model, pose | $g(q)$ from `qfrc_bias` [N·m] |
 |---|---|
@@ -92,13 +150,13 @@ What the table says:
 | SO-101 stretched forward (all 0), joints 1–5 | 0.000, −0.573, −0.483, −0.130, −0.007 |
 | SO-101 folded (lift −1.57, elbow 1.57) | 0.000, −0.066, −0.483, −0.130, −0.007 |
 
-The Panda's diagonal of $M$ at `home` is 1.509, 2.795, 1.471, 1.058, 0.144, 0.154, 0.107 kg·m², of which 0.100 on every joint is the model's `armature` (reflected rotor inertia added to the diagonal). Condition number of $M$: 32.6. A shoulder that feels 2.795 kg·m² and a wrist that feels 0.107 kg·m² will not behave alike under the same gains; that is the subject of lessons 12 and 14.
+The Panda's diagonal of $M$ at `home` is 1.509, 2.795, 1.471, 1.058, 0.144, 0.154, 0.107 kg·m², of which 0.100 on every joint is the model's `armature` (reflected rotor inertia added to the diagonal). Condition number of $M$ (its heaviest direction divided by its lightest): 32.6. A shoulder that feels 2.795 kg·m² and a wrist that feels 0.107 kg·m² will not behave alike under the same gains; that is the subject of lessons 12 and 14.
 
 ## Break it
 
 Push the timestep of the semi-implicit Euler run: at 20 ms the passive pendulum ends 10 s with **+124.182%** of its releasable energy and peaks at +140.049%. A frictionless pendulum swinging higher than it was released is not physics; it is integration error. Nothing in the simulation warns you: there is no NaN, no contact, no exception. The only defence is a check like this one: energy (enable it with `<flag energy="enable"/>`, read `d.energy`), or comparing against a smaller step.
 
-The mechanism: semi-implicit Euler is a first-order method that uses the inertia and the Coriolis force from the start of each step. For a system with constant inertia and no velocity-dependent forces it is symplectic and its energy error stays bounded; here $M$ depends on $q_2$ and the Coriolis force is evaluated explicitly, so that structure is lost and the per-step error accumulates instead of oscillating. Its size scales with dt, as the first row shows.
+The mechanism: semi-implicit Euler is a first-order method that uses the inertia and the Coriolis force from the start of each step. For a system with constant inertia and no velocity-dependent forces it is symplectic: its energy error oscillates but stays bounded; here $M$ depends on $q_2$ and the Coriolis force is evaluated explicitly, so that structure is lost and the per-step error accumulates instead of oscillating. Its size scales with dt, as the first row shows.
 
 ## On the real robot
 

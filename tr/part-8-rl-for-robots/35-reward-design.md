@@ -16,11 +16,45 @@
 
 ## Problem
 
-Go2 training config'i ağırlığı sıfır olmayan on reward terimini toplar; `tracking_lin_vel = 1.0`'dan `action_rate = -0.01` ve `torques = -0.0002`'ye kadar. Ve yalnızca bir agent'ın reward'ları nasıl istismar ettiği yüzünden var olan bir satır taşır: `only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)` ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)). Bu ders SO-101 uzanmasında, sabit bir PPO ve bütçeyle farklı reward şekillerinin ne yaptığını ölçüyor, bilerek bir reward hack'i üretiyor ve bir yumuşaklık cezasını sweep ediyor.
+Go2 training config'i ağırlığı sıfır olmayan on reward terimini toplar; `tracking_lin_vel = 1.0`'dan `action_rate = -0.01` ve `torques = -0.0002`'ye kadar. Ve yalnızca bir agent'ın reward'ları nasıl istismar ettiği yüzünden var olan bir satır taşır: `only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)` ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)). Bu ders SO-101 uzanmasında, sabit bir PPO ve bütçeyle farklı reward şekillerinin ne yaptığını ölçüyor, bilerek bir **reward hack**'i üretiyor (yazılan reward'da yüksek puan alıp görevi yapmayan bir policy) ve bir yumuşaklık cezasını sweep ediyor.
 
 ## Ana fikir
 
-MDP reward'unun kendisi AIEFS'te var ([MDPs, States, Actions & Rewards](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/01-mdps-states-actions-rewards)). Robot reward'ları dört tür terimden kurulur:
+### Sade anlatımla
+
+Reward bir metriktir ve RL, metriği hiç sağduyu kullanmadan optimize eden bir ekiptir. Programcılara satır başına para öderseniz uzun kod alırsınız, iyi kod değil. Bir kola hedefe yakın olduğu için para öder ve oyunu vardığı anda bitirirseniz, kol hemen dışarıda beklemeyi öğrenir; çünkü varmak ödemeleri durdurur.
+
+Dört tür yapı taşınız var. **Sparse** bir reward yalnızca başarıda öder: tam olarak ne istediğinizi söyler ama başta kimse başaramadığı için sessizdir; henüz hiç geçmeyen tek bir uçtan uca testten oluşan bir test paketi gibi. **Dense** bir reward her adımda yaklaştığı için biraz öder: bilgilendiricidir ama gerçek amacın bir vekilidir. **Shaping** ipuçları ekler; güvenli türü (potential-based) ilerleme için öder ve geri çekilmede bunu geri alır; herhangi bir döngüde ödemeler birbirini götürür, böylece ileri geri giderek sömürülemez. **Düzenleyiciler** sarsıntılı ya da pahalı hareket için küçük cezalardır; görev başarısını yumuşaklıkla takas ederler.
+
+Son olarak, bir episode'un nasıl bittiği de reward'un parçasıdır. Bitişten sonra gelecekteki her reward sıfırdır. Adım başına reward pozitifse bitirmek bir kayıptır ve agent bundan kaçınır; negatifse bitirmek bir kazançtır ve agent onu arar.
+
+### Termination teşviki nerede tersine çevirir
+
+```mermaid
+flowchart TD
+    S["bir adımdan sonraki durum"] --> T{"episode burada<br/>bitiyor mu?"}
+    T -- "hayır" --> R["reward topla:<br/>görev + shaping − cezalar"]
+    R --> S
+    T -- "evet" --> Z["gelecekteki her reward 0"]
+    Z --> Q{"adım başına<br/>reward'un işareti"}
+    Q -- "pozitif" --> H["bitirmek kayıp:<br/>hedefin yakınında bekle"]
+    Q -- "negatif" --> E["bitirmek kazanç:<br/>içeri koş ya da erken düş"]
+```
+
+### Shaping ve termination, kod olarak
+
+```python
+# Potential-based shaping: F = gamma * Phi(s') - Phi(s), with Phi = -20 * distance
+def shaping(dist, dist_prev, gamma=0.95):
+    return gamma * (-20 * dist) - (-20 * dist_prev)   # > 0 when closer; also 20*(1-gamma)*dist when standing still
+
+# It cannot be farmed: summed along any trajectory it telescopes to the two endpoints,
+#   sum_t gamma^t * F_t = gamma^T * Phi(s_T) - Phi(s_0)
+
+# What ending the episode costs: the discounted value of staying forever
+def value_of_staying(r_per_step, gamma=0.95):
+    return r_per_step / (1 - gamma)   # ending forfeits this: a relief if r < 0, a loss if r > 0
+```
 
 | Terim | Örnek (uzanma, $d$ metre cinsinden mesafe) | Rolü |
 |---|---|---|
@@ -29,9 +63,18 @@ MDP reward'unun kendisi AIEFS'te var ([MDPs, States, Actions & Rewards](https://
 | potential-based shaping | $F = \gamma\Phi(s') - \Phi(s)$ | optimal policy'yi değiştirmeden yönlendirme ekler |
 | düzenleyiciler | $-w\lVert a_t - a_{t-1}\rVert^2$, $-w\lVert\tau\rVert^2$ | görev performansını yumuşaklık ve enerjiyle takas eder |
 
-**Potential-based shaping.** Ng, Harada ve Russell, herhangi bir $\Phi$ potansiyeli için $F(s,s') = \gamma\Phi(s') - \Phi(s)$ eklemenin optimal policy'yi değiştirmediğini ve MDP hakkında başka bilgi yoksa bu biçimin o garanti için gerekli de olduğunu gösterdi ([ICML 1999, s. 278–287](https://mlanthology.org/icml/1999/ng1999icml-policy/)). Bir trajectory boyunca shaping terimleri teleskop gibi sadeleşir, $\sum_t \gamma^t F_t = \gamma^T \Phi(s_T) - \Phi(s_0)$; yani onlardan reward toplanamaz. PPO discount'u $\gamma = 0{,}95$ ile $\Phi = -20\,d$ kullanıyoruz.
+$d$ gripper ile hedef arasındaki mesafe, $\mathbb 1[\cdot]$ koşul sağlanınca 1, aksi hâlde 0, $\Phi$ durumun herhangi bir fonksiyonu (potansiyel), $s$ ve $s'$ bir adımdan önceki ve sonraki durumlar, $\gamma$ discount, $w$ bir ceza ağırlığı, $a_t$ action ve $\tau$ eklem torkudur.
 
-**Termination, işaretin anlamını değiştirir.** Terminal bir durumdan sonra gelecekteki her reward 0'dır. Adım başına reward'lar negatifse episode'u bitirmek caziptir; pozitifse bitirmek bir kayıptır. Agent, yazılan toplam için hangisi daha iyiyse oraya yönelir. Locomotion'da düşmek episode'u bitirir; bu yüzden çoğu negatif ceza terimlerinden oluşan bir toplam erken düşmeyi cazip kılar; Go2 config'i toplamı sıfırda keser ve sebebini "early termination problems" diye adlandırır. Ters durum aşağıda kurduğumuz hack'tir.
+<details>
+<summary>Matematik ayrıntısı: potential-based shaping neden güvenli, termination neden önemli</summary>
+
+**Potential-based shaping.** Ng, Harada ve Russell, herhangi bir $\Phi$ potansiyeli için $F(s,s') = \gamma\Phi(s') - \Phi(s)$ eklemenin optimal policy'yi değiştirmediğini ve MDP hakkında başka bilgi yoksa bu biçimin o garanti için gerekli de olduğunu gösterdi ([ICML 1999, s. 278–287](https://mlanthology.org/icml/1999/ng1999icml-policy/)). Bir trajectory boyunca shaping terimleri teleskop gibi sadeleşir, $\sum_t \gamma^t F_t = \gamma^T \Phi(s_T) - \Phi(s_0)$: her policy, yalnızca nerede başlayıp nerede bittiğine bağlı terimler dışında aynı bonusu alır; yani shaping neyin optimal olduğunu değil, ne kadar hızlı öğrenildiğini değiştirir. PPO discount'u $\gamma = 0{,}95$ ile $\Phi = -20\,d$ kullanıyoruz.
+
+**Termination.** Bir durumda sonsuza kadar kalıp adım başına $r$ toplayabilen bir policy $\sum_{t\ge0}\gamma^t r = r/(1-\gamma)$ kazanırdı. Terminal bir duruma girmek bunu 0 ile değiştirir. $r > 0$ için bu, agent'ın kaçınmayı öğrendiği bir kayıptır; $r < 0$ için aramayı öğrendiği bir kazanç. Locomotion'da düşmek episode'u bitirir; bu yüzden çoğu negatif ceza terimlerinden oluşan bir toplam erken düşmeyi cazip kılar; Go2 config'i toplamı sıfırda keser ve sebebini "early termination problems" diye adlandırır. Ters durum aşağıda kurduğumuz hack'tir.
+
+Daha derine: [MDPs, States, Actions & Rewards](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/01-mdps-states-actions-rewards); Ng, Harada, Russell, ICML 1999 (yukarıdaki bağlantı).
+
+</details>
 
 ## Deney
 
@@ -53,7 +96,7 @@ def r_action_rate(w):
 
 **Tahmin edin:** closeness reward'u ve gripper 2 cm'ye girdiği anda biten bir episode ile eğitilen kol ne yapacak?
 
-MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). Seed başına deterministik. Script'in tamamı (33 run, altısı paralel) yoğun yüklü bir makinede 1904 s (yaklaşık 32 dakika) sürdü. `python experiment.py --only close+end,pbrs` yalnızca o hücreleri üç seed'le eğitir; bu tekrar çalıştırma aşağıdaki tablolardaki satırlarını aynen üretti. `--quick` yalnızca seed 0'ı eğitir: her satırın ilk "seed başına başarı" girdisini yeniden üretir, toplam sütunlarını değil.
+MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). Seed başına deterministik. Script'in tamamı (33 run, altısı paralel) yoğun yüklü bir makinede 1904 s (yaklaşık 32 dakika) sürdü. `python experiment.py --only close+end,pbrs` yalnızca o hücreleri üç seed'le eğitir; bu tekrar çalıştırma onların satırlarını aynen üretti. `--quick` yalnızca seed 0'ı eğitir: her satırın ilk "seed başına başarı" girdisini yeniden üretir, toplam sütunlarını değil.
 
 **A. Reward şekli** (termination yok; başarı = 1,6 s'lik zaman sınırında 2 cm içinde):
 
@@ -78,7 +121,7 @@ MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). 
 - Her hedefe ulaşan scripted IK controller, closeness-artı-termination reward'u altında yalnızca **2,28** yazılan return alır. Hack yapan policy 22,67 alır: kendisine verilen amaçta, görevi daha az yaparak doğru controller'ı yener.
 - Termination olmadan çalıştırıldığında aynı hack yapan policy hedeften medyan **30,8 mm** uzakta bitirir: gripper'ı yaklaşık 3 cm uzağa, başarı küresinin hemen dışına park eder ve episode'un geri kalanında adım başına kabaca 0,45 toplar.
 
-Mekanizma Ana fikir'dekiyle aynı: küreye girmek episode'u ve onunla birlikte gelecekteki tüm pozitif reward'u bitirir; agent yaklaşıp kısa durmayı öğrenir. 95 başarı, yine de kürenin içine düştüğü episode'lardır. Aynı termination kuralı negatif bir reward'la ($-d$) ters teşvik verir: her adım maliyetli olduğu için agent içeri acele eder (ortalama 9,2 adım). Termination olmadan pozitif reward da çalışır (298/300). Hack kombinasyonda yaşar; bu yüzden kazara yazmak kolaydır.
+Mekanizma diyagramdakiyle aynı: küreye girmek episode'u ve onunla birlikte gelecekteki tüm pozitif reward'u bitirir; agent yaklaşıp kısa durmayı öğrenir. 95 başarı, yine de kürenin içine düştüğü episode'lardır. Aynı termination kuralı negatif bir reward'la ($-d$) ters teşvik verir: her adım maliyetli olduğu için agent içeri acele eder (ortalama 9,2 adım). Termination olmadan pozitif reward da çalışır (298/300). Hack kombinasyonda yaşar; bu yüzden kazara yazmak kolaydır.
 
 ## Boz
 
@@ -92,6 +135,8 @@ Yumuşaklık cezaları, takasın bir uçuruma dönüştüğü yerdir. Action-rat
 | 0,3 | 41 / 9 / 94 | 144/300 | %42,4–53,6 | 25,6 | 850 | 8,20 |
 | 1,0 | 7 / 35 / 14 | 56/300 | %14,7–23,5 | 39,2 | 674 | 6,54 |
 | 3,0 | 27 / 6 / 26 | 59/300 | %15,6–24,5 | 31,9 | 743 | 5,64 |
+
+![Solda action-rate ceza ağırlığı w'ye göre başarı: w 0'da 298/300, 0,1'de 263/300, w 1,0 ve 3,0'da yaklaşık beşte bire düşüyor; w 0,3'te seed noktaları 9 ile 94 arasında saçılıyor. Sağda aynı aralıkta tork hızı 1002'den yalnızca 674 ile 850 N·m/s arasına iniyor.](../../experiments/35-reward-design/success_vs_penalty.png)
 
 $w = 0{,}1$'e kadar policy başarıdan 6 ila 12 yüzde puanı kaybeder (298/300'e karşı 279/300 ve 263/300) ve çok az yumuşaklık kazanır (tork hızı 1002 → 901 N·m/s). $w = 0{,}3$'ten itibaren başarı çöker ve seed'ler arasında büyük fark oluşur (100 üzerinden 9'a karşı 94): setpoint'i kaydırmanın cezası artık mesafe reward'uyla kıyaslanabilir düzeydedir ve sonuç seed'e bağlıdır. Güç düşer (9,66 → 5,64 W), büyük ölçüde kol daha az hareket ettiği için: medyan son mesafe 25,6–39,2 mm'ye çıkar. İki ders: bir düzenleyicinin ağırlığı görev teriminin ölçeğine göre ayarlanmalı (burada $-d$ adım başına birkaç santimetre) ve sert bir servoyla policy'nin hedeflerini yumuşatmak torku pek yumuşatmaz. Amaç yumuşak torksa, $w$'yi büyütmeden önce arayüzü ya da gain'leri değiştirin (ders 34).
 
@@ -127,4 +172,4 @@ Sıradaki: [ders 36](36-legged-locomotion.md), legged locomotion ve massively pa
 - [`unitree_rl_gym` · `legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py), [`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py) (`_reward_action_rate`, `_reward_torques`) (BSD-3-Clause).
 - J. Schulman vd., "Proximal Policy Optimization Algorithms", 2017. [arXiv 1707.06347](https://arxiv.org/abs/1707.06347)
 - [Gymnasium · `Env` API](https://gymnasium.farama.org/api/env/) (terminated ve truncated).
-- Kod: [`experiment.py`](../../experiments/35-reward-design/experiment.py), [`output.txt`](../../experiments/35-reward-design/output.txt); env ve PPO [ders 32](../../experiments/32-rl-environment/reach_env.py) ve [ders 33](../../experiments/33-ppo/ppo.py)'ten.
+- Kod: [`experiment.py`](../../experiments/35-reward-design/experiment.py), [`output.txt`](../../experiments/35-reward-design/output.txt); env ve PPO [ders 32](../../experiments/32-rl-environment/reach_env.py) ve [ders 33](../../experiments/33-ppo/ppo.py)'ten; şekil [`plot.py`](../../experiments/35-reward-design/plot.py) ile üretildi.

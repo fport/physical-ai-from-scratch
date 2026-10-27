@@ -22,23 +22,72 @@ Bu ders küçük, yeniden kullanılabilir bir `ik_solve` yazıyor ve her başar�
 
 ## Ana fikir
 
-$e = x^\* - x(q)$ görev hatası olsun. $x(q + \Delta q) \approx x(q) + J\Delta q$ olarak doğrusallaştır, $\Delta q$'yu çöz ve tekrarla:
+### Sade anlatımla
+
+Inverse kinematics (IK), ders 08'in tersini sorar: "eli *oraya* hangi joint açıları koyar?". Genel bir formülü yoktur; herhangi bir kara kutuyu ayarlar gibi çözersin: elin hedeften ne kadar uzak olduğunu ölç, Jacobian'a (ders 09) hangi küçük joint değişiminin eli hedefe doğru götüreceğini sor, o adımı at ve tekrarla. Bu, forward kinematics'e uygulanmış Newton yöntemidir ve iyi bir başlangıçtan birkaç adımda yakınsar.
+
+Üç şekilde ters gider. Birincisi, kol neredeyse düzken eli daha dışarı götüremez; yine de bunu istemek çözücüyü neredeyse sıfır bir sayıya böldürür ve devasa joint hareketleri komut ettirir. Böyle bir poz bir **singularity**'dir: Jacobian bir yön kaybetmiştir. İkincisi, çözücü bir joint limitine dayanıp orada takılabilir. Üçüncüsü, birden fazla cevap olabilir (elbow up ya da elbow down) ve bazıları joint limitlerinin dışında kalır.
+
+Birinci soruna standart çözüm **damping**'dir: dev adımları reddet. Damped least squares eli gidebildiği yere götürür, kolun hizmet edemediği yönden ise patlamak yerine basitçe vazgeçer.
+
+```mermaid
+flowchart TD
+    S["joint açıları q<br/>(seed, ör. hepsi sıfır)"] --> FK["forward kinematics:<br/>el konumu x(q)"]
+    FK --> E["hata e = hedef − x(q)"]
+    E --> C{"hata 0,5 mm'nin altında mı?"}
+    C -- "evet" --> D["bitti: q'yu döndür"]
+    C -- "hayır" --> J["Jacobian J(q)<br/>(ders 09)"]
+    J --> STEP["J, e ve λ'dan<br/>damped adım Δq"]
+    STEP --> CL["q ← clip(q + Δq)<br/>joint limitlerine"]
+    CL --> FK
+```
+
+### IK kod olarak
+
+```python
+import numpy as np
+
+def ik_position(fk_pos, jac_pos, target, q, lo, hi, lam=0.1, tol=5e-4, max_iter=200):
+    for it in range(max_iter):
+        e = target - fk_pos(q)                     # görev hatası (m), 3 sayı
+        if np.linalg.norm(e) < tol:                # 0,5 mm: başarı
+            return q, True
+        J = jac_pos(q)                             # 3 x n konum Jacobian'ı (m/rad)
+        A = J @ J.T + lam**2 * np.eye(len(e))      # lam = 0 düz pseudo-inverse adımını verir
+        dq = J.T @ np.linalg.solve(A, e)           # damped least-squares adımı (rad)
+        q = np.clip(q + dq, lo, hi)                # joint limitlerinin içinde kal
+    return q, False
+```
 
 | Yöntem | Adım $\Delta q$ | Kaynak |
 |---|---|---|
 | Newton-Raphson (pseudo-inverse) | $J^{+}e$ | *Modern Robotics*, Böl. 6 |
 | Jacobian transpose | $\alpha J^\top e$, $\ \alpha = \dfrac{\langle e, JJ^\top e\rangle}{\lVert JJ^\top e\rVert^2}$ | Buss 2009, §3 |
 | Damped least squares (DLS) | $J^\top (JJ^\top + \lambda^2 I)^{-1} e$ | Buss 2009, §5 |
+| Manipulability | $w = \sqrt{\det(JJ^\top)} = \prod_i \sigma_i$ | Yoshikawa 1985 |
 
-DLS, $\lVert J\Delta q - e\rVert^2 + \lambda^2\lVert\Delta q\rVert^2$'yi minimize eder. SVD $J = \sum_i \sigma_i u_i v_i^\top$ ile fark her yön için tek bir çarpandır:
+$e = x^\* - x(q)$, hedef $x^\*$ ile aletin şu anki konumu $x(q)$ arasındaki görev hatasıdır; $J$, $q$'daki Jacobian, $J^{+}$ onun pseudo-inverse'üdür (kare olmayan bir matrisin least-squares tersi); $\alpha$ bir adım uzunluğudur; $\lambda$ damping'dir, burada metre cinsindendir çünkü $J_p$ m/rad cinsindendir; $\sigma_i$, $J$'nin singular value'larıdır (her asal yönünü ne kadar gerdiği); $w$ manipulability'dir ve singularity'de sıfıra düşer.
+
+Pseudo-inverse hızlıdır ama singularity yakınında dev adımlar atar; transpose yöntemi hep güvenli ama yavaş adımlar atar; DLS ikisinin arasındadır ve λ ile ayarlanır. **Joint limitleri** burada her adımdan sonra kırpılarak uygulanıyor. Görevin denklem sayısı kolun joint sayısından az olduğunda ya da geometri katlandığında (elbow up / elbow down) **birden fazla çözüm** vardır.
+
+<details>
+<summary>Matematik ayrıntısı: SVD üzerinden DLS, singularity ve manipulability</summary>
+
+**FK üzerinde Newton.** $x(q + \Delta q) \approx x(q) + J\Delta q$ olarak doğrusallaştır, $J\Delta q = e$'yi $\Delta q$ için çöz ve tekrarla. $J$ kare ya da tersinir değilse least-squares çözümü $J^{+}e$'dir.
+
+**DLS**, $\lVert J\Delta q - e\rVert^2 + \lambda^2\lVert\Delta q\rVert^2$'yi minimize eder: hatayı karşıla, ama büyük adımların bedelini öde. Singular value decomposition $J = \sum_i \sigma_i u_i v_i^\top$ ile Newton'dan farkı her yön için tek bir çarpandır:
 
 $$J^{+}e = \sum_i \frac{1}{\sigma_i}\,v_i u_i^\top e, \qquad \Delta q_{\text{DLS}} = \sum_i \frac{\sigma_i}{\sigma_i^2+\lambda^2}\,v_i u_i^\top e .$$
 
-$\sigma_i \to 0$ iken pseudo-inverse kazancı $1/\sigma_i$ patlar; DLS kazancı sıfıra gider. Buss, λ'nın singularity'ler yakınında kararlılık için yeterince büyük olması gerektiğini, ama fazla büyük bir değerin yakınsamayı yavaşlattığını not eder ([Buss 2009](https://mathweb.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)).
+$\sigma_i \to 0$ iken pseudo-inverse kazancı $1/\sigma_i$ patlar; DLS kazancı sıfıra gider. $\sigma_i \gg \lambda$ iken ikisi neredeyse eşittir. Buss, λ'nın singularity'ler yakınında kararlılık için yeterince büyük olması gerektiğini, ama fazla büyük bir değerin yakınsamayı yavaşlattığını not eder ([Buss 2009](https://mathweb.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)).
 
-**Singularity ve manipulability.** $J$ rank kaybettiğinde poz singular'dır. Yoshikawa'nın manipulability ölçüsü $w = \sqrt{\det(JJ^\top)} = \prod_i \sigma_i$, birim joint hızlarının ürettiği hız elipsoidinin hacmiyle orantılıdır ve singularity'de sıfıra düşer ([Yoshikawa 1985](https://doi.org/10.1177/027836498500400201)). SVD ve least squares AIEFS'te: [Singular Value Decomposition](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/11-singular-value-decomposition), [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization).
+**Singularity ve manipulability.** $J$ rank kaybettiğinde poz singular'dır. Yoshikawa'nın manipulability ölçüsü $w = \sqrt{\det(JJ^\top)} = \prod_i \sigma_i$, birim joint hızlarının ürettiği hız elipsoidinin hacmiyle orantılıdır ve singularity'de sıfıra düşer ([Yoshikawa 1985](https://doi.org/10.1177/027836498500400201)). En küçük $\sigma_i$'nin $u_i$ yönü, aletin zar zor hareket edebildiği yöndür.
 
-**Joint limitleri** burada her adımdan sonra kırpılarak uygulanıyor. Görevin denklem sayısı kolun joint sayısından az olduğunda ya da geometri katlandığında (elbow up / elbow down) **birden fazla çözüm** vardır.
+**Limitler ve dallar.** Her adımdan sonra kırpmak joint limitlerine uymanın en basit yoludur; iterasyonu bir limite dayalı hâlde takılı bırakabilir, Adım 1 bunu ölçüyor. Farklı seed'ler çözüm kümesinin farklı dallarına yakınsayabilir (Adım 2).
+
+Daha derine: AIEFS [Singular Value Decomposition](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/11-singular-value-decomposition), [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems); Lynch & Park, *Modern Robotics*, Böl. 5–6; Buss 2009; Yoshikawa 1985.
+
+</details>
 
 ## Deney
 
@@ -63,7 +112,7 @@ q = np.clip(data.qpos[qadr] + dq, lo, hi)                              # joint l
 
 **Önce tahmin et.** En yüksek başarı oranını hangi λ verir: 0 (saf Newton), 0,01, 0,1 ya da 0,3 (birim metre, çünkü $J_p$ m/rad cinsinden)?
 
-**Adım 1 · λ sweep'i.** 500 rastgele **erişilebilir** konum hedefi (limitler içindeki rastgele joint vektörlerinin FK'sı), seed $q_0 = 0$, başarı = 200 iterasyon içinde 0,5 mm'nin altında hata.
+**Adım 1 · λ sweep'i.** 500 rastgele **erişilebilir** konum hedefi (limitler içindeki rastgele joint vektörlerinin FK'sı), seed (başlangıç joint vektörü) $q_0 = 0$, başarı = 200 iterasyon içinde 0,5 mm'nin altında hata.
 
 | Yöntem | başarı | medyan iterasyon | p95 iterasyon | medyan en büyük ‖Δq‖ (rad) | joint limitinde biten başarısızlık |
 |---|---|---|---|---|---|
@@ -78,6 +127,8 @@ q = np.clip(data.qpos[qadr] + dq, lo, hi)                              # joint l
 
 Az damping ile Newton birkaç radyanlık adımlar atıyor, kırpma bir joint'i limitine çiviliyor ve iterasyon orada takılıyor: neredeyse her başarısızlık bir limitte bitiyor. λ = 0,3 ile adımlar kısa; başarısızlıkların çoğu basitçe iterasyon bütçesini bitiriyor (127'nin 77'si limitte bitmiyor). Burada en iyi nokta λ = 0,1; başarısız çözümleri rastgele seed'lerden yeniden başlatmak başarıyı %96,8'e çıkarıyor.
 
+![Solda: 500 erişilebilir hedefte her IK yöntemi için başarı oranı ve medyan iterasyon sayısı; başarı pseudo-inverse'te yüzde 73,2'den damping 0,1'de yüzde 88,6'ya çıkıyor, 0,3'te yeniden düşüyor; medyan iterasyon sayısı ise 64'e tırmanıyor. Sağda: kol gerildikçe en zayıf yön boyunca 5 cm/s için istenen joint hızı; pseudo-inverse 478,33 rad/s'ye çıkıyor, damped least squares 0,01 rad/s'nin altına iniyor.](../../experiments/10-inverse-kinematics/damping_tradeoff.png)
+
 **Adım 2 · birden fazla çözüm.** Hedef (0,20, 0,05, 0,05) m, parmaklar (site x ekseni) aşağı bakıyor, wrist_roll 0'da sabit; yani dört joint dört bağımsız kısıtla karşı karşıya. 100 rastgele seed, DLS λ = 0,01:
 
 | Joint limitleri | yakınsayan | farklı çözüm | gerçek limitlerin içinde |
@@ -87,7 +138,7 @@ Az damping ile Newton birkaç radyanlık adımlar atıyor, kırpma bir joint'i l
 
 Limitler olmadan çözücü ders kitabındaki dört dalı buluyor: ön/arka (pan −17,6° ya da 163,1°) × elbow up/down. Yalnızca biri, (−17,6°, −17,2°, 29,3°, 77,9°), SO-101'in aralıkları içinde. Limitleri yok sayan bir çözücü, yakınsayan 96 seed'inin 37 + 20 + 13'ünde erişilemez bir dala düşüyor.
 
-**Adım 3 · gerilirken manipulability.** Bükülü bir pozdan (lift 1,3 rad, elbow 0), $\sigma_3$'ü minimize ederek bulunan düz poza (elbow −73,74°, wrist 2,01°); $s$ aradeğerliyor. Konum Jacobian'ı, 3×5:
+**Adım 3 · gerilirken manipulability.** Bükülü bir pozdan (lift 1,3 rad, elbow 0), $\sigma_3$'ü minimize ederek bulunan düz poza (elbow −73,74°, wrist 2,01°); $s$ aradeğerliyor. Konum Jacobian'ı, 3×5; cond = σ₁/σ₃:
 
 | s | σ₁ | σ₂ | σ₃ | w | cond | erişim (m) |
 |---|---|---|---|---|---|---|

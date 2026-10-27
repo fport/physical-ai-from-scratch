@@ -20,6 +20,68 @@ Menagerie SO-101 her joint'e aynı servo'yu veriyor: `armature="0.028"` olan bir
 
 ## Ana fikir
 
+### Sade anlatımla
+
+Bir `<position>` actuator'ü, joint'i komut verdiğin açıya doğru çeken bir yay artı bir amortisör gibi davranır. Yayın sertliği `kp`'dir: joint hedeften ne kadar uzaksa o kadar sert çeker. Amortisörün gücü `kv`'dir: joint ne kadar hızlı hareket ederse o kadar frenler. Kontrol mühendisleri buna PD controller der (hataya Orantılı bir terim artı onun Türevine, yani hıza bağlı bir terim; İngilizcesi Proportional-Derivative).
+
+Bir yaya ağırlık asarsan, ağırlıksız duracağı yerin biraz altında dengelenir, çünkü yay ancak gerildiğinde iter. Yerçekimi altındaki bir position servo da aynısını yapar: kabaca yerçekimi torku bölü `kp` kadar *sarkar*. Daha sert bir yay daha az sarkar ve hedefe daha çabuk varır.
+
+Sertliğin simülasyonda bir bedeli var. Hafif bir joint'teki sert bir yay hızlı salınır. Bir timestep bu salınıma göre fazla uzunsa her adım bir öncekini aşar ve simülasyon patlar. *Armature*, joint'e eklenen ek inertia'dır: gerçek bir servoda motorun dönen rotorunu temsil eder; dişli kutusu onu joint'te çok daha ağır hissettirir. Salınımı timestep'in takip edebileceği kadar yavaşlatır.
+
+```mermaid
+flowchart TD
+    U["komut u<br/>(hedef açı)"] --> A["position actuator<br/>kp·(u − q) − kv·q̇"]
+    A --> L["forcerange'e kırp"]
+    L --> J["inertia'sı<br/>I = I_link + armature olan joint"]
+    G["yerçekimi torku<br/>τ_g · cos q"] --> J
+    J --> S["h uzunluğunda integrator adımı"]
+    S -- "yeni q, q̇" --> A
+```
+
+### Servo, kod olarak
+
+```python
+def position_actuator(u, q, qdot, kp, kv, forcerange):
+    force = kp * (u - q) - kv * qdot             # spring toward u, damper on speed (PD)
+    return clip(force, *forcerange)              # then clamped; N·m for a hinge
+
+# Steady sag e under a gravity torque tau_g: solve kp * e == tau_g * cos(e)
+sag_estimate = tau_g / kp                        # good when the sag is small
+
+# How fast the joint oscillates, and whether the timestep h can follow it
+omega = sqrt(kp / (I_link + armature))           # natural frequency (rad/s)
+h_omega = h * omega                              # explicit integration needs about h_omega < 2
+kv_from_dampratio = 2 * zeta * sqrt(kp * m)      # what dampratio=zeta sets; m = reflected inertia
+```
+
+| Büyüklük | Formül |
+|---|---|
+| actuator kuvveti | $k_p(u - q) - k_v\,\dot q$, `forcerange`'e kırpılır |
+| durağan sarkma | $k_p\,e_{\text{ss}} = \tau_g \cos e_{\text{ss}}\ \ (\approx \tau_g/k_p)$ |
+| doğal frekans | $I = I_{\text{link}} + \text{armature}$ olmak üzere $\omega = \sqrt{k_p / I}$ |
+| explicit stabilite limiti (sönümsüz) | $h\omega \lesssim 2$ |
+| damping'li `implicitfast` limiti | $c = (k_v + \text{damping})/I$ olmak üzere $h^2\omega^2 < 4 + 2hc$ |
+| `dampratio`'dan `kv` | $k_v = 2\zeta\sqrt{k_p\,m}$ |
+
+$u$ komut edilen açı, $q$ joint açısı, $\dot q$ onun hızıdır; $k_p$ ve $k_v$ actuator gain'leri; $\tau_g$ link yatayken üzerindeki yerçekimi torku; $e_{\text{ss}}$ durağan durum hatası (sarkma); $I$ joint'in hissettiği efektif inertia, $I_{\text{link}}$ linkin kendi payı; $h$ timestep; $c$ birim inertia başına toplam damping; $\zeta$ damping oranı, $m$ ise `qpos0`'daki yansıyan inertia'dır.
+
+<details>
+<summary>Matematik ayrıntısı: sarkma, yükselme süresi ve iki stabilite sınırı</summary>
+
+**Sarkma.** Durgun hâlde $\dot q = 0$'dır ve actuator torku yerçekimini dengeler: $q = -e_{\text{ss}}$'de $k_p(0 - q) = \tau_g\cos q$. Küçük $e_{\text{ss}}$ için $\cos e_{\text{ss}} \approx 1$ ve $e_{\text{ss}} \approx \tau_g/k_p$. Integral terimi (hata sürdükçe büyüyen bir terim) olmadan hata asla sıfıra inmez.
+
+**Yükselme süresi.** Hedef etrafında lineerleştirilince joint, zaman ölçeği $1/\omega = \sqrt{I/k_p}$ olan yaya bağlı bir kütledir; sabit damping oranında %10–90 yükselme süresi dahil her süre onunla ölçeklenir, dolayısıyla $\propto 1/\sqrt{k_p}$.
+
+**Explicit limit.** Konum terimi `Euler`, `implicit` ve `implicitfast` tarafından explicit integre edilir; doküman explicit stabilite limitini $h \lesssim 2/\omega_{\max}$ olarak veriyor ve yalnızca `discrete`'in konumda implicit olduğunu belirtiyor ([Computation · Integrators](https://mujoco.readthedocs.io/en/stable/computation/index.html#geintegrators)). Bu, [ders 03](03-contact.md)'teki contact yayıyla aynı $h\omega < 2$'dir.
+
+**Implicit damping ile.** `implicitfast` damping'i yeni hızda hesaplar: $v' = v + h(-\omega^2 q - c\,v')$, sonra $q' = q + h v'$. Adım matrisinin determinantı $1/(1 + hc)$, izi $(2 + hc - h^2\omega^2)/(1 + hc)$'dir; 2×2 lineer bir dönüşüm $|\text{iz}| < 1 + \det$ olduğunda stabildir, bu da $h^2\omega^2 < 4 + 2hc$ verir. Damping bunun yerine explicit integre edilirse (Euler'in actuator `kv`'sine yaptığı gibi) aynı cebir $h^2\omega^2 < 4 - 2hc$ verir: damping o zaman limiti *düşürür*.
+
+**Armature.** Armature, kütle matrisi $M$'nin joint'e ait köşegenine eklenir; dişli bir motor için yansıyan rotor inertia'sıdır: rotor inertia'sı × dişli oranı² ([XML reference · joint](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-joint-armature)). Büyük $I$, $\omega$'yı düşürür; sayısal rolü budur.
+
+Daha derine: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml) (AIEFS: setpoint etrafında lineerleştirme); [MuJoCo Modeling · Actuators](https://mujoco.readthedocs.io/en/stable/modeling.html#cactuators).
+
+</details>
+
 ### Joint'ler
 
 | `joint type` | dof | Tipik kullanım |
@@ -48,15 +110,7 @@ Her actuator aslında `general`'dır: kuvvet $= \text{gain}\cdot\text{ctrl} + \t
 | `position` | $k_p(u - q) - k_v\,\dot q$ | yerleşik PD; `kp` default 1, `kv` default 0, ya da `dampratio` |
 | `velocity` | $k_v(u - \dot q)$ | doküman bununla `implicitfast`/`implicit` öneriyor |
 
-`ctrlrange` $u$'yu, `forcerange` kuvveti kırpar. `dampratio`, $m$ `qpos0`'daki yansıyan inertia olmak üzere $k_v = 2\zeta\sqrt{k_p\,m}$ ayarlar.
-
-### Gain'ler ne yapar
-
-Yerçekimi torku $\tau_g\cos q$ ve efektif inertia'sı $I = I_{\text{link}} + \text{armature}$ olan bir link için:
-
-$$e_{\text{ss}}:\ k_p\,e_{\text{ss}} = \tau_g \cos e_{\text{ss}}\ \ (\approx \tau_g/k_p), \qquad \omega = \sqrt{k_p / I}$$
-
-Sarkma $1/k_p$ ile, yükselme süresi $1/\sqrt{k_p}$ ile düşer. Ama konum terimi `Euler`, `implicit` ve `implicitfast` tarafından explicit integre edilir; doküman explicit stabilite limitini $h \lesssim 2/\omega_{\max}$ olarak veriyor ve yalnızca `discrete`'in konumda implicit olduğunu belirtiyor ([Computation · Integrators](https://mujoco.readthedocs.io/en/stable/computation/index.html#geintegrators)). Armature $\omega$'yı düşürür; sayısal rolü budur. (Setpoint etrafında lineerleştirme: bkz. AIEFS: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml).)
+`ctrlrange` $u$'yu, `forcerange` kuvveti kırpar.
 
 ## Deney
 
@@ -71,7 +125,7 @@ Bir hinge üstünde 20 cm, 0,3 kg'lık bir capsule, $q = 0$'da yatay. $\tau_g$ =
 <actuator><position joint="j" kp="{kp}" dampratio="1"/></actuator>
 ```
 
-$q = -0{,}5$ rad'dan başla, $u = 0$ komutu ver, 3 s çalıştır. Sarkma = son 0,5 s'deki ortalama hata; yükselme = %10–90 süresi.
+$q = -0{,}5$ rad'dan başla, $u = 0$ komutu ver, 3 s çalıştır. Sarkma = son 0,5 s'deki ortalama hata; yükselme = hedefe giden yolun %10'undan %90'ına varma süresi.
 
 **Tahmin et.** kp × 10: sarkmaya ve yükselme süresine ne olur?
 
@@ -87,7 +141,9 @@ $q = -0{,}5$ rad'dan başla, $u = 0$ komutu ver, 3 s çalıştır. Sarkma = son 
 | 300 | 6,211 | 0,056 | 0,056 | 0,056 | 31,6 |
 | 1000 | 11,340 | 0,017 | 0,017 | 0,017 | 16,5 |
 
-**Gözlemle.** Sarkma her satırda statik denge $k_p e = \tau_g\cos e$ ile üç ondalığa kadar eşit; lineer $\tau_g/k_p$ yalnızca sarkma büyükken (kp = 1) sapıyor. İntegral terimi olmayan bir position servo yerçekimi altında her zaman sarkar: burada kp 1000'de 0,017°, kp 1'de 16,193°. Yükselme süresi $1/\sqrt{k_p}$ ile düşüyor (kp 10'dan 100'e × 10: 185,6 → 56,7 ms). O sarkmayı dev gain'ler olmadan kaldırmak, [ders 12](../part-4-dynamics-and-control/12-joint-control.md)'deki gravity feedforward'ın işi.
+![kp'nin 1'den 1000'e değiştiği iki log-log grafik. Solda: durağan sarkma 16,193°'den 0,017°'ye düşüyor ve kp 1 dışında tau_g/kp çizgisinin üzerinde. Sağda: yükselme süresi 533,0 ms'den 16,5 ms'ye düşüyor, 1/sqrt(kp) kılavuz çizgisine yakın.](../../experiments/05-joints-and-actuators/kp_sweep.png)
+
+**Gözlemle.** Sarkma her satırda statik denge $k_p e = \tau_g\cos e$ ile üç ondalığa kadar eşit; lineer $\tau_g/k_p$ yalnızca sarkma büyükken (kp = 1) sapıyor. İntegral terimi olmayan bir position servo yerçekimi altında her zaman sarkar: burada kp 1000'de 0,017°, kp 1'de 16,193°. Yükselme süresi $1/\sqrt{k_p}$ ile düşüyor (kp 10'dan 100'e × 10: 185,6 → 56,7 ms). O sarkmayı dev gain'ler olmadan kaldırmak, [ders 12](../part-4-dynamics-and-control/12-joint-control.md)'deki gravity feedforward'ın (bilinen yerçekimi torkunu komuta eklemek) işi.
 
 ## Boz
 
@@ -102,7 +158,7 @@ $q = -0{,}5$ rad'dan başla, $u = 0$ komutu ver, 3 s çalıştır. Sarkma = son 
 | 0,001 | 0,0050 | 2,23 | **ıraksadı** | stabil | stabil |
 | 0 | 0,0040 | 2,50 | **ıraksadı** | stabil | stabil |
 
-Euler ilk çöken, daha $h\omega$ = 1,67'de: joint damping'i implicit çözüyor ama actuator'ün `kv` terimini explicit integre ediyor; doküman da bu yüzden `kv` kullanıldığında `implicitfast` ya da `implicit` öneriyor ([actuator/position/kv](https://mujoco.readthedocs.io/en/stable/XMLreference.html#actuator-position)). Menagerie'nin ±2,94 N·m `forcerange`'i eklenince Euler artık patlamıyor, onun yerine titriyor: armature 0,001'de tepeden tepeye 0,629°, 0'da 0,798°. Bu, sayısal bir problemden çok servo gürültüsüne benzeyen bir hata.
+Euler ilk çöken, daha $h\omega$ = 1,67'de: joint damping'i implicit çözüyor ama actuator'ün `kv` terimini explicit integre ediyor; doküman da bu yüzden `kv` kullanıldığında `implicitfast` ya da `implicit` öneriyor ([actuator/position/kv](https://mujoco.readthedocs.io/en/stable/XMLreference.html#actuator-position)). Menagerie'nin ±2,94 N·m `forcerange`'i eklenince Euler artık patlamıyor, onun yerine titriyor (hedef etrafında hızlı, küçük bir ileri geri): armature 0,001'de tepeden tepeye 0,629°, 0'da 0,798°. Bu, sayısal bir problemden çok servo gürültüsüne benzeyen bir hata.
 
 **B · kp'yi yükselt** (implicitfast, armature 0,028): kp 3000'de stabil ($h\omega$ = 1,53), kp 10000'de ($h\omega$ = 2,80) ve 30000'de ($h\omega$ = 4,84) **ıraksadı**. `discrete` dördünde de stabil kaldı. `implicitfast` damping'i implicit, `kp`'yi explicit integre eder. Bu güncellemenin lineer analizi $c = (k_v + \text{damping})/I$ olmak üzere $h^2\omega^2 < 4 + 2hc$ sınırını verir; explicit integre edilen damping (Euler'in `kv`'si) aynı terime eksi işaretle girer, dokümandaki $h\omega \lesssim 2$ ise damping'siz durumdur. Armature 0,028'de $hc$ küçük ve sınır 2'nin hemen üstünde: 1,53'te stabil, 2,80'de ıraksadı. A'da armature'ı atmak $I$'yı çok küçültüp $hc$'yi büyüttü; bu yüzden `implicitfast` $h\omega$ = 2,50'de ayakta kaldı, `kv`'yi explicit integre eden Euler ise 1,67'de çöktü. Sınır A ve B'deki her hücreyi doğru tahmin ediyor.
 
@@ -121,7 +177,7 @@ Script compile edilmiş SO-101 modelini okuyor ([Menagerie · robotstudio_so101]
 
 Bilek ve gripper için armature efektif inertia'nın neredeyse tamamı; o olmadan bu joint'ler $h\omega \approx 2$'nin çok ötesinde olurdu. Bu modelden kp ve kv'yi armature'ı olmadan bir `Euler` modeline kopyalamak Boz A'yı tekrar üretir. SO-101'in kendisinin, kendi `implicitfast`'i altında armature'sız stabil kalıp kalmadığı burada test edilmedi: büyük implicit `kv` terimi sınırı yükseltir (Boz B), o yüzden ikisini de varsayma.
 
-Gerçek donanım bilgileri, [LeRobot SO-101 rehberinden](https://huggingface.co/docs/lerobot/so101): follower kol 1/345 dişli oranlı altı STS3215 servo kullanıyor; leader, elle hareket ettirilebilsin diye 1/191, 1/345 ve 1/147 oranlarını karıştırıyor. Servo'lar tek bir bus'ı paylaşıyor; her birinin servo'nun EEPROM'unda saklanan benzersiz bir ID'si var (shoulder pan 1 … gripper 6). Menagerie yorumu, kp, kv ve forcerange değerlerinin servo proportional gain'inin 16 olduğu varsayımıyla türetildiğini ve LeRobot'un kullandığı gain'lerin birebir karşılığı olmadığını söylüyor.
+Gerçek donanım bilgileri, [LeRobot SO-101 rehberinden](https://huggingface.co/docs/lerobot/so101): follower kol 1/345 dişli oranlı altı STS3215 servo kullanıyor; leader, elle hareket ettirilebilsin diye 1/191, 1/345 ve 1/147 oranlarını karıştırıyor. Servo'lar tek bir bus'ı paylaşıyor; her birinin servo'nun EEPROM'unda (küçük, kalıcı belleğinde) saklanan benzersiz bir ID'si var (shoulder pan 1 … gripper 6). Menagerie yorumu, kp, kv ve forcerange değerlerinin servo proportional gain'inin 16 olduğu varsayımıyla türetildiğini ve LeRobot'un kullandığı gain'lerin birebir karşılığı olmadığını söylüyor.
 
 Karşılaştırma prosedürü: gerçek elbow'a 0,5 rad'lık bir adım komutu ver, joint konumunu LeRobot üzerinden kaydet, yükselme süresini ve durağan sarkmayı aynı yük altındaki simüle edilmiş joint'le karşılaştır. **Gerçek kolda henüz ölçülmedi.**
 

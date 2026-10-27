@@ -22,23 +22,72 @@ This lesson writes a small, reusable `ik_solve` and measures each failure.
 
 ## Core idea
 
-Let $e = x^\* - x(q)$ be the task error. Linearize $x(q + \Delta q) \approx x(q) + J\Delta q$ and solve for $\Delta q$, then repeat:
+### In plain words
+
+Inverse kinematics (IK) asks the reverse of lesson 08: "which joint angles put the hand *there*?". There is no general formula, so you solve it the way you would tune any black box: measure how far the hand is from the target, ask the Jacobian (lesson 09) which small joint change would move the hand toward it, take that step, and repeat. This is Newton's method applied to forward kinematics, and from a good start it converges in a handful of steps.
+
+It goes wrong in three ways. First, when the arm is almost straight it cannot move the hand further outward; asking for that anyway makes the solver divide by a nearly zero number and command enormous joint moves. Such a pose is a **singularity**: the Jacobian has lost a direction. Second, the solver can run into a joint limit and stall there. Third, there may be several answers (elbow up or elbow down), and some of them lie outside the joint limits.
+
+The standard fix for the first problem is **damping**: refuse giant steps. Damped least squares moves the hand where it can, and simply gives up on the direction the arm cannot serve, instead of exploding.
+
+```mermaid
+flowchart TD
+    S["joint angles q<br/>(seed, e.g. all zeros)"] --> FK["forward kinematics:<br/>hand position x(q)"]
+    FK --> E["error e = target − x(q)"]
+    E --> C{"error below 0.5 mm?"}
+    C -- "yes" --> D["done: return q"]
+    C -- "no" --> J["Jacobian J(q)<br/>(lesson 09)"]
+    J --> STEP["damped step Δq<br/>from J, e and λ"]
+    STEP --> CL["q ← clip(q + Δq)<br/>to the joint limits"]
+    CL --> FK
+```
+
+### IK as code
+
+```python
+import numpy as np
+
+def ik_position(fk_pos, jac_pos, target, q, lo, hi, lam=0.1, tol=5e-4, max_iter=200):
+    for it in range(max_iter):
+        e = target - fk_pos(q)                     # task error (m), 3 numbers
+        if np.linalg.norm(e) < tol:                # 0.5 mm: success
+            return q, True
+        J = jac_pos(q)                             # 3 x n position Jacobian (m/rad)
+        A = J @ J.T + lam**2 * np.eye(len(e))      # lam = 0 gives the plain pseudo-inverse step
+        dq = J.T @ np.linalg.solve(A, e)           # damped least-squares step (rad)
+        q = np.clip(q + dq, lo, hi)                # stay inside the joint limits
+    return q, False
+```
 
 | Method | Step $\Delta q$ | Source |
 |---|---|---|
 | Newton-Raphson (pseudo-inverse) | $J^{+}e$ | *Modern Robotics*, Ch. 6 |
 | Jacobian transpose | $\alpha J^\top e$, $\ \alpha = \dfrac{\langle e, JJ^\top e\rangle}{\lVert JJ^\top e\rVert^2}$ | Buss 2009, §3 |
 | Damped least squares (DLS) | $J^\top (JJ^\top + \lambda^2 I)^{-1} e$ | Buss 2009, §5 |
+| Manipulability | $w = \sqrt{\det(JJ^\top)} = \prod_i \sigma_i$ | Yoshikawa 1985 |
 
-DLS minimizes $\lVert J\Delta q - e\rVert^2 + \lambda^2\lVert\Delta q\rVert^2$. With the SVD $J = \sum_i \sigma_i u_i v_i^\top$ the difference is one factor per direction:
+$e = x^\* - x(q)$ is the task error between the target $x^\*$ and the current tool position $x(q)$; $J$ is the Jacobian at $q$ and $J^{+}$ its pseudo-inverse (the least-squares inverse of a non-square matrix); $\alpha$ is a step length; $\lambda$ is the damping, in metres here because $J_p$ is in m/rad; $\sigma_i$ are the singular values of $J$ (how strongly it stretches each of its principal directions); $w$ is the manipulability, which falls to zero at a singularity.
+
+The pseudo-inverse is fast but takes huge steps near a singularity; the transpose method always takes safe but slow steps; DLS sits in between, tuned by λ. **Joint limits** are enforced here by clamping after every step. **Multiple solutions** exist whenever the task has fewer equations than the arm has joints, or when the geometry folds (elbow up / elbow down).
+
+<details>
+<summary>Math details: DLS through the SVD, singularities and manipulability</summary>
+
+**Newton on FK.** Linearize $x(q + \Delta q) \approx x(q) + J\Delta q$ and solve $J\Delta q = e$ for $\Delta q$, then repeat. When $J$ is not square or not invertible, the least-squares solution is $J^{+}e$.
+
+**DLS** minimizes $\lVert J\Delta q - e\rVert^2 + \lambda^2\lVert\Delta q\rVert^2$: fit the error, but pay for large steps. With the singular value decomposition $J = \sum_i \sigma_i u_i v_i^\top$ the difference from Newton is one factor per direction:
 
 $$J^{+}e = \sum_i \frac{1}{\sigma_i}\,v_i u_i^\top e, \qquad \Delta q_{\text{DLS}} = \sum_i \frac{\sigma_i}{\sigma_i^2+\lambda^2}\,v_i u_i^\top e .$$
 
-As $\sigma_i \to 0$ the pseudo-inverse gain $1/\sigma_i$ explodes; the DLS gain goes to zero. Buss notes that λ must be large enough for stability near singularities, but too large a value makes convergence slow ([Buss 2009](https://mathweb.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)).
+As $\sigma_i \to 0$ the pseudo-inverse gain $1/\sigma_i$ explodes; the DLS gain goes to zero. For $\sigma_i \gg \lambda$ the two are almost equal. Buss notes that λ must be large enough for stability near singularities, but too large a value makes convergence slow ([Buss 2009](https://mathweb.ucsd.edu/~sbuss/ResearchWeb/ikmethods/iksurvey.pdf)).
 
-**Singularity and manipulability.** A pose is singular when $J$ loses rank. Yoshikawa's manipulability measure, $w = \sqrt{\det(JJ^\top)} = \prod_i \sigma_i$, is proportional to the volume of the velocity ellipsoid produced by unit joint speeds and falls to zero at a singularity ([Yoshikawa 1985](https://doi.org/10.1177/027836498500400201)). SVD and least squares are covered in AIEFS: [Singular Value Decomposition](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/11-singular-value-decomposition), [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization).
+**Singularity and manipulability.** A pose is singular when $J$ loses rank. Yoshikawa's manipulability measure, $w = \sqrt{\det(JJ^\top)} = \prod_i \sigma_i$, is proportional to the volume of the velocity ellipsoid produced by unit joint speeds and falls to zero at a singularity ([Yoshikawa 1985](https://doi.org/10.1177/027836498500400201)). The direction $u_i$ of the smallest $\sigma_i$ is the direction the tool can barely move in.
 
-**Joint limits** are enforced here by clamping after every step. **Multiple solutions** exist whenever the task has fewer equations than the arm has joints, or when the geometry folds (elbow up / elbow down).
+**Limits and branches.** Clamping after each step is the simplest way to respect joint limits; it can leave the iteration stuck against a limit, which Step 1 measures. Different seeds can converge to different branches of the solution set (Step 2).
+
+Go deeper: AIEFS [Singular Value Decomposition](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/11-singular-value-decomposition), [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems); Lynch & Park, *Modern Robotics*, Ch. 5–6; Buss 2009; Yoshikawa 1985.
+
+</details>
 
 ## Experiment
 
@@ -63,7 +112,7 @@ q = np.clip(data.qpos[qadr] + dq, lo, hi)                              # joint l
 
 **Predict first.** Which λ gives the highest success rate: 0 (pure Newton), 0.01, 0.1 or 0.3 (units: metres, since $J_p$ is in m/rad)?
 
-**Step 1 · sweep λ.** 500 random **reachable** position targets (FK of random joint vectors within limits), seed $q_0 = 0$, success = error below 0.5 mm within 200 iterations.
+**Step 1 · sweep λ.** 500 random **reachable** position targets (FK of random joint vectors within limits), seed (starting joint vector) $q_0 = 0$, success = error below 0.5 mm within 200 iterations.
 
 | Method | success | median iters | p95 iters | median max ‖Δq‖ (rad) | failures ending at a joint limit |
 |---|---|---|---|---|---|
@@ -78,6 +127,8 @@ q = np.clip(data.qpos[qadr] + dq, lo, hi)                              # joint l
 
 With little damping, Newton takes steps of several radians, the clamp pins a joint at its limit, and the iteration stalls there: almost every failure ends at a limit. With λ = 0.3 the steps are short, most failures are simply out of iterations (77 of 127 do not end at a limit). λ = 0.1 is the sweet spot here, and restarting failed solves from random seeds lifts success to 96.8%.
 
+![Left: success rate and median iterations for each IK method on 500 reachable targets; success rises from 73.2 percent for the pseudo-inverse to 88.6 percent at damping 0.1 and drops again at 0.3, while the median number of iterations climbs to 64. Right: joint speed requested for 5 cm/s along the weakest direction as the arm stretches; the pseudo-inverse grows to 478.33 rad/s, damped least squares falls below 0.01 rad/s.](../experiments/10-inverse-kinematics/damping_tradeoff.png)
+
 **Step 2 · multiple solutions.** Target (0.20, 0.05, 0.05) m, fingers (site x-axis) pointing down, wrist_roll fixed at 0, so four joints face four independent constraints. 100 random seeds, DLS λ = 0.01:
 
 | Joint limits | converged | distinct solutions | inside the real limits |
@@ -87,7 +138,7 @@ With little damping, Newton takes steps of several radians, the clamp pins a joi
 
 Without limits the solver finds the four textbook branches: front/back (pan −17.6° or 163.1°) × elbow up/down. Only one, (−17.6°, −17.2°, 29.3°, 77.9°), is inside the SO-101's ranges. A solver that ignores limits lands on an unreachable branch for 37 + 20 + 13 of its 96 converged seeds.
 
-**Step 3 · manipulability while stretching.** From a bent pose (lift 1.3 rad, elbow 0) to the straight pose found by minimizing $\sigma_3$ (elbow −73.74°, wrist 2.01°); $s$ interpolates. Position Jacobian, 3×5:
+**Step 3 · manipulability while stretching.** From a bent pose (lift 1.3 rad, elbow 0) to the straight pose found by minimizing $\sigma_3$ (elbow −73.74°, wrist 2.01°); $s$ interpolates. Position Jacobian, 3×5; cond = σ₁/σ₃:
 
 | s | σ₁ | σ₂ | σ₃ | w | cond | reach (m) |
 |---|---|---|---|---|---|---|

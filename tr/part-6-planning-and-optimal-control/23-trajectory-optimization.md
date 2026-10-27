@@ -20,11 +20,62 @@ Bir sarkaç (1 m'de 1 kg, $mgl = 9{,}81$ N·m, joint damping 0,1 N·m·s) aşağ
 
 ## Ana fikir
 
-Sürekli problem (kısıtlı optimization temelleri için bkz. AIEFS: [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization)):
+### Sade anlatımla
 
-$$\min_{u(\cdot)} \int_0^T u^2\,dt + w_s \int_0^T \dot u^2\,dt \quad \text{s.t.}\quad \dot x = f(x,u),\ \ \lvert u\rvert \le u_{max},\ \ x(0)=x_0,\ \ x(T)=x_{goal}.$$
+Trajectory optimization, kısıtlar altında eğri uydurmaktır. Motor torque'unu 4 s boyunca, düz çizgilerle birleştirilmiş bir avuç kontrol noktasıyla anlat; bunlara **knot** denir. Bir çizim programında eğrinin tutamaçlarını sürüklemek gibi. Bu tür bütün torque eğrileri arasından en az eforu harcayan ve yumuşak değişeni istiyorsun; ama bazı kurallar tam olarak sağlanmalı: sarkaç fiziğine uyar, torque limiti hiç aşılmaz, hareket aşağı sarkarak başlar ve dik ve durgun biter. Sayısal bir optimizer (burada SLSQP, sequential quadratic programming: problemi tekrar tekrar kısıtları doğrusallaştırılmış daha basit, kuadratik bir problemle değiştirir, onu çözer ve bir adım atar) knot'ları, hiçbir küçük değişiklik bir kuralı bozmadan maliyeti düşüremeyene kadar oynatır.
 
-Efor ve yumuşaklık maliyet terimleridir; hedef burada sert bir terminal kısıt olarak dayatılıyor (yumuşak alternatif terminal ceza $w_g\lVert x(T)-x_{goal}\rVert^2$). $u(t)$'yi $N+1$ knot'tan geçen parçalı doğrusal bir fonksiyon olarak ayrıklaştırıyoruz, aralık $h = T/N$, ve SciPy'ın SLSQP'siyle (sequential quadratic programming) çözüyoruz. $\dot x = f(x,u)$'yu dayatmanın iki standart yolu var ([Tedrake, böl. 10](https://underactuated.csail.mit.edu/trajopt.html)):
+İlginç olan seçim, "fiziğine uyar" kuralının nasıl dayatılacağıdır. İki standart yol var:
+
+- **Direct shooting** top atışına nişan almaktır. Bilinmeyen yalnızca torque'lardır. Her tahmin için ileri doğru simüle eder ve sarkacın 4 s'de nereye indiğine bakarsın; kural "hedefe in"dir. Her torque inişi etkiler, erken torque'lar geç olanlardan çok daha fazla.
+- **Direct collocation** noktaları birleştirme bulmacasıdır. Sarkacın her knot'taki state'ini (açı ve açısal hız) de tahmin eder ve komşu her nokta çiftinin basit bir integrasyon kuralına göre fizikle uyuşmasını istersin. Optimizer'ın içinde hiçbir şey simüle edilmez ve her kural yalnızca iki komşuyu bağlar; bu yüzden problem solver için kolaydır. Ama "basit kurala göre uyuşuyor" ile "noktalar arasındaki gerçek hareketle uyuşuyor" aynı şey değildir. Bu dersin dönüm noktası o boşluk.
+
+### İki transcription
+
+```mermaid
+flowchart TD
+    P["problem: maliyet + fizik +<br/>torque limiti + başlangıç ve hedef"] --> SH["shooting<br/>bilinmeyenler: knot torque'ları"]
+    P --> CO["collocation<br/>bilinmeyenler: knot state'leri ve torque'lar"]
+    SH --> SHC["ileri simüle et (RK4),<br/>son state = hedef olsun"]
+    CO --> COC["komşu knot'lar arasında<br/>trapez kuralı sağlansın"]
+    SHC --> O["SLSQP maliyeti düşürmek için<br/>bilinmeyenleri oynatır"]
+    COC --> O
+    O --> R["u(t)'yi MuJoCo'da tekrar oynat:<br/>gerçekten dik mi bitiyor?"]
+```
+
+### Shooting ve collocation kod olarak
+
+```python
+# Pendulum: state x = (theta, omega), theta = 0 hanging down; u = motor torque (N m)
+def f(x, u):                                    # dynamics: returns (theta_dot, omega_dot)
+    theta, omega = x
+    return (omega, (u - b * omega - m * g * l * sin(theta)) / (m * l**2))
+
+# Torque is piecewise linear through N+1 knots u[0..N], spaced h = T / N seconds apart.
+def cost(u):                                    # effort + smoothness
+    return h * sum((u[:-1]**2 + u[1:]**2) / 2) + w_s * sum(diff(u)**2) / h
+
+def shooting_constraint(u):                     # unknowns: u only
+    x = x0
+    for k in range(N):                          # integrate every interval (RK4, 20 sub-steps)
+        x = rk4_interval(f, x, u[k], u[k + 1], h)
+    return x - x_goal                           # 2 equations: angle and speed at time T
+
+def collocation_constraints(X, u):              # unknowns: knot states X[0..N] and u
+    F = f(X, u)                                 # dynamics evaluated at every knot
+    defects = X[1:] - X[:-1] - h / 2 * (F[1:] + F[:-1])   # trapezoid rule, 2N equations
+    return concat(defects, X[0] - x0, X[-1] - x_goal)
+```
+
+Optimizer, `-u_max <= u <= u_max` torque sınırlarıyla `cost`'u minimize eder ve kısıt fonksiyonlarını sıfıra indirir.
+
+| Büyüklük | Formül |
+|---|---|
+| Maliyet | $J = \int_0^T u^2\,dt + w_s \int_0^T \dot u^2\,dt$ |
+| Dinamik | $\dot x = f(x, u)$ |
+| Knot aralığı | $h = T/N$ |
+| Trapez defect'i | $x_{k+1} - x_k - \tfrac{h}{2}\bigl(f(x_k,u_k) + f(x_{k+1},u_{k+1})\bigr) = 0$ |
+
+Burada $u$ motor torque'u, $\dot u$ onun değişim hızı, $w_s$ yumuşaklık teriminin ağırlığı, $T$ süre, $x = (\theta, \omega)$ sarkacın açısı ve açısal hızı, $f$ dinamik, $N$ aralık sayısı (yani $N+1$ knot), $x_k, u_k$ ise $k$. knot'taki state ve torque'tur. **Defect**, bir aralığın integrasyon kuralını ne kadar bozduğudur; collocation her defect'in sıfır olmasını ister.
 
 | | Direct shooting | Direct collocation |
 |---|---|---|
@@ -34,11 +85,24 @@ Efor ve yumuşaklık maliyet terimleridir; hedef burada sert bir terminal kısı
 | kesin olan | simüle edilen trajectory | ayrıklaştırılmış denklemler |
 | ilk tahmin | yalnızca girdiler | state'ler ve girdiler |
 
-Bizim collocation'ımız trapez defect'ini kullanıyor:
+<details>
+<summary>Matematik ayrıntısı: sürekli problem, iki transcription ve ödünleşimleri</summary>
 
-$$x_{k+1} - x_k - \tfrac{h}{2}\bigl(f(x_k,u_k) + f(x_{k+1},u_{k+1})\bigr) = 0.$$
+**Sürekli problem.**
 
-Tedrake'in bölümü kübik state'li, doğrusal girdili ve üçüncü dereceden doğru bir şema kullanır; trapez onun daha basit, ikinci dereceden hâlidir. Collocation'ın Jacobian'ı seyrek ve bantlıdır, her kısıt yalnızca komşu knot'ları bağlar; shooting'in değişkeni azdır ama her kısıt tüm rollout boyunca her girdiye bağlıdır ve erken girdiler terminal state'i geç girdilerden çok daha fazla oynatır (Tedrake'in "tail wagging the dog" dediği şey).
+$$\min_{u(\cdot)} \int_0^T u^2\,dt + w_s \int_0^T \dot u^2\,dt \quad \text{s.t.}\quad \dot x = f(x,u),\ \ \lvert u\rvert \le u_{max},\ \ x(0)=x_0,\ \ x(T)=x_{goal}.$$
+
+Efor ve yumuşaklık maliyet terimleridir; hedef burada sert bir terminal kısıt olarak dayatılıyor (yumuşak alternatif terminal ceza $w_g\lVert x(T)-x_{goal}\rVert^2$). $u(t)$'yi $N+1$ knot'tan geçen parçalı doğrusal bir fonksiyon olarak ayrıklaştırmak, sonsuz boyutlu problemi SLSQP'nin çözebileceği sonlu bir doğrusal olmayan programa çevirir ([Tedrake, böl. 10](https://underactuated.csail.mit.edu/trajopt.html)). Yukarıdaki kodda efor integrali trapez kuralıyla hesaplanıyor, $\int \dot u^2 dt$ ise $\sum (\Delta u)^2 / h$ ile yaklaşıklanıyor.
+
+**Trapez kuralının doğruluğu.** Trapez defect'i ikinci dereceden bir integrasyon kuralıdır: aralık başına hatası $h^3$ gibi, biriken hatası $h^2$ gibi küçülür. Tedrake'in bölümü kübik state'li, doğrusal girdili ve daha doğru bir şema (Hermite–Simpson) kullanır; trapez onun daha basit hâlidir. Solver defect'leri makine hassasiyetinde sağlar, ama defect'lerin kendisi knot'lar arasında $\dot x = f(x,u)$'yu yalnızca yaklaşık olarak temsil eder; replay hatasının $N$ büyüdükçe düşmesinin sebebi budur.
+
+**Kısıtların yapısı.** Collocation'ın kısıt Jacobian'ı (bütün kısıtların bütün bilinmeyenlere göre türevlerinin matrisi) seyrek ve bantlıdır: her defect yalnızca $k$ ve $k+1$ knot'larını bağlar. Shooting'in değişkeni azdır ama her kısıt tüm rollout boyunca her girdiye bağlıdır ve erken girdiler terminal state'i geç girdilerden çok daha fazla oynatır (Tedrake'in "tail wagging the dog" dediği şey). Bu, shooting'i sayısal olarak zorlaştırır ve Jacobian'ını pahalı yapar: burada ileri farklarla, knot başına bir ek rollout ile hesaplanıyor.
+
+**Global değil, yerel.** Dinamik $\sin\theta$ içeriyor, yani uygulanabilir trajectory'ler kümesi convex değil. SQP birinci dereceden optimallik (KKT, Karush–Kuhn–Tucker) koşullarını sağlayan bir noktaya yakınsar: uygulanabilir hiçbir küçük değişiklik maliyeti düşürmez. Böyle bir nokta en iyi ihtimalle bir local minimum'dur ve hangisini bulacağın ilk tahmine bağlıdır (Boz). Takılan yerel bir solver, problemin uygulanamaz mı olduğunu yoksa sadece takılıp mı kaldığını söyleyemez.
+
+Daha derine: [Optimization](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/08-optimization) (gradient, kısıtlar, local minimum'lar); [Tedrake, *Underactuated Robotics*, böl. 10](https://underactuated.csail.mit.edu/trajopt.html) (direct transcription, shooting, collocation); [SciPy SLSQP](https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html).
+
+</details>
 
 ## Deney
 
@@ -58,7 +122,7 @@ r = minimize(obj, z0, jac=obj_grad, method="SLSQP",
              constraints=[{"type": "eq", "fun": defects, "jac": defects_jac}])
 ```
 
-Maliyet: $J = \int u^2 dt + 0{,}05 \int \dot u^2 dt$. Collocation analitik bir kısıt Jacobian'ı alıyor; shooting'in terminal kısıt Jacobian'ı toplu ileri farklarla hesaplanıyor (maliyet gradient'i ikisinde de analitik). İkisi de sıfır torque ve dipte duran state ile başlıyor. Çözümden sonra her $u(t)$ **bir MuJoCo sarkacında open-loop tekrar oynatılıyor** (aynı parametreler, RK4, 1 ms adım): replay hatası, gerçekte elde edeceğin hareketin hedef hatasıdır. MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), deterministik.
+Maliyet: $J = \int u^2 dt + 0{,}05 \int \dot u^2 dt$. Collocation analitik bir kısıt Jacobian'ı alıyor; shooting'in terminal kısıt Jacobian'ı toplu ileri farklarla hesaplanıyor (maliyet gradient'i ikisinde de analitik). İkisi de sıfır torque ve dipte duran state ile başlıyor. Çözümden sonra her $u(t)$ **bir MuJoCo sarkacında open-loop tekrar oynatılıyor** (feedback olmadan, sabit bir torque programı olarak; aynı parametreler, RK4, 1 ms adım): replay hatası, gerçekte elde edeceğin hareketin hedef hatasıdır. Solver residual, solver'ın kendisinin gördüğü en büyük kısıt ihlalidir. MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), deterministik.
 
 | yöntem | N | yakınsadı | iterasyon | maliyet | solver residual | replay hatası θ (derece) | replay hatası ω (derece/s) |
 |---|---|---|---|---|---|---|---|
@@ -72,6 +136,8 @@ Maliyet: $J = \int u^2 dt + 0{,}05 \int \dot u^2 dt$. Collocation analitik bir k
 | collocation | 40 | True | 54 | 38,41 | 2,9e-12 | 2,27 | 6,92 |
 | shooting | 80 | True | 158 | 38,09 | 1,4e-11 | 0,00 | 0,00 |
 | collocation | 80 | True | 91 | 38,11 | 3,4e-13 | 0,61 | 1,87 |
+
+![Yakınsayan koşular için iki panel, N = 10 ile 80 knot arası. Solda shooting ve collocation'ın bildirdiği maliyet düşüyor ve buluşuyor: N = 80'de 38,09 ve 38,11. Sağda torque MuJoCo'da tekrar oynatıldığında hedef hatası shooting için 0,00 derecede kalıyor, collocation'ınki ise 23,82'den 0,61 dereceye düşüyor.](../../experiments/23-trajectory-optimization/cost_vs_knots.png)
 
 1. **Aynı maliyet, farklı gerçek.** $N=10$'dan itibaren ikisi de $10^{-10}$ veya daha küçük residual ile yakınsadığını bildiriyor ve maliyetler buluşuyor ($N=80$'de 38,09 ve 38,11). Ama collocation'ın $N=10$'daki $u(t)$'si gerçekten simüle edilince dik konumun 23,82° gerisinde bitiyor. Solver ayrıklaştırılmış denklemleri tam çözdü; yanlış olan, knot'lar arasındaki trapez kuralı. Knot ekledikçe hata düşüyor: 23,82 → 6,73 → 2,27 → 0,61°.
 2. **Shooting'in kısıtı simülasyonun kendisi.** Terminal kısıtı aynı parçalı doğrusal girdinin RK4 rollout'u üzerinde hesaplanıyor; bu yüzden replay, yazdırılan hassasiyette hedefe iniyor.
@@ -92,7 +158,7 @@ Aynı problem, $N = 40$ ile collocation, farklı ilk tahminler. Sekiz gürültü
 | çizgi + gürültü, çekiliş 2, 3 | True | 50, 58 | 38,41 | 2,27 | 3 | −77 .. 180 |
 | çizgi + gürültü, çekiliş 6 | False | 76 | 134,04 | 160,58 | 2 | −29 .. 197 |
 
-Akla gelen ilk tahmin, aşağıdan yukarıya düz bir çizgi, temiz yakınsıyor ve başarı bildiriyor; ama farklı bir local minimum'a: üç dönüşlü bir pompalama yerine tek büyük bir geri salınım (θ −56°'ye kadar), maliyet 38,41 yerine 50,63. Sekiz gürültülü tahminin beşi aynı havzaya, ikisi daha iyisine düşüyor, biri hiç yakınsamıyor. Defect'ler $\sin\theta$ içeriyor, yani uygulanabilir küme convex değil ve SQP optimallik (KKT) koşullarını sağlayan yerel bir noktaya yakınsıyor; hangisine, başladığı yere bağlı. Tedrake, kendi acrobot ve cart-pole swing-up örneklerinde düz çizgi tahmininin gerekli olduğunu yazıyor; bizim sarkaçta işe yarıyor ama kötü minimum'a iniyor. Başarı bayrağı hangi minimum'u bulduğun hakkında hiçbir şey söylemez. Çareler: multi-start yapıp en iyisini tut, fiziksel olarak makul bir rollout'tan (ya da bir MPC koşusundan, ders 24) başlat veya continuation kullan (önce kolay bir problemi çöz, ör. daha büyük torque limiti, sonra sıkılaştır). Tek salınımlı çözümün aynı $N$'de neden çok daha kötü replay ettiğini ayrıştırmadık; her durumda, kararsız bir dengede biten open-loop bir planı izlemek için feedback gerekir.
+Akla gelen ilk tahmin, aşağıdan yukarıya düz bir çizgi, temiz yakınsıyor ve başarı bildiriyor; ama farklı bir **local minimum**'a (hiçbir küçük değişikliğin iyileştiremediği, ama çok farklı bir başkasının daha iyi olabildiği bir çözüm): üç dönüşlü bir pompalama yerine tek büyük bir geri salınım (θ −56°'ye kadar), maliyet 38,41 yerine 50,63. Sekiz gürültülü tahminin beşi aynı havzaya (o minimum'a varan başlangıç noktalarının kümesine), ikisi daha iyisine düşüyor, biri hiç yakınsamıyor. Defect'ler $\sin\theta$ içeriyor, yani uygulanabilir küme convex değil ve SQP optimallik (KKT) koşullarını sağlayan yerel bir noktaya yakınsıyor; hangisine, başladığı yere bağlı. Tedrake, kendi acrobot ve cart-pole swing-up örneklerinde düz çizgi tahmininin gerekli olduğunu yazıyor; bizim sarkaçta işe yarıyor ama kötü minimum'a iniyor. Başarı bayrağı hangi minimum'u bulduğun hakkında hiçbir şey söylemez. Çareler: multi-start yapıp en iyisini tut, fiziksel olarak makul bir rollout'tan (ya da bir MPC koşusundan, ders 24) başlat veya continuation kullan (önce kolay bir problemi çöz, ör. daha büyük torque limiti, sonra sıkılaştır). Tek salınımlı çözümün aynı $N$'de neden çok daha kötü replay ettiğini ayrıştırmadık; her durumda, kararsız bir dengede biten open-loop bir planı izlemek için feedback gerekir.
 
 ## Gerçek robotta
 

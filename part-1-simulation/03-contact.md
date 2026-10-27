@@ -20,35 +20,77 @@ In [lesson 02](02-timestep.md) a cube went through a 1 cm tabletop even at `dt` 
 
 ## Core idea
 
-### A soft constraint
+### In plain words
 
-For one constraint with residual $r$ (penetration), velocity $v$ and unconstrained acceleration $a_u$, MuJoCo's solver produces a constraint-space acceleration $a_1$ that approximately satisfies ([Modeling · Solver parameters](https://mujoco.readthedocs.io/en/stable/modeling.html#csolver)):
+Real objects cannot overlap. A simulator that forbade every overlap exactly would have to solve a hard, jumpy problem at every step. MuJoCo does something softer: when two shapes overlap, it puts an invisible spring with a shock absorber between them. The deeper the overlap, the harder the spring pushes back. Objects therefore always sink in a little, and you choose how much.
 
-$$a_1 + d\,(b\,v + k\,r) = (1 - d)\,a_u$$
+Two knobs describe that spring. `solref` says how fast the spring tries to undo an overlap (its *time constant*: small = stiff) and how strongly it is damped (its *damping ratio*: below 1 it bounces, at 1 or above it does not). `solimp` says how much of the spring's push the solver is allowed to apply (the *impedance*, a number between 0 and 1 that rises with depth).
 
-The impedance $d \in (0,1)$ sets how much force the constraint can generate; $k$ and $b$ define a reference spring–damper $a_{\text{ref}} = -b v - k r$ that pulls the violation back to zero.
+The catch is time. A spring that tries to undo an overlap in less than about two timesteps overshoots on every step, and the simulation gains energy instead of losing it. That is why MuJoCo quietly refuses time constants shorter than two timesteps.
+
+```mermaid
+flowchart TD
+    O["overlap r and its speed v"] --> R["solref: reference spring + damper<br/>wants acceleration −b·v − k·r"]
+    O --> I["solimp: impedance d(r)<br/>how much of it may be applied"]
+    R --> F["contact force"]
+    I --> F
+    F --> S["integrator step of length h"]
+    S -- "new overlap" --> O
+```
+
+### The contact spring, as code
+
+```python
+def solref_to_spring(timeconst, dampratio, d, d_w):
+    b = 2 / (d_w * timeconst)                         # damping of the reference spring (1/s)
+    k = d / (d_w**2 * timeconst**2 * dampratio**2)    # stiffness of the reference spring (1/s²)
+    return b, k
+
+# What the solver aims for on one contact (approximately):
+#     a1 + d * (b * v + k * r) == (1 - d) * a_u
+# At rest a1 = v = 0, which gives the resting penetration:
+def resting_penetration(a_u, timeconst, dampratio, d, d_w):
+    return (1 - d) * a_u * (d_w / d)**2 * timeconst**2 * dampratio**2
+
+timeconst_used = max(timeconst, 2 * h)     # the refsafe guard (h = timestep)
+```
+
+| Quantity | Formula |
+|---|---|
+| soft constraint (one contact) | $a_1 + d\,(b\,v + k\,r) = (1 - d)\,a_u$ |
+| reference spring from `solref` | $b = \dfrac{2}{d_w\,\text{timeconst}}, \quad k = \dfrac{d(r)}{d_w^2\,\text{timeconst}^2\,\text{dampratio}^2}$ |
+| resting penetration | $r = (1-d)\,a_u\,\Big(\dfrac{d_w}{d}\Big)^2\,\text{timeconst}^2\,\text{dampratio}^2$ |
+| spring frequency | $\omega = 1/(\text{timeconst}\cdot\text{dampratio})$ |
+| stability guard (`refsafe`) | timeconst used $= \max(\text{timeconst}, 2h)$ |
+
+$r$ is the penetration (how far the shapes overlap), $v$ its rate of change, $a_u$ the acceleration the body would have without the contact (gravity, here $g$), and $a_1$ the acceleration the solver produces along the contact normal. $d \in (0,1)$ is the impedance from `solimp`: it rises from $d_0$ at $r = 0$ to $d_w$ at $r$ = width along a smooth S-curve. timeconst and dampratio are the two `solref` numbers, $k$ and $b$ the stiffness and damping they imply, $\omega$ the spring's natural frequency and $h$ the timestep.
+
+<details>
+<summary>Math details: resting penetration, the refsafe guard and its gap</summary>
+
+**Resting penetration.** At rest the body neither accelerates nor moves along the normal, so $a_1 = v = 0$ and the constraint reads $d\,k\,r = (1-d)\,a_u$. Substituting $k$ gives the formula in the table ([Modeling · Solver parameters](https://mujoco.readthedocs.io/en/stable/modeling.html#csolver)). With constant impedance ($d = d_w$) it becomes the docs' $r = a_u (1-d)\,\text{timeconst}^2\,\text{dampratio}^2$. Penetration grows with timeconst²: twice as soft sinks four times as deep. Because $d$ depends on $r$ through the `solimp` curve, the exact value sits where both relations agree; the experiment compares both forms.
+
+**Why `refsafe` exists.** The docs state that timeconst should be at least twice the timestep, otherwise the system becomes too stiff for the integrator and can go unstable; MuJoCo enforces this unless the `refsafe` flag is disabled ([Reference](https://mujoco.readthedocs.io/en/stable/modeling.html#csolverreference), [option/flag/refsafe](https://mujoco.readthedocs.io/en/stable/XMLreference.html#option-flag-refsafe)). It is the same idea as the step-size stability limit $h\omega < 2$ in [lesson 02](02-timestep.md): the contact spring must not be stiff relative to the step. With dampratio = 1, timeconst $\ge 2h$ means $h\omega \le 0.5$, a safety margin well inside that limit.
+
+**The gap in the guard.** "Time constant" here is the inverse of natural frequency times damping ratio, so $\omega = 1/(\text{timeconst}\cdot\text{dampratio})$. `refsafe` clamps timeconst, not the product. A small dampratio therefore raises $\omega$ past the limit even with the guard on. (That holds for `Euler`, `implicitfast`, `implicit` and `RK4`; under `discrete`, `refsafe` instead replaces rows with timeconst·dampratio < $h$, see [option/flag/refsafe](https://mujoco.readthedocs.io/en/stable/XMLreference.html#option-flag-refsafe).)
+
+**Two geoms, one contact.** When two geoms touch, their `solref`/`solimp` are averaged (weights `solmix`) unless one has higher `priority`; margins and gaps are summed ([Contact parameters](https://mujoco.readthedocs.io/en/stable/modeling.html#ccontact)).
+
+Go deeper: [Numerical Stability](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/13-numerical-stability) (AIEFS: why explicit integration of a stiff spring blows up); [MuJoCo Modeling · Solver parameters](https://mujoco.readthedocs.io/en/stable/modeling.html#csolver).
+
+</details>
+
+### Contact attributes
 
 | Attribute | Numbers (default) | Meaning |
 |---|---|---|
-| `solref` | `timeconst dampratio` (`0.02 1`) | $b = 2/(d_w\,\text{timeconst})$, $k = d(r)/(d_w^2\,\text{timeconst}^2\,\text{dampratio}^2)$. Larger timeconst = softer. Negative values = direct `-stiffness -damping` |
+| `solref` | `timeconst dampratio` (`0.02 1`) | the reference spring above. Larger timeconst = softer. Negative values = direct `-stiffness -damping` |
 | `solimp` | `d0 dw width midpoint power` (`0.9 0.95 0.001 0.5 2`) | $d(r)$ rises from $d_0$ at $r = 0$ to $d_w$ at $r$ = width (1 mm) along a sigmoid |
 | `margin` | 0 | contact becomes active (forces) at distance < margin |
 | `gap` | 0 | contacts between margin and margin + gap are reported but produce no force |
 | `condim` | 3 | 1 frictionless · 3 sliding friction · 4 + torsional · 6 + rolling |
 
-Sources: [Reference (solref)](https://mujoco.readthedocs.io/en/stable/modeling.html#csolverreference), [Impedance (solimp)](https://mujoco.readthedocs.io/en/stable/modeling.html#csolverimpedance), [geom/condim](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom-condim), [margin and gap](https://mujoco.readthedocs.io/en/stable/computation/index.html#comargingap). When two geoms touch, their `solref`/`solimp` are averaged (weights `solmix`) unless one has higher `priority`; margins and gaps are summed ([Contact parameters](https://mujoco.readthedocs.io/en/stable/modeling.html#ccontact)).
-
-### Steady penetration
-
-At rest $a_1 = v = 0$. Substituting $k$:
-
-$$r = (1-d)\,a_u\,\Big(\frac{d_w}{d}\Big)^2\,\text{timeconst}^2\,\text{dampratio}^2$$
-
-With constant impedance ($d = d_w$) this is the docs' formula $r = a_u (1-d)\,\text{timeconst}^2\,\text{dampratio}^2$. Penetration grows with timeconst².
-
-### Stability rule
-
-The docs state that timeconst should be at least twice the timestep, otherwise the system becomes too stiff for the integrator and can go unstable; MuJoCo enforces this unless the `refsafe` flag is disabled, by using $\max(\text{timeconst}, 2h)$ ([Reference](https://mujoco.readthedocs.io/en/stable/modeling.html#csolverreference), [option/flag/refsafe](https://mujoco.readthedocs.io/en/stable/XMLreference.html#option-flag-refsafe)). "Time constant" here is the inverse of natural frequency times damping ratio, so the spring's frequency is $\omega = 1/(\text{timeconst}\cdot\text{dampratio})$. Note what `refsafe` clamps: timeconst, not the product. (That holds for `Euler`, `implicitfast`, `implicit` and `RK4`; under `discrete`, `refsafe` instead replaces rows with timeconst·dampratio < $h$, see [option/flag/refsafe](https://mujoco.readthedocs.io/en/stable/XMLreference.html#option-flag-refsafe).) (Why explicit integration of a stiff spring blows up: see AIEFS: [Numerical Stability](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/13-numerical-stability).)
+Sources: [Reference (solref)](https://mujoco.readthedocs.io/en/stable/modeling.html#csolverreference), [Impedance (solimp)](https://mujoco.readthedocs.io/en/stable/modeling.html#csolverimpedance), [geom/condim](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom-condim), [margin and gap](https://mujoco.readthedocs.io/en/stable/computation/index.html#comargingap). `condim` is the number of force directions a contact can use: 1 is a pure push along the normal, 3 adds sliding friction in two directions, 4 and 6 add twisting and rolling resistance.
 
 ## Experiment
 
@@ -99,7 +141,9 @@ A 10 cm, 1 kg cube (and, as a single-contact check, a 5 cm radius, 1 kg sphere) 
 | 1.0 | 8.283 | 0.000 |
 | 2.0 | 9.723 | 0.000 |
 
-dampratio is MuJoCo's restitution knob: below 1 the cube bounces, at 1 and above it does not. A softer timeconst at dampratio 1 sinks deeper on impact: 0.297, 3.295, 8.283, 23.248, 48.314 mm for 0.004, 0.01, 0.02, 0.05, 0.1 s. A 1 kg cube dropped 10 cm onto the default contact goes 8.283 mm "into" the floor at its deepest point, against a resting penetration of 0.1078 mm.
+![Left: resting penetration against solref timeconst on log-log axes; sphere points lie on the steady-state equation, cube points sit lower, and everything below 0.004 s is flat because refsafe raises the value. Right: rebound height after a 10 cm drop against dampratio, falling from 56.504 mm at 0.1 to zero from 1.0 on.](../experiments/03-contact/contact_sweeps.png)
+
+dampratio is MuJoCo's restitution knob (restitution = how bouncy an impact is): below 1 the cube bounces, at 1 and above it does not. A softer timeconst at dampratio 1 sinks deeper on impact: 0.297, 3.295, 8.283, 23.248, 48.314 mm for 0.004, 0.01, 0.02, 0.05, 0.1 s. A 1 kg cube dropped 10 cm onto the default contact goes 8.283 mm "into" the floor at its deepest point, against a resting penetration of 0.1078 mm.
 
 ## Break it
 
@@ -114,7 +158,7 @@ dampratio is MuJoCo's restitution knob: below 1 the cube bounces, at 1 and above
 | 0.003 | off | 0.578 | 0.100 m (rebound 2.581 mm) | 0.000 |
 | 0.004 | off | 0.297 | 0.100 m | 0.000 |
 
-With the guard on, every timeconst below 0.004 s silently becomes 0.004 s. With it off, the spring is too stiff for explicit integration at this step and the contact injects energy: a 1 kg cube dropped from 10 cm is thrown up to 13.809 m. At 0.003 s (1.5·dt) it survives but already rebounds 2.581 mm at dampratio 1, which should not bounce.
+Jitter is the standard deviation of the cube's height over the last 0.5 s, when it should be lying still. With the guard on, every timeconst below 0.004 s silently becomes 0.004 s. With it off, the spring is too stiff for explicit integration at this step and the contact injects energy: a 1 kg cube dropped from 10 cm is thrown up to 13.809 m. At 0.003 s (1.5·dt) it survives but already rebounds 2.581 mm at dampratio 1, which should not bounce.
 
 **2 · the gap in the guard**: `refsafe` on, timeconst 0.02, small dampratio. With $\omega = 1/(\text{timeconst}\cdot\text{dampratio})$:
 
@@ -129,7 +173,7 @@ At 0.07 the cube rebounds higher than it was dropped from (energy gain); at 0.05
 ## On the real robot
 
 - Menagerie SO-101: arm collision geoms use `condim="3"` and default `solref`; gripper collision geoms (class `collision_gripper`) use `condim="6"`, `friction="1 5e-3 5e-4"`, `solref="0.01 1"` and `priority="1"`, so their parameters win over the object's ([so101.xml](https://github.com/google-deepmind/mujoco_menagerie/blob/f3b6013/robotstudio_so101/so101.xml)). At the model's `timestep="0.005"`, 0.01 s is exactly $2h$, the stiffest value `refsafe` allows.
-- The real gripper pads are 3D-printed plastic; no compliance or restitution value for them is published in the sources used here. **Not yet measured on the real arm.** Procedure: drop a known object onto the pad from fixed heights, film the rebound, fit dampratio; press it with a known force, measure deflection, fit timeconst (or use the direct `-stiffness -damping` format, which the docs recommend for system identification).
+- The real gripper pads are 3D-printed plastic; no compliance or restitution value for them is published in the sources used here. **Not yet measured on the real arm.** Procedure: drop a known object onto the pad from fixed heights, film the rebound, fit dampratio; press it with a known force, measure deflection, fit timeconst (or use the direct `-stiffness -damping` format, which the docs recommend for system identification, i.e. fitting model parameters to measured motion).
 
 ## Check yourself
 

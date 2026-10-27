@@ -20,26 +20,73 @@ A scripted pick ([lesson 16](../part-4-dynamics-and-control/16-grasping-and-pick
 
 ## Core idea
 
-**HSV thresholding.** Convert RGB to hue–saturation–value (see AIEFS: [Image Fundamentals](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/01-image-fundamentals)). Hue encodes colour and is fairly stable under brightness changes; S and V are not. A pixel is "red" if
+### In plain words
 
-$$H \in [0,10]\cup[170,179],\quad S \ge S_{\min},\quad V \ge V_{\min}$$
+The simplest detector is a hand-written rule: "a pixel belongs to the cube if it is red enough, colourful enough and bright enough". It works like a hard-coded `if` on a data stream: fine on the inputs it was tuned on, and when the input drifts (here: the lighting changes) it does not degrade gracefully. A pixel either passes the test or it does not, so the whole detector flips from "works" to "sees nothing" between two nearby lighting levels.
 
-(for 8-bit images OpenCV stores hue as degrees/2, so 0–179, and red wraps around 0). Then a morphological opening removes speckles, the largest connected component is the object, and its pixels are back-projected with depth ([lesson 20](20-pixels-to-table.md)). We keep only points higher than 20 mm, i.e. the top face of a 30 mm cube, and average their $(x, y)$.
+The rule is written in **HSV** instead of RGB because HSV separates the questions. **Hue** is which colour, an angle on the colour wheel (red sits at 0°). **Saturation** is how colourful versus grey. **Value** is how bright. Dimming a red cube mostly lowers V and leaves hue alone, which is why hue is the part of the rule you can trust most.
 
-**Where it fails.** Too little light: V or S falls below its limit (in step 2 below it is S). Too much light: channels clip at 255, the colour washes towards white, and S falls below $S_{\min}$. Grazing light: the face the camera sees is dark while a side face is bright. Every failure is a threshold crossing, so it is abrupt, not gradual.
+Detection is only half the job. The mask of red pixels becomes a 3D position through the depth image ([lesson 20](20-pixels-to-table.md)), and the arm goes there and closes the gripper. The score that matters is at the end of that chain: did the cube come up? So we measure **pick success**, not pixel error.
 
-**Learned detectors.** Open-vocabulary detectors such as OWL-ViT ([Minderer et al. 2022, arXiv 2205.06230](https://arxiv.org/abs/2205.06230)) take a text query ("red cube") and are trained on large image–text data, so they do not depend on one hand-set colour window (see AIEFS: [Object Detection — YOLO from Scratch](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/06-object-detection-yolo), [Open-Vocabulary Vision — CLIP](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/18-open-vocab-clip), [SAM 3 & Open-Vocabulary Segmentation](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/24-sam3-open-vocab-segmentation)). They cost a neural-network forward pass per frame instead of a few array comparisons. We did not run one here (no `transformers` in this environment), so this lesson states no robustness or speed numbers for them.
+### Perceive, then pick
+
+```mermaid
+flowchart TD
+    A["camera image<br/>RGB + depth"] --> B["HSV threshold<br/>red hue, S ≥ S_min, V ≥ V_min"]
+    B --> C["clean the mask<br/>opening, keep largest blob"]
+    C --> D["back-project blob pixels<br/>with depth (lesson 20)"]
+    D --> E["keep the top face<br/>average its x, y"]
+    E --> F["IK + scripted grasp<br/>approach, descend, close, lift"]
+    F --> G["success?<br/>cube lifted more than 5 cm"]
+```
+
+### The detector, as code
+
+```python
+hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)       # 8-bit: H in 0..179 (degrees / 2), S and V in 0..255
+h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+red = (h <= 10) | (h >= 170)                     # red wraps around hue 0
+mask = red & (s >= 120) & (v >= 70)              # S_min = 120, V_min = 70, tuned at nominal light
+mask = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))  # drop speckles
+n, labels, stats, _ = cv2.connectedComponentsWithStats(mask)   # group touching pixels into blobs
+cube = labels == 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])    # the largest blob is the object
+```
+
+| Piece | Formula |
+|---|---|
+| Value | $V = \max(R, G, B)$ |
+| Saturation | $S = (\max - \min)/\max$ |
+| "Red" test | $H \in [0,10]\cup[170,179],\quad S \ge S_{\min},\quad V \ge V_{\min}$ |
+| Grasp point | $(x, y) =$ mean of the back-projected points higher than 20 mm |
+| Metric | pick success = cube more than 5 cm above its start height |
+
+$R, G, B$ are the pixel's colour channels, $\max$ and $\min$ the largest and smallest of them, $H$ the hue in OpenCV's 8-bit units (degrees/2), and $S_{\min}, V_{\min}$ the two thresholds you tune (saturation and value in the 8-bit formulas are scaled to 0–255).
 
 | Detector | Per-frame cost | Tuning | Typical failure |
 |---|---|---|---|
 | HSV threshold | a few array operations | 6 numbers per colour | lighting, similar-coloured background |
 | Open-vocabulary (OWL-ViT, + SAM for masks) | one network forward pass | a text prompt | wrong object, ambiguous prompt; not measured here |
 
+<details>
+<summary>Math details: why thresholds fail as cliffs, and what learned detectors change</summary>
+
+**HSV thresholding.** Convert RGB to hue–saturation–value (see AIEFS: [Image Fundamentals](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/01-image-fundamentals)). Hue encodes colour and is fairly stable under brightness changes; S and V are not. For 8-bit images OpenCV stores hue as degrees/2, so 0–179, and red wraps around 0 ([OpenCV · color conversions](https://github.com/opencv/opencv/blob/4.x/modules/imgproc/doc/colors.markdown)). After the threshold, a morphological **opening** (erode, then dilate) removes speckles smaller than the kernel, the largest **connected component** (a group of touching pixels) is taken as the object, and its pixels are back-projected with depth ([lesson 20](20-pixels-to-table.md)). We keep only points higher than 20 mm, i.e. the top face of a 30 mm cube, and average their $(x, y)$.
+
+**Where it fails.** Too little light: V or S falls below its limit (in step 2 below it is S). Too much light: channels clip at 255, the colour washes towards white, and S falls below $S_{\min}$: with $\max$ stuck at 255 while $\min$ keeps rising, $S = (\max-\min)/\max$ must fall. Grazing light: the face the camera sees is dark while a side face is bright. Every failure is a threshold crossing. All pixels of one face have nearly the same colour, so they cross together: the failure is abrupt, not gradual.
+
+**Partial detections are biased.** If only part of the object passes, the centroid of that part is not the centroid of the object. The error is a fraction of the object's size, and the robot acts on it.
+
+**Learned detectors.** Open-vocabulary detectors such as OWL-ViT ([Minderer et al. 2022, arXiv 2205.06230](https://arxiv.org/abs/2205.06230)) take a text query ("red cube") and are trained on large image–text data, so they do not depend on one hand-set colour window (see AIEFS: [Object Detection — YOLO from Scratch](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/06-object-detection-yolo), [Open-Vocabulary Vision — CLIP](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/18-open-vocab-clip), [SAM 3 & Open-Vocabulary Segmentation](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/24-sam3-open-vocab-segmentation)). They cost a neural-network forward pass per frame instead of a few array comparisons. We did not run one here (no `transformers` in this environment), so this lesson states no robustness or speed numbers for them.
+
+Go deeper: [Image Fundamentals — Pixels, Channels, Color Spaces](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/01-image-fundamentals), [Object Detection — YOLO from Scratch](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/06-object-detection-yolo), [Open-Vocabulary Vision — CLIP](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/18-open-vocab-clip), [SAM 3 & Open-Vocabulary Segmentation](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/24-sam3-open-vocab-segmentation); [Minderer et al. 2022](https://arxiv.org/abs/2205.06230); [OpenCV · color conversions](https://github.com/opencv/opencv/blob/4.x/modules/imgproc/doc/colors.markdown).
+
+</details>
+
 ## Experiment
 
 **Setup.** SO-101 from Menagerie (5 ms timestep) and a red 30 mm cube (0.05 kg) at 30 random positions, $x\in[0.15, 0.24]$ m, $y\in[-0.07, 0.07]$ m, rotated to face the robot (a simplification: we estimate position only). A camera looks straight down from 0.6 m; $K$ from `fovy` (lesson 19), pose from the model, as if calibrated. The arm is parked upright, out of view, while the image is taken.
 
-**Pick routine** (self-contained, no import from lessons 10 or 16): damped-least-squares IK on the grasp point between the jaws, with the gripper pointing down and the jaw axis along the line from the shoulder to the target; approach 7 cm above, descend, close the jaw with the position actuator, lift 10 cm. Success = cube more than 5 cm above its start height.
+**Pick routine** (self-contained, no import from lessons 10 or 16): damped-least-squares IK (inverse kinematics that stays stable near singular poses, [lesson 10](../part-3-kinematics/10-inverse-kinematics.md)) on the grasp point between the jaws, with the gripper pointing down and the jaw axis along the line from the shoulder to the target; approach 7 cm above, descend, close the jaw with the position actuator, lift 10 cm. Success = cube more than 5 cm above its start height.
 
 ```python
 mask = detect(rgb)                                   # HSV threshold + opening + largest blob
@@ -49,7 +96,7 @@ xy = P[P[:, 2] > 0.02, :2].mean(axis=0)              # top face only
 ok = pick(m, d, xy)                                  # IK + scripted grasp, lift test
 ```
 
-**Run** `python experiments/21-object-perception/experiment.py` (MuJoCo 3.17.0, OpenCV 5.0.0, NumPy 2.5.4, Apple M5, deterministic).
+**Run** `uv run python experiments/21-object-perception/experiment.py` (MuJoCo 3.17.0, OpenCV 5.0.0, NumPy 2.5.4, Apple M5, deterministic).
 
 **Step 1: how accurate must perception be?** Aim at the true position plus an error of fixed size in a random direction:
 
@@ -59,7 +106,9 @@ ok = pick(m, d, xy)                                  # IK + scripted grasp, lift
 
 With ground truth the routine picks 30/30. The error budget for this gripper and cube is a few millimetres: at 8 mm, 9 of 30 picks fail.
 
-**Step 2: lighting intensity** (headlight and directional light scaled together; thresholds frozen at $S\ge120$, $V\ge70$; "top HSV" is the pixel at the centre of the top face for position 1):
+![Three panels of successful picks out of 30. Left: picks fall from 30 to 7 as a deliberate aim error grows from 0 to 20 mm. Middle: with frozen thresholds, picks are 30 of 30 from light scale 0.2 to 2.0 and drop to 0 at 0.1 and at 3.0. Right: with the sun lowered towards the horizon, picks drop to 0 below 20 degrees with V_min = 70 but stay at 30 with V_min = 25.](../experiments/21-object-perception/picks_vs_light.png)
+
+**Step 2: lighting intensity** (headlight, a light attached to the viewer, and directional light scaled together; thresholds frozen at $S\ge120$, $V\ge70$; "top HSV" is the pixel at the centre of the top face for position 1):
 
 | Scale | Top HSV | Detected | Median error (mm) | Max error (mm) | Picks ok |
 |---|---|---|---|---|---|
@@ -80,7 +129,7 @@ With ground truth the routine picks 30/30. The error budget for this gripper and
 
 ## Break it
 
-Turn off the headlight (ambient 0.1) and lower the sun from overhead to grazing, coming from the side away from the robot:
+Turn off the headlight (ambient light 0.1, a uniform base brightness) and lower the sun (the directional light) from overhead to grazing, coming from the side away from the robot:
 
 | Elevation (deg) | Top HSV | Detected | Median error (mm) | Max error (mm) | Picks ok |
 |---|---|---|---|---|---|
@@ -101,11 +150,11 @@ Lowering $V_{\min}$ from 70 to 25 on the same scenes recovers everything:
 | 5 | 30/30 | 0.3 | 0.6 | 30/30 |
 | nominal (scale 1.0) | 30/30 | 0.3 | 0.7 | 30/30 |
 
-That is not a free fix: a lower $V$ floor admits dark red-brown pixels, and this scene has no distractor objects or shadows of other things, so we did not measure false positives. On a real table, expect the threshold that survives grazing light to also catch a brown box or a wooden surface. This is where a learned detector earns its compute.
+That is not a free fix: a lower $V$ floor admits dark red-brown pixels, and this scene has no distractor objects or shadows of other things, so we did not measure **false positives** (wrong objects reported as the cube). On a real table, expect the threshold that survives grazing light to also catch a brown box or a wooden surface. This is where a learned detector earns its compute.
 
 ## On the real robot
 
-- Webcams run auto-exposure and auto-white-balance, which change V and hue frame to frame. Lock both before tuning thresholds, and tune under the worst lighting the robot will see, not the best. Not yet measured on the real arm.
+- Webcams run auto-exposure and auto-white-balance (the camera adjusts brightness and colour balance on its own), which change V and hue frame to frame. Lock both before tuning thresholds, and tune under the worst lighting the robot will see, not the best. Not yet measured on the real arm.
 - Real error sources add up against the few-millimetre budget measured above: pixel noise and footprint (lesson 20: 1.60 mm median at 1 px from 0.6 m in simulation), extrinsic or hand-eye calibration error (lesson 19), depth-sensor noise, and joint-angle error of the arm itself. Our sub-millimetre numbers are simulation results with perfect calibration and depth.
 - Log every failed pick with the image that caused it, and print the HSV values at the object, as the tables above do; a threshold failure is visible there.
 

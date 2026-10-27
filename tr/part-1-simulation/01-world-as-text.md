@@ -20,9 +20,73 @@ Her simülasyon bir model dosyası yükleyerek başlar ve yüklenen bir dosya fi
 
 ## Ana fikir
 
+### Sade anlatımla
+
+Bir model dosyası bir yemek tarifidir. Malzemeleri (rigid parçalar, şekilleri, onları bağlayan joint'ler, onları süren motorlar) ve miktarları (boyutlar, kütleler, gain'ler) listeler. Tarifin söylemediği her şeyi engine sabit ve belgelenmiş bir default listesinden doldurur; tıpkı sıcaklık yazmayan bir tarifte aşçının "oda sıcaklığı" varsayması gibi. Bu hem rahat hem tehlikelidir: eksik bir sayı asla hata değildir, senin seçmediğin bir default'tur.
+
+MuJoCo dosyayı bir kez okur ve iki nesneye *compile* eder. `mjModel` çalışma boyunca sabit kalan her şeyi tutar: kütleler, boyutlar, gain'ler, timestep. `mjData` değişen her şeyi tutar: konumlar, hızlar, contact kuvvetleri. Simülasyon, `mjModel`'i kullanarak `mjData`'yı tekrar tekrar güncelleyen bir döngüdür.
+
+En çok dikkat isteyen şey kütledir. Ya dosya onu her parça için yazar (`<inertial>`), ya da compiler onu şekillerden, dolu ve düzgün yoğunlukta oldukları varsayımıyla hesaplar. Hangi kuralın geçerli olduğuna bir compiler ayarı karar verir. Yanlış kuralla ince bir dekoratif kabuk, sudan yapılmış dolu bir blok gibi tartılır.
+
+```mermaid
+flowchart TD
+    F["MJCF ya da URDF metin dosyası"] --> C["compiler<br/>+ belgelenmiş default'lar"]
+    C --> M["mjModel<br/>sabitler: kütle, boyut, gain, timestep"]
+    M --> S["mj_step(model, data)"]
+    D["mjData<br/>state: konum, hız, contact"] --> S
+    S -- "sonraki state" --> D
+```
+
+### Model yüklemek, kod olarak
+
+```python
+import mujoco
+
+m = mujoco.MjModel.from_xml_string(xml)   # compile: text -> constants, gaps filled by defaults
+d = mujoco.MjData(m)                      # state, initialised from the file
+print(m.opt.timestep, sum(m.body_mass))   # always print what was filled in for you
+for _ in range(1000):
+    mujoco.mj_step(m, d)                  # advance the state by one timestep
+
+# What the compiler computes for a body without <inertial>: a uniform solid box
+def box_inertia(mass, a, b, c):           # mass in kg; a, b, c = full side lengths in m
+    return (mass / 12 * (b**2 + c**2),    # I_xx: resistance to being spun about x
+            mass / 12 * (a**2 + c**2),    # I_yy
+            mass / 12 * (a**2 + b**2))    # I_zz
+```
+
+| Büyüklük | Formül |
+|---|---|
+| düzgün bir box'ın inertia'sı | $I_{xx} = \tfrac{m}{12}(b^2 + c^2)$, $I_{yy}, I_{zz}$ için döngüsel olarak |
+| geom'dan çıkarılan kütle | $m = \rho V$ |
+| orientation (quaternion) | $(\cos\frac{a}{2},\ \sin\frac{a}{2}\,(x, y, z))$, skaler önce |
+| serbest düşme süresi | $T = \sqrt{2h/g}$ |
+| hava drag'inin yavaşlatması | $k = \frac12 \rho_{\text{hava}} A$ olmak üzere $k v^2/m$ |
+
+$m$ kütle; $a, b, c$ box'ın tam kenar uzunlukları; $I$ (inertia) bir cismin bir eksen etrafında döndürülmeye ne kadar direndiğini ölçer; $\rho$ yoğunluk, $V$ hacim; $(x, y, z)$ birim rotation ekseni, quaternion satırındaki $a$ ise rotation açısı; $h$ düşme yüksekliği, $g$ yerçekimi; $v$ hız, $\rho_{\text{hava}}$ havanın yoğunluğu, $A$ akışa bakan alan.
+
+<details>
+<summary>Matematik ayrıntısı: inertia çıkarımı, quaternion'lar ve drag tahmini</summary>
+
+**Box inertia'sı.** Düzgün yoğunlukta $I_{zz} = \int (x^2 + y^2)\,dm$. $x^2$'yi $a$ uzunluğundaki bir kenar boyunca integre etmek birim kütle başına $a^2/12$ verir; dolayısıyla $I_{zz} = \frac{m}{12}(a^2 + b^2)$. $a = b = c$ olan bir küpte üçü de $\frac{m}{12}\cdot 2a^2$'dir. Çıkarım geom'un dolu olduğunu varsayar; içi boş bir kabuk ya da görsel bir mesh dolu sayılır.
+
+**Quaternion.** Birim bir eksen etrafında $a$ açılık bir rotation dört sayı olarak saklanır: $(w, x, y, z) = (\cos\frac a2, \sin\frac a2\,\hat n)$. MuJoCo $w$'yi önce yazar; `1 0 0 0` "rotation yok" demektir ([Modeling · Frame orientations](https://mujoco.readthedocs.io/en/stable/modeling.html#corientation)). Başka kütüphaneler $w$'yi sona koyar; bunu [ders 06](../part-2-spatial-math/06-rotations.md) ele alıyor.
+
+**Boşlukta kütle neden sadeleşir.** Yerçekimi kuvveti $mg$'dir; ivme $F/m = g$ kütleye bağlı değildir: her küp $T = \sqrt{2h/g}$ sürede düşer.
+
+**Hava neden hafif küpleri geciktirir.** MuJoCo'nun drag modeli $k v^2/m$ kadar bir yavaşlama ekler ([Fluid forces](https://mujoco.readthedocs.io/en/stable/computation/fluid.html)). Drag'in küçük olduğunu, yani hızın hâlâ $v \approx g t$ olduğunu varsay. Yavaşlama o zaman $(k/m)\,g^2 t^2$ olur; bunu düşme süresi $T$ boyunca iki kez integre etmek kaybedilen mesafeyi verir:
+
+$$\Delta z \approx \frac{k}{m}\,g^2 \int_0^T\!\!\int_0^{t} s^2\,ds\,dt = \frac{k}{m}\,\frac{g^2 T^4}{12}$$
+
+Bu $1/m$ ile orantılıdır. Script bu tahmini simüle edilen farkın yanına yazdırıyor.
+
+Daha derine: [Python for AI Engineering](https://aiengineeringfromscratch.com/lesson?path=phases/00-setup-and-tooling/13-python-for-ai-engineering), [Python Environments](https://aiengineeringfromscratch.com/lesson?path=phases/00-setup-and-tooling/06-python-environments) (AIEFS); [MuJoCo XML reference](https://mujoco.readthedocs.io/en/stable/XMLreference.html), [MuJoCo Modeling](https://mujoco.readthedocs.io/en/stable/modeling.html).
+
+</details>
+
 ### Tek tabloda MJCF
 
-MJCF, MuJoCo'nun XML formatıdır. Compiler onu bir `mjModel`'e (bütün sabit sayılar) çevirir, simülatör de bir `mjData`'yı (değişen state) adım adım ilerletir.
+MJCF, MuJoCo'nun XML formatıdır. *Body*, kendi koordinat frame'i olan rigid bir parçadır; body'ler iç içe geçerek *kinematic tree*'yi oluşturur (her çocuk parent'ına göre hareket eder). *Geom*, bir body'ye bağlı bir şekildir. *Joint*, bir body'ye bir *serbestlik derecesi* (dof), yani bağımsız bir hareket yolu verir.
 
 | Eleman | Ne olduğu | Dokunacağın attribute'lar |
 |---|---|---|
@@ -40,7 +104,7 @@ Kaynaklar: [XML reference](https://mujoco.readthedocs.io/en/stable/XMLreference.
 
 ### Kütle ve inertia: yazılmış ya da çıkarılmış
 
-Çalışma anında yalnızca *body*'nin inertial özellikleri vardır; geom kütleleri sadece compile sırasında kullanılır ([geom/mass](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom-mass)). Hangi kuralın onları dolduracağını `compiler/inertiafromgeom` belirler:
+Çalışma anında yalnızca *body*'nin kütle özellikleri vardır; geom kütleleri sadece compile sırasında kullanılır ([geom/mass](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom-mass)). Kuralı `compiler/inertiafromgeom` seçer:
 
 | Değer | Davranış |
 |---|---|
@@ -48,11 +112,9 @@ Kaynaklar: [XML reference](https://mujoco.readthedocs.io/en/stable/XMLreference.
 | `true` | `<inertial>`'ı ezerek her zaman geom'lardan çıkar |
 | `false` | her body'de `<inertial>` olmak zorunda |
 
-Çıkarım düzgün yoğunluk varsayar. Tam kenar uzunlukları $a, b, c$ olan bir box için:
-
-$$I_{xx} = \tfrac{m}{12}(b^2 + c^2),\quad I_{yy} = \tfrac{m}{12}(a^2 + c^2),\quad I_{zz} = \tfrac{m}{12}(a^2 + b^2)$$
-
 ### URDF ve MJCF
+
+URDF, ROS ekosisteminin robot formatıdır; birçok üretici robotunu bu formatta yayımlar.
 
 | | URDF | MJCF |
 |---|---|---|
@@ -61,11 +123,7 @@ $$I_{xx} = \tfrac{m}{12}(b^2 + c^2),\quad I_{yy} = \tfrac{m}{12}(a^2 + c^2),\qua
 | Actuator, sensor, solver, contact parametreleri | formatın parçası değil | birinci sınıf elemanlar |
 | Şablonlar | yok | `default` class'ları |
 
-MuJoCo URDF'i doğrudan yükler, ama modelin yalnızca bir alt kümesini, compiler seçenekleri için de özel bir `<mujoco>` bloğuyla ([Modeling · URDF extensions](https://mujoco.readthedocs.io/en/stable/modeling.html#curdf)). Menagerie her dönüşümü modelin README'sinde belgeler. Go2 için adımlar şunlar: mesh'leri dönüştür, URDF'e `<mujoco><compiler discardvisual="false" …/></mujoco>` ekle, MuJoCo'da yükleyip MJCF olarak kaydet, bir `freejoint` ekle, ortak değerleri `<default>`'a taşı, sonra ayak contact'larını ayarla ([Menagerie · unitree_go2](https://github.com/google-deepmind/mujoco_menagerie/tree/f3b6013/unitree_go2)). SO-101 modeli ise üreticinin açık MJCF'inden başlar, sonra `implicitfast`'e geçer ve collision primitive'leri ekler ([Menagerie · robotstudio_so101](https://github.com/google-deepmind/mujoco_menagerie/tree/f3b6013/robotstudio_so101)).
-
-### Orientation, w-önce bir quaternion'dır
-
-`quat="1 0 0 0"` sıfır rotation'dır. Birim eksen $(x, y, z)$ etrafında $a$ açılık bir rotation $(\cos\frac{a}{2},\ \sin\frac{a}{2}\,(x, y, z))$'dir: skaler önce ([Modeling · Frame orientations](https://mujoco.readthedocs.io/en/stable/modeling.html#corientation)). Başka kütüphaneler başka sıralar kullanır; bunu [ders 06](../part-2-spatial-math/06-rotations.md) ele alıyor.
+MuJoCo URDF'i doğrudan yükler, ama modelin yalnızca bir alt kümesini, compiler seçenekleri için de özel bir `<mujoco>` bloğuyla ([Modeling · URDF extensions](https://mujoco.readthedocs.io/en/stable/modeling.html#curdf)). Menagerie her dönüşümü modelin README'sinde belgeler. Go2 için: mesh'leri dönüştür, URDF'e `<mujoco><compiler discardvisual="false" …/></mujoco>` ekle, MuJoCo'da yükleyip MJCF olarak kaydet, bir `freejoint` ekle, ortak değerleri `<default>`'a taşı, sonra ayak contact'larını ayarla ([Menagerie · unitree_go2](https://github.com/google-deepmind/mujoco_menagerie/tree/f3b6013/unitree_go2)). SO-101 modeli ise üreticinin açık MJCF'inden başlar, sonra `implicitfast`'e geçer ve collision primitive'leri ekler ([Menagerie · robotstudio_so101](https://github.com/google-deepmind/mujoco_menagerie/tree/f3b6013/robotstudio_so101)).
 
 ## Deney
 
@@ -89,7 +147,7 @@ MuJoCo URDF'i doğrudan yükler, ama modelin yalnızca bir alt kümesini, compil
 </mujoco>
 ```
 
-İki adet 20 cm'lik küp; alt yüzleri masa yüzeyinin 40 cm üstünde. `inertial` yok, yani kütle özellikleri geom'lardan geliyor. Script 8. ve 12. satırları (kütleler), hava için de 2. satırı değiştiriyor:
+İki adet 20 cm'lik küp; alt yüzleri masa yüzeyinin 40 cm üstünde. `<freejoint/>` bir body'nin altı yönde de (üç öteleme, üç dönme) hareket etmesine izin verir, böylece küpler düşebilir. `inertial` yok, yani kütle özellikleri geom'lardan geliyor. Script 8. ve 12. satırları (kütleler), hava için de 2. satırı değiştiriyor:
 
 ```python
 def make_xml(light_kg=0.1, heavy_kg=1.0, air=False):
@@ -120,7 +178,9 @@ Boşlukta iki küp de masaya **143. adımda** ulaşıyor (analitik $\sqrt{2 \cdo
 | 500 g | 0,00 ms | 0,45 ms |
 | 1 kg | 0,00 ms | 0,00 ms |
 
-Boşlukta kütle sadeleşiyor ($a = F/m = g$). Havada gecikme kabaca $1/m$ ile ölçekleniyor, çünkü $k = \frac12 \rho A$ olmak üzere drag yavaşlaması $k v^2 / m$ kütleye bölünüyor ([Fluid forces](https://mujoco.readthedocs.io/en/stable/computation/fluid.html)). Script'in yazdırdığı elle kontrol: kaybedilen mesafe $\approx (k/m)\, g^2 T^4/12$ ile 1,28 cm − 0,13 cm = **1,15 cm**; simülasyonda 1,10 cm. Bu, MuJoCo'nun drag modelinin çıktısı, gerçek bir küpün ölçümü değil.
+![Havada hafif küpün iniş gecikmesinin kütlesine göre log-log grafiği. Gecikme 5 g'da 93,44 ms'den 500 g'da 0,45 ms'ye düşüyor ve 1/kütle kılavuz çizgisini izliyor; boşlukta her kütle için sıfır.](../../experiments/01-world-as-text/drag_delay_vs_mass.png)
+
+Boşlukta kütle sadeleşiyor ($a = F/m = g$). Havada gecikme kabaca $1/m$ ile ölçekleniyor, çünkü $k = \frac12 \rho A$ olmak üzere drag yavaşlaması $k v^2 / m$ kütleye bölünüyor ([Fluid forces](https://mujoco.readthedocs.io/en/stable/computation/fluid.html)); eğri 1 kg'a yaklaşırken kılavuzun altına iniyor, çünkü ağır küp de biraz yavaşlıyor. Script'in yazdırdığı elle kontrol (türetmesi yukarıda, Matematik ayrıntısı'nda): kaybedilen mesafe $\approx (k/m)\, g^2 T^4/12$ ile 1,28 cm − 0,13 cm = **1,15 cm**; simülasyonda 1,10 cm. Bu, MuJoCo'nun drag modelinin çıktısı, gerçek bir küpün ölçümü değil.
 
 ### B · Gerçek SO-101 dosyası
 
@@ -139,7 +199,7 @@ print(m.nbody, m.njnt, m.nu, sum(m.body_mass))
 | toplam kütle | **0,6454 kg** |
 | `option` | timestep 0,005 s, `implicitfast`, `elliptic` cone |
 
-Gerçek dosya birkaç `option` default'unu eziyor (ayrıca `iterations`, `ls_iterations` ve `impratio` da ayarlı). Actuator sayıları [ders 05](05-joints-and-actuators.md)'in konusu.
+Gain `fixed` artı bias `affine`, MuJoCo'nun bir position servo'yu içeride saklama biçimidir. Gerçek dosya birkaç `option` default'unu eziyor (ayrıca `iterations`, `ls_iterations` ve `impratio` da ayarlı). Actuator sayıları [ders 05](05-joints-and-actuators.md)'in konusu.
 
 ## Boz
 
@@ -150,9 +210,9 @@ Aynı SO-101 dosyasını `inertiafromgeom="true"` ile compile et: her body'nin `
 | toplam kütle | 0,6454 kg | **2,3565 kg** (×3,65) |
 | shoulder kütlesi | 0,1000 kg | 0,4018 kg |
 | upper_arm kütlesi | 0,1030 kg | 0,4551 kg |
-| upper_arm en büyük asal inertia | 1,509·10⁻⁴ kg·m² | 9,178·10⁻⁴ kg·m² |
+| upper_arm en büyük asal inertia (döndürülmesi en zor eksen etrafındaki inertia) | 1,509·10⁻⁴ kg·m² | 9,178·10⁻⁴ kg·m² |
 
-Hiçbir hata çıkmıyor ve model simüle olmaya devam ediyor. Mekanizma: çıkarım, default `inertiagrouprange` (0–5) içindeki her geom'u, görsel mesh'ler dahil, 1000 kg/m³ düzgün yoğunlukta dolu bir cisim sayıyor ([compiler/inertiagrouprange](https://mujoco.readthedocs.io/en/stable/XMLreference.html#compiler-inertiagrouprange), [geom/density](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom-density)). Böyle bir modelde yapılan gravity compensation ya da system identification aynı oranda yanlış çıkar. Yükledikten sonra her zaman `sum(m.body_mass)`'i yazdır.
+Hiçbir hata çıkmıyor ve model simüle olmaya devam ediyor. Mekanizma: çıkarım, default `inertiagrouprange` (0–5) içindeki her geom'u, görsel mesh'ler dahil, 1000 kg/m³ düzgün yoğunlukta dolu bir cisim sayıyor ([compiler/inertiagrouprange](https://mujoco.readthedocs.io/en/stable/XMLreference.html#compiler-inertiagrouprange), [geom/density](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom-density)). Böyle bir modelde hesaplanan bir gravity compensation torque'u (kolu kendi ağırlığına karşı tutan torque) ya da bir system identification sonucu (loglanmış hareketten fiziksel parametre tahmini) aynı oranda yanlış çıkar. Yükledikten sonra her zaman `sum(m.body_mass)`'i yazdır.
 
 ## Gerçek robotta
 

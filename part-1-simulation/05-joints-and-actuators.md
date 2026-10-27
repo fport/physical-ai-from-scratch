@@ -20,6 +20,68 @@ The Menagerie SO-101 gives every joint the same servo: `<position kp="998.22" kv
 
 ## Core idea
 
+### In plain words
+
+A `<position>` actuator behaves like a spring plus a shock absorber that pulls the joint toward the angle you command. The spring's stiffness is `kp`: the further the joint is from the target, the harder it pulls. The shock absorber's strength is `kv`: the faster the joint moves, the more it brakes. Control engineers call this a PD controller (Proportional to the error, plus a term on its Derivative, the speed).
+
+Hang a weight on a spring and it settles a little below where it would rest without the weight, because a spring pushes only when it is stretched. A position servo under gravity does the same: it *sags*, by roughly the gravity torque divided by `kp`. A stiffer spring sags less and reaches the target sooner.
+
+Stiffness has a price in simulation. A stiff spring on a light joint oscillates quickly. When one timestep is too long compared with that oscillation, each step overshoots the last and the simulation explodes. *Armature* is extra inertia added to the joint: in a real servo it stands for the motor's spinning rotor, which the gearbox makes feel much heavier at the joint. It slows the oscillation down enough for the timestep to follow.
+
+```mermaid
+flowchart TD
+    U["command u<br/>(target angle)"] --> A["position actuator<br/>kp·(u − q) − kv·q̇"]
+    A --> L["clamp to forcerange"]
+    L --> J["joint with inertia<br/>I = I_link + armature"]
+    G["gravity torque<br/>τ_g · cos q"] --> J
+    J --> S["integrator step h"]
+    S -- "new q, q̇" --> A
+```
+
+### The servo, as code
+
+```python
+def position_actuator(u, q, qdot, kp, kv, forcerange):
+    force = kp * (u - q) - kv * qdot             # spring toward u, damper on speed (PD)
+    return clip(force, *forcerange)              # then clamped; N·m for a hinge
+
+# Steady sag e under a gravity torque tau_g: solve kp * e == tau_g * cos(e)
+sag_estimate = tau_g / kp                        # good when the sag is small
+
+# How fast the joint oscillates, and whether the timestep h can follow it
+omega = sqrt(kp / (I_link + armature))           # natural frequency (rad/s)
+h_omega = h * omega                              # explicit integration needs about h_omega < 2
+kv_from_dampratio = 2 * zeta * sqrt(kp * m)      # what dampratio=zeta sets; m = reflected inertia
+```
+
+| Quantity | Formula |
+|---|---|
+| actuator force | $k_p(u - q) - k_v\,\dot q$, clamped to `forcerange` |
+| steady sag | $k_p\,e_{\text{ss}} = \tau_g \cos e_{\text{ss}}\ \ (\approx \tau_g/k_p)$ |
+| natural frequency | $\omega = \sqrt{k_p / I}$, with $I = I_{\text{link}} + \text{armature}$ |
+| explicit stability limit (undamped) | $h\omega \lesssim 2$ |
+| `implicitfast` limit with damping | $h^2\omega^2 < 4 + 2hc$, with $c = (k_v + \text{damping})/I$ |
+| `kv` from `dampratio` | $k_v = 2\zeta\sqrt{k_p\,m}$ |
+
+$u$ is the commanded angle, $q$ the joint angle and $\dot q$ its speed; $k_p$ and $k_v$ are the actuator gains; $\tau_g$ is the gravity torque on the link when it is horizontal; $e_{\text{ss}}$ is the steady-state error (sag); $I$ is the effective inertia the joint feels, $I_{\text{link}}$ the link's own part; $h$ is the timestep; $c$ is the total damping per unit inertia; $\zeta$ is the damping ratio and $m$ the reflected inertia at `qpos0`.
+
+<details>
+<summary>Math details: sag, rise time and the two stability bounds</summary>
+
+**Sag.** At rest $\dot q = 0$ and the actuator torque balances gravity: $k_p(0 - q) = \tau_g\cos q$ at $q = -e_{\text{ss}}$. For small $e_{\text{ss}}$, $\cos e_{\text{ss}} \approx 1$ and $e_{\text{ss}} \approx \tau_g/k_p$. Without an integral term (a term that grows while the error persists) the error never reaches zero.
+
+**Rise time.** Linearized around the target, the joint is a mass on a spring with time scale $1/\omega = \sqrt{I/k_p}$; at fixed damping ratio every timing, including the 10–90 % rise time, scales with it, hence $\propto 1/\sqrt{k_p}$.
+
+**Explicit limit.** The position term is integrated explicitly by `Euler`, `implicit` and `implicitfast`; the docs give the explicit stability limit as $h \lesssim 2/\omega_{\max}$ and note that only `discrete` is implicit in position ([Computation · Integrators](https://mujoco.readthedocs.io/en/stable/computation/index.html#geintegrators)). It is the same $h\omega < 2$ as for the contact spring in [lesson 03](03-contact.md).
+
+**With implicit damping.** `implicitfast` evaluates the damping at the new velocity: $v' = v + h(-\omega^2 q - c\,v')$, then $q' = q + h v'$. The step matrix has determinant $1/(1 + hc)$ and trace $(2 + hc - h^2\omega^2)/(1 + hc)$; a 2×2 linear map is stable when $|\text{trace}| < 1 + \det$, which works out to $h^2\omega^2 < 4 + 2hc$. If the damping is integrated explicitly instead (Euler's treatment of the actuator `kv`), the same algebra gives $h^2\omega^2 < 4 - 2hc$: damping then *lowers* the limit.
+
+**Armature.** Armature adds to the joint's diagonal of the mass matrix $M$; for a geared motor it is the reflected rotor inertia, rotor inertia × gear ratio² ([XML reference · joint](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-joint-armature)). Larger $I$ lowers $\omega$; that is its numerical role.
+
+Go deeper: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml) (AIEFS: linearization around the setpoint); [MuJoCo Modeling · Actuators](https://mujoco.readthedocs.io/en/stable/modeling.html#cactuators).
+
+</details>
+
 ### Joints
 
 | `joint type` | dof | Typical use |
@@ -48,15 +110,7 @@ Every actuator is `general`: force $= \text{gain}\cdot\text{ctrl} + \text{bias}$
 | `position` | $k_p(u - q) - k_v\,\dot q$ | built-in PD; `kp` default 1, `kv` default 0, or `dampratio` |
 | `velocity` | $k_v(u - \dot q)$ | the docs recommend `implicitfast`/`implicit` with it |
 
-`ctrlrange` clamps $u$; `forcerange` clamps the force. `dampratio` sets $k_v = 2\zeta\sqrt{k_p\,m}$ with $m$ the reflected inertia at `qpos0`.
-
-### What the gains do
-
-For a link with gravity torque $\tau_g\cos q$ and effective inertia $I = I_{\text{link}} + \text{armature}$:
-
-$$e_{\text{ss}}:\ k_p\,e_{\text{ss}} = \tau_g \cos e_{\text{ss}}\ \ (\approx \tau_g/k_p), \qquad \omega = \sqrt{k_p / I}$$
-
-Sag falls as $1/k_p$, rise time as $1/\sqrt{k_p}$. But the position term is integrated explicitly by `Euler`, `implicit` and `implicitfast`; the docs give the explicit stability limit as $h \lesssim 2/\omega_{\max}$ and note that only `discrete` is implicit in position ([Computation · Integrators](https://mujoco.readthedocs.io/en/stable/computation/index.html#geintegrators)). Armature lowers $\omega$; that is its numerical role. (Linearization around the setpoint: see AIEFS: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml).)
+`ctrlrange` clamps $u$; `forcerange` clamps the force.
 
 ## Experiment
 
@@ -71,7 +125,7 @@ A 20 cm, 0.3 kg capsule on a hinge, horizontal at $q = 0$. $\tau_g$ = 0.2943 N·
 <actuator><position joint="j" kp="{kp}" dampratio="1"/></actuator>
 ```
 
-Start at $q = -0.5$ rad, command $u = 0$, run 3 s. Sag = mean error over the last 0.5 s; rise = 10–90 % time.
+Start at $q = -0.5$ rad, command $u = 0$, run 3 s. Sag = mean error over the last 0.5 s; rise = time to go from 10 % to 90 % of the way to the target.
 
 **Predict.** kp × 10: what happens to sag, and to rise time?
 
@@ -87,7 +141,9 @@ Start at $q = -0.5$ rad, command $u = 0$, run 3 s. Sag = mean error over the las
 | 300 | 6.211 | 0.056 | 0.056 | 0.056 | 31.6 |
 | 1000 | 11.340 | 0.017 | 0.017 | 0.017 | 16.5 |
 
-**Observe.** The sag equals the static balance $k_p e = \tau_g\cos e$ to three decimals in every row; the linear $\tau_g/k_p$ is off only when the sag is large (kp = 1). A position servo with no integral term always sags under gravity: 0.017° at kp 1000 here, 16.193° at kp 1. Rise time falls as $1/\sqrt{k_p}$ (kp × 10 from 10 to 100: 185.6 → 56.7 ms). Removing that sag without huge gains is what gravity feedforward does in [lesson 12](../part-4-dynamics-and-control/12-joint-control.md).
+![Two log-log plots against kp from 1 to 1000. Left: steady sag falls from 16.193° to 0.017° and lies on the tau_g/kp line except at kp 1. Right: rise time falls from 533.0 ms to 16.5 ms, close to a 1/sqrt(kp) guide line.](../experiments/05-joints-and-actuators/kp_sweep.png)
+
+**Observe.** The sag equals the static balance $k_p e = \tau_g\cos e$ to three decimals in every row; the linear $\tau_g/k_p$ is off only when the sag is large (kp = 1). A position servo with no integral term always sags under gravity: 0.017° at kp 1000 here, 16.193° at kp 1. Rise time falls as $1/\sqrt{k_p}$ (kp × 10 from 10 to 100: 185.6 → 56.7 ms). Removing that sag without huge gains is what gravity feedforward (adding the known gravity torque to the command) does in [lesson 12](../part-4-dynamics-and-control/12-joint-control.md).
 
 ## Break it
 
@@ -102,7 +158,7 @@ Start at $q = -0.5$ rad, command $u = 0$, run 3 s. Sag = mean error over the las
 | 0.001 | 0.0050 | 2.23 | **diverged** | stable | stable |
 | 0 | 0.0040 | 2.50 | **diverged** | stable | stable |
 
-Euler fails first, already at $h\omega$ = 1.67: it treats joint damping implicitly but integrates the actuator's `kv` term explicitly, which is why the docs recommend `implicitfast` or `implicit` whenever `kv` is used ([actuator/position/kv](https://mujoco.readthedocs.io/en/stable/XMLreference.html#actuator-position)). With the Menagerie `forcerange` ±2.94 N·m added, Euler no longer explodes; it chatters instead: peak-to-peak 0.629° at armature 0.001 and 0.798° at 0, a failure that looks like servo noise rather than a numerical problem.
+Euler fails first, already at $h\omega$ = 1.67: it treats joint damping implicitly but integrates the actuator's `kv` term explicitly, which is why the docs recommend `implicitfast` or `implicit` whenever `kv` is used ([actuator/position/kv](https://mujoco.readthedocs.io/en/stable/XMLreference.html#actuator-position)). With the Menagerie `forcerange` ±2.94 N·m added, Euler no longer explodes; it chatters instead (a fast, small back-and-forth around the target): peak-to-peak 0.629° at armature 0.001 and 0.798° at 0, a failure that looks like servo noise rather than a numerical problem.
 
 **B · raise kp** (implicitfast, armature 0.028): stable at kp 3000 ($h\omega$ = 1.53), **diverged** at kp 10000 ($h\omega$ = 2.80) and 30000 ($h\omega$ = 4.84). `discrete` stayed stable at all four. `implicitfast` treats damping implicitly but `kp` explicitly. A linear analysis of that update gives the bound $h^2\omega^2 < 4 + 2hc$, with $c = (k_v + \text{damping})/I$; damping integrated explicitly (Euler's `kv`) enters with a minus sign instead, and the docs' $h\omega \lesssim 2$ is the undamped case. With armature 0.028, $hc$ is small and the limit sits just above 2: stable at 1.53, diverged at 2.80. In A, removing the armature made $I$ tiny and $hc$ large, which is why `implicitfast` survived $h\omega$ = 2.50 while Euler, with `kv` explicit, failed at 1.67. It predicts every cell in A and B.
 
@@ -121,7 +177,7 @@ The script reads the compiled SO-101 model ([Menagerie · robotstudio_so101](htt
 
 For the wrist and gripper the armature is almost the whole effective inertia; without it those joints would sit far past $h\omega \approx 2$. Copying kp and kv from this model without its armature into an `Euler` model reproduces Break it A. Whether the SO-101 itself stays stable under its own `implicitfast` without armature was not tested here: its large implicit `kv` term raises the limit (Break it B), so do not assume either way.
 
-Real hardware facts, from the [LeRobot SO-101 guide](https://huggingface.co/docs/lerobot/so101): the follower arm uses six STS3215 servos with 1/345 gearing; the leader mixes 1/191, 1/345 and 1/147 gearing so it can be moved by hand. The servos share one bus, each with a unique ID (shoulder pan 1 … gripper 6) stored in the servo's EEPROM. The Menagerie comment states that its kp, kv and forcerange were derived assuming a servo proportional gain of 16, and are not a one-to-one mapping of the gains LeRobot uses.
+Real hardware facts, from the [LeRobot SO-101 guide](https://huggingface.co/docs/lerobot/so101): the follower arm uses six STS3215 servos with 1/345 gearing; the leader mixes 1/191, 1/345 and 1/147 gearing so it can be moved by hand. The servos share one bus, each with a unique ID (shoulder pan 1 … gripper 6) stored in the servo's EEPROM (its small non-volatile memory). The Menagerie comment states that its kp, kv and forcerange were derived assuming a servo proportional gain of 16, and are not a one-to-one mapping of the gains LeRobot uses.
 
 Procedure to compare: command a 0.5 rad step on the real elbow, log the joint position through LeRobot, compare rise time and steady sag with the simulated joint under the same load. **Not yet measured on the real arm.**
 

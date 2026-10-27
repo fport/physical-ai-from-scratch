@@ -20,7 +20,29 @@
 
 ## Ana fikir
 
-**Mimari.** Yedi katman, her biri önceki bir derste kuruldu. Geometri dil modelinden hiç geçmez: model bir tool adı ve bir nesne adı üretir, metrik hiçbir şey üretmez.
+### Sade anlatımla
+
+Robotu bir microservice zinciri olarak düşün: bir cümleyi fonksiyon çağrısına çeviren bir dil modeli, küplerin nerede olduğunu söyleyen bir kamera servisi, bir doğrulayıcı, bir hareket planlayıcısı, bir gripper ve bir hakem. Her birinin bir API'si vardır ve her API, bir servisin cevap şemasını ve gecikmesini taahhüt etmesi gibi, kontrol edilebilen bir sözleşmeyle gelmelidir.
+
+Zincirden iki şey çıkar. Birincisi, güvenilirlik çarpılır: her istek bütün servislerden geçmek zorundaysa uçtan uca başarı oranı servislerin başarı oranlarının çarpımıdır; beş çok iyi katman yine de vasat bir sistem yapabilir. İkincisi, bir istek başarısız olduğunda hatayı gösteren servis çoğu zaman hataya sebep olan servis değildir. Biraz kaymış bir kamera hiç hata üretmez; başarısızlık üç servis sonra, boşluğa kapanan bir gripper olarak ortaya çıkar. Distributed tracing benzeri bir şeye ihtiyacın var: yol boyunca her sözleşmeyi kontrol eden ve ilk bozulanı suçlayan bir harness.
+
+Bu zinciri yönetilebilir tutan bir tasarım kuralı var: geometri dil modelinden hiç geçmez. Model bir tool adı ve bir nesne adı üretir, metrik hiçbir şey üretmez. Her koordinat kameradan, her eklem açısı inverse kinematics'ten gelir.
+
+### Mimari
+
+```mermaid
+flowchart TD
+    U["konuşma tarzı komut<br/>(metin)"] --> L["dil modeli<br/>(Ollama, tool'lar)"]
+    L -- "pick(object) / place(target)" --> T["tool katmanı"]
+    C["tepeden RGB-D kamera<br/>→ perception (x, y)"] --> T
+    T --> V["validation<br/>workspace, IK artığı, joint marjı"]
+    V --> M["hareket, grasp, bırakma<br/>IK, min-jerk, scripted_pick"]
+    M --> R["MuJoCo'da SO-101"]
+    T -. "holding / closed on nothing /<br/>reddedildi" .-> L
+    R --> H["harness<br/>hüküm simülatör state'inden"]
+```
+
+Yedi katman, her biri önceki bir derste kuruldu:
 
 | katman | bu deneydeki bileşen | ders |
 |---|---|---|
@@ -32,7 +54,59 @@
 | bırakma | kutunun üstü için `ik_solve`, çeneyi aç | [10](../part-3-kinematics/10-inverse-kinematics.md) |
 | harness | başarı simülatör state'inden, Wilson aralığı | [25](../part-7-learning-from-demonstration/25-evaluating-policies.md) |
 
-**Arayüzler.** Bir arayüz bir tip artı bir sözleşmedir. Kontrol edemediğin bir sözleşme bir umuttur.
+(HSV maskesi: renk tonu, doygunluk ve parlaklığı küpün renk aralığına düşen pikselleri tut. Depth back-projection: bir pikseli derinliğiyle birlikte 3B bir noktaya çevir. IK artığı: en iyi eklem çözümünün gripper'ı hedeften ne kadar uzakta bıraktığı.)
+
+### Hata bütçesi ve atama, kod olarak
+
+Harness başarısız bir episode'u **pipeline sırasında sözleşmesini ilk bozan katmana** yazar: dil (istenen küpü hiç pick etmedi ya da hiç bırakmadı) → perception (görmedi ya da tahmin gerçek konumdan 8 mm'den fazla uzakta) → IK/limits (validation reddetti) → grasp (küp ≥ 4 cm kalkmadı) → bırakma (kutuda değil). Agent'ın `report_result`'u kaydedilir, hiçbir zaman hükme katılmaz.
+
+```python
+ORDER = ["language", "perception", "IK/limits", "grasp", "place"]
+
+def attribute(ep):                       # only called for failed episodes
+    for layer in ORDER:                  # pipeline order
+        if not ep.contract_ok(layer):    # checked against simulator ground truth
+            return layer                 # the first broken contract gets the blame
+
+def end_to_end(p):                       # p[i]: pass rate of layer i among episodes that reach it
+    return math.prod(p)                  # layers in series multiply
+
+def even_split(P, L):                    # what each of L layers must reach for end-to-end P
+    return P ** (1 / L)
+
+def wilson(k, n, z=1.96):                # 95% interval for a success rate k/n (lesson 25)
+    p = k / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return centre - half, centre + half
+```
+
+| Büyüklük | Formül |
+|---|---|
+| uçtan uca başarı | $P_{\text{uçtan uca}} = \prod_{i=1}^{L} p_i$ |
+| eşit bütçe | $p_i = P^{1/L}$ |
+| Wilson %95 aralığı | $\dfrac{\hat p + \frac{z^2}{2n} \pm z\sqrt{\frac{\hat p(1-\hat p)}{n} + \frac{z^2}{4n^2}}}{1 + \frac{z^2}{n}}$ |
+
+$L$ seri katman sayısı, $p_i$ katman $i$'nin kendisine ulaşan bir episode'u geçme olasılığı, $P$ hedef uçtan uca oran, $\hat p = k/n$ $n$ episode üzerinden gözlenen başarı oranı ve $z$ güven düzeyinin normal quantile'ıdır (%95 için 1,96). 5 katmanda 0,90 için eşit bir paylaştırma her katmandan 0,979 ister (her paylaştırmada her $p_i \ge P$ olmalı).
+
+<details>
+<summary>Matematik ayrıntısı: çarpım burada neden tam, 30 episode neyi kanıtlayabilir</summary>
+
+**Çarpım tanım gereği tamdır.** $p_i = \text{geçen}_i / \text{ulaşan}_i$'yi katman $i$'ye ulaşan episode'lar üzerinden tanımla. Katman $i+1$'e ulaşan episode'lar tam olarak katman $i$'yi geçenler olduğu için çarpım sadeleşir: $\prod_i p_i = \text{geçen}_L / \text{ulaşan}_1$, yani uçtan uca oran. Bu muhasebe için bağımsızlık varsayımı gerekmez; bağımsızlık yalnızca ayrı ayrı ölçülmüş geçme oranlarıyla yeni bir sistemi tahmin etmeye çalıştığında önemlidir.
+
+**Her paylaştırmada her katman hedefin üstünde olmalı.** Her çarpan en fazla 1'dir; dolayısıyla her $j$ için $P = \prod p_i \le p_j$: hiçbir katman istediğin sistemden kötü olamaz.
+
+**Temiz otuz episode bir kanıt değildir.** $k = n$ için Wilson alt sınırı $n / (n + z^2)$'ye indirgenir. $n = 30$ ile bu $30 / (30 + 1{,}96^2) \approx 0{,}886$'dır; eşit bir 5 katmanlı bütçenin istediği 0,979'un altında. Sınır bağımsız denemeler varsayar; bu deney deterministik bir modelle 6 sabit komutu 5 dizilimde tekrarlıyor, bu yüzden aralıkları olsa olsa fazla dardır.
+
+**Kamera eğimi geometrisi.** Yüksekliği $h$ olan bir kameranın küçük bir $\alpha$ eğimi, bir ışının masaya değdiği noktayı yaklaşık $h\,\alpha$ kadar kaydırır (açı radyan cinsinden). $h = 0{,}6$ m'de bir derece $0{,}6 \times \pi/180$ m, yani yaklaşık 1 cm verir; bu, Boz tablosundaki medyan tahmin hatalarıyla örtüşüyor (1°'de 9,8 mm).
+
+Daha derine: [ders 25](../part-7-learning-from-demonstration/25-evaluating-policies.md) (başarı oranları ve aralıklar), [ders 21](../part-5-perception-and-estimation/21-object-perception.md) (perception hatası), [ders 42](../part-10-foundation-models-and-agents/42-llm-agents.md) (validation ve yanlış iddialar); birincil kaynak: E. B. Wilson, ["Probable inference, the law of succession, and statistical inference"](https://doi.org/10.1080/01621459.1927.10502953) (1927).
+
+</details>
+
+### Arayüzler ve sözleşmeler
+
+Bir arayüz bir tip artı bir sözleşmedir. Kontrol edemediğin bir sözleşme bir umuttur.
 
 | arayüz | nereden → nereye | ne geçer | sözleşme |
 |---|---|---|---|
@@ -45,11 +119,7 @@
 | sonkoşul | gripper → LLM | çene açısından "holding" / "closed on nothing" | ground truth yok |
 | hüküm | simülatör → harness | küp pose'ları | istenen küp kutunun içinde, kutuda başka küp yok |
 
-**Hata bütçesi.** Seri katmanlar çarpılır. Katman $i$, kendisine ulaşan episode'ları $p_i$ olasılıkla geçiyorsa
-
-$$P_{\text{uçtan uca}} = \prod_{i=1}^{L} p_i, \qquad \text{eşit paylaştırma: } p_i = P^{1/L} .$$
-
-5 katmanda 0,90 için eşit bir paylaştırma her katmandan 0,979 ister (her paylaştırmada her $p_i \ge P$ olmalı). Harness başarısız bir episode'u **pipeline sırasında sözleşmesini ilk bozan katmana** yazar: dil (istenen küpü hiç pick etmedi ya da hiç bırakmadı) → perception (görmedi ya da tahmin gerçek konumdan 8 mm'den fazla uzakta) → IK/limits (validation reddetti) → grasp (küp ≥ 4 cm kalkmadı) → bırakma (kutuda değil). Agent'ın `report_result`'u kaydedilir, hiçbir zaman hükme katılmaz.
+$K$ kameranın intrinsic matrisi (odak uzaklığı ve görüntü merkezi, burada 50°'lik dikey görüş açısından), $T_{wc}$ ise extrinsics'i, yani kameranın world frame'deki pose'udur ([ders 19](../part-5-perception-and-estimation/19-camera-calibration.md)); `ctrlrange` her MuJoCo actuator'ünün izin verilen komut aralığıdır.
 
 ## Deney
 
@@ -107,11 +177,13 @@ Tam script: [`experiments/44-capstone/experiment.py`](../../experiments/44-capst
 - **Agent ne zaman duracağını bilmiyor.** `plain`'de `qwen2.5:7b` kırmızı küpü bıraktı, sonra yine `place`, `look()` ve artık kutuda olan küp için `pick(red cube)` çağırdı; validation reddetti (IK) ve agent hiç `report_result` çağırmadı. Görev, yalnızca o pose ulaşılamaz olduğu için tamam kaldı.
 - Diğer küpler 60 episode'un 8'inde 1 cm'den fazla itildi.
 
-**Determinizm.** Temperature 0 ve seed 0; cevaplar bir koşu içinde tam request'e göre memoize ediliyor, bu yüzden 557 request için Ollama'ya 93 farklı çağrı gitti (modele koordinat gitmediği için konuşmalar dizilimler arasında tekrar ediyor). Yalnızca yazdırılan satırlarda farklı olan dört koşu aynı run signature'ı (`f942d461a345`) ve aynı tabloları verdi, bağımsız bir inceleme koşusu da bunları tekrarladı; yalnızca duvar saati satırları değişti. Determinizm, ders 42'deki gibi bu makinede bu ağırlıklarla Ollama 0.32.15'ten geliyor; başka bir sürüm ya da makine farklı cevaplar üretebilir.
+**Determinizm.** Temperature 0 ve seed 0; cevaplar bir koşu içinde tam request'e göre memoize ediliyor (önbelleğe alınıyor), bu yüzden 557 request için Ollama'ya 93 farklı çağrı gitti (modele koordinat gitmediği için konuşmalar dizilimler arasında tekrar ediyor). Yalnızca yazdırılan satırlarda farklı olan dört koşu aynı run signature'ı (`f942d461a345`) ve aynı tabloları verdi, bağımsız bir inceleme koşusu da bunları tekrarladı; yalnızca duvar saati satırları değişti. Determinizm, ders 42'deki gibi bu makinede bu ağırlıklarla Ollama 0.32.15'ten geliyor; başka bir sürüm ya da makine farklı cevaplar üretebilir.
 
 ## Boz
 
 Kameranın extrinsics'i bir kez kalibre ediliyor; sonra gerçek kamera, perception kodunun bilmediği bir açıyla eğiliyor (yatay eksen $(1, 1, 0)/\sqrt 2$ etrafında rotation). 0,6 m'de her derece tahmini yaklaşık 1 cm kaydırıyor. `qwen2.5:7b`, `plain`, `filler`, `terse` komutları × 5 dizilim:
+
+![Sol: modellenmemiş kamera eğimine göre Wilson %95 aralıklarıyla uçtan uca başarı; 1,5 dereceye kadar 13/15 ve 12/15'te düz, 2 derecede 3/15. Sağ: medyan perception tahmin hatası eğimle doğrusal büyüyor, 0,4 mm'den 19,8 mm'ye; 8 mm sözleşmesini 1 derecenin biraz altında aşıyor.](../../experiments/44-capstone/success_vs_tilt.png)
 
 | eğim [°] | medyan tahmin hatası [mm] | başarı | Wilson %95 | perception | IK/limits | yanlış iddia |
 |---|---|---|---|---|---|---|
@@ -121,7 +193,7 @@ Kameranın extrinsics'i bir kez kalibre ediliyor; sonra gerçek kamera, percepti
 | 1,5 | 14,9 | 12/15 | [0,55, 0,93] | 3 | 0 | 2 |
 | 2,0 | 19,8 | 3/15 | [0,07, 0,45] | 12 | 0 | 1 |
 
-Grasp bu yönde yaklaşık 15 mm'ye kadar hatayı tolere etti (açık çene geniş), sonra 1,5° ile 2° arasında çöktü. 2°'de görünen belirti gripper'da: "closed on nothing". Agent yeniden denedi (episode başına en fazla üç pick), ama her deneme aynı sapmalı tahmine nişanlandı. Buradan iki ders çıkıyor. Birincisi, **bozulan ilk sözleşme, görülen ilk başarısızlığın yukarısındadır**: bu başarısızlıkları perception'a yalnızca tahmini simülatörün gerçeğiyle karşılaştıran harness yazabiliyor. İkincisi, **yeniden denemek rastgele hataları düzeltir, sistematik olanları değil**. Donanımda ground truth yok; çare her oturumdan önce bir calibration kontrolü, örneğin masada bilinen bir konumdaki bir fiducial'ın tahmini 8 mm sözleşmesinin içine düşmeli (ders 19). Ayrıca 1,0° ve 1,5°'de 3 başarısızlığın ikisi 0°'deki aynı mavi küp retleri; perception'ın sözleşmesi önce bozulduğu için artık ona yazılıyorlar (üçüncüsü: kayan tahmin, 0. dizilimdeki yeşil küpü IK erişiminin dışına taşıdı). İlk-ihlal ataması bir kabuldür, nedensel bir kanıt değildir.
+Grasp bu yönde yaklaşık 15 mm'ye kadar hatayı tolere etti (açık çene geniş), sonra 1,5° ile 2° arasında çöktü. 2°'de görünen belirti gripper'da: "closed on nothing". Agent yeniden denedi (episode başına en fazla üç pick), ama her deneme aynı sapmalı tahmine nişanlandı. Buradan iki ders çıkıyor. Birincisi, **bozulan ilk sözleşme, görülen ilk başarısızlığın yukarısındadır**: bu başarısızlıkları perception'a yalnızca tahmini simülatörün gerçeğiyle karşılaştıran harness yazabiliyor. İkincisi, **yeniden denemek rastgele hataları düzeltir, sistematik olanları değil**. Donanımda ground truth yok; çare her oturumdan önce bir calibration kontrolü, örneğin masada bilinen bir konumdaki bir fiducial'ın (kameranın hassas biçimde bulabildiği basılı bir işaret) tahmini 8 mm sözleşmesinin içine düşmeli (ders 19). Ayrıca 1,0° ve 1,5°'de 3 başarısızlığın ikisi 0°'deki aynı mavi küp retleri; perception'ın sözleşmesi önce bozulduğu için artık ona yazılıyorlar (üçüncüsü: kayan tahmin, 0. dizilimdeki yeşil küpü IK erişiminin dışına taşıdı). İlk-ihlal ataması bir kabuldür, nedensel bir kanıt değildir.
 
 ## Gerçek robotta
 
@@ -157,7 +229,7 @@ Kaynaklar:
 - LeRobot [SO-101 dokümantasyonu](https://huggingface.co/docs/lerobot/so101).
 - [MuJoCo Menagerie · robotstudio_so101](https://github.com/google-deepmind/mujoco_menagerie/tree/main/robotstudio_so101) (Apache-2.0).
 - E. B. Wilson, ["Probable inference, the law of succession, and statistical inference"](https://doi.org/10.1080/01621459.1927.10502953), *J. Amer. Statist. Assoc.* 22, 209–212, 1927.
-- Ölçülen bütün sayılar: [`experiments/44-capstone/output.txt`](../../experiments/44-capstone/output.txt).
+- Ölçülen bütün sayılar: [`experiments/44-capstone/output.txt`](../../experiments/44-capstone/output.txt), grafik [`plot.py`](../../experiments/44-capstone/plot.py) ile.
 
 ### Buradan sonra
 

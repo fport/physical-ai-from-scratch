@@ -16,11 +16,77 @@
 
 ## The problem
 
-An RL algorithm only ever sees what the environment hands it: an observation, a reward, two end-of-episode flags. Mistakes in that interface do not crash anything; they make training quietly worse. The classic one: Gymnasium replaced the single `done` flag with `terminated` and `truncated` in v0.26 ([Env API](https://gymnasium.farama.org/api/env/)), because "the episode hit its time limit" and "the episode reached a terminal state" need different value targets. Unitree's locomotion training code carries the same distinction as a config switch, `send_timeouts = True # send time out information to the algorithm` ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py)). In this lesson we build the SO-101 reach environment used in lessons 33–35 and measure the baselines that tell us later what "learned" means.
+An RL algorithm only ever sees what the environment hands it: an observation, a reward, two end-of-episode flags. Mistakes in that interface do not crash anything; they make training quietly worse. The classic one: Gymnasium replaced the single `done` flag with `terminated` and `truncated` in v0.26 ([Env API](https://gymnasium.farama.org/api/env/)), because "the episode hit its time limit" and "the episode reached a terminal state" need different training targets. Unitree's locomotion training code carries the same distinction as a config switch, `send_timeouts = True # send time out information to the algorithm` ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py)). In this lesson we build the SO-101 reach environment used in lessons 33–35 and measure the baselines that tell us later what "learned" means.
 
 ## Core idea
 
-The MDP itself is on AIEFS ([MDPs, States, Actions & Rewards](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/01-mdps-states-actions-rewards)). A Gymnasium environment implements it with two calls:
+### In plain words
+
+An RL environment is an API with two endpoints. `reset()` starts a new attempt and tells you what the robot sees. `step(action)` applies one decision, advances the simulation a little, and returns what the robot sees now, a score for that step (the **reward**) and two flags. One run from `reset()` to the end is an **episode**; the function that turns what the robot sees into an action is the **policy**.
+
+The two flags answer different questions. `terminated` says "the task itself is over": the goal was reached, or the robot fell. `truncated` says "we stopped watching": the clock ran out, but the robot is in an ordinary state and would keep collecting reward. A learner that confuses them learns that the world ends every 1.6 s, which is false.
+
+The third part of the contract is timing. The physics runs in small steps (5 ms here), but the policy decides only every few of them, like a game that updates physics at 200 Hz and reads the controller at 50 Hz. That ratio is the **frame skip** (Unitree calls it `decimation`).
+
+### The agent–environment loop
+
+```mermaid
+sequenceDiagram
+    participant P as policy
+    participant E as environment
+    participant M as MuJoCo
+    P->>E: reset(seed)
+    E->>M: new target, start pose
+    E-->>P: obs, info
+    loop every 20 ms of simulated time
+        P->>E: step(action)
+        E->>M: joint targets, then 4 physics steps
+        E-->>P: obs, reward, terminated, truncated, info
+    end
+```
+
+### The contract, as code
+
+```python
+obs, info = env.reset(seed=k)            # seed k -> the same target and start pose every time
+while True:
+    action = policy(obs)                 # 4 numbers in [-1, 1]
+    obs, reward, terminated, truncated, info = env.step(action)
+    if terminated or truncated:          # either flag ends the episode ...
+        break
+
+def value_target(r, v_next, terminated, gamma):
+    # ... but only "terminated" removes the future.
+    # r:      reward of this step
+    # v_next: the critic's estimate of all future reward from the next state
+    # gamma:  discount, how much one step later counts (lesson 33)
+    return r + gamma * (1 - terminated) * v_next
+
+policy_period = frame_skip * h           # 4 * 5 ms = 20 ms, i.e. 50 decisions per second
+```
+
+| Quantity | Formula |
+|---|---|
+| value target | $y_t = r_t + \gamma\,(1 - \text{terminated}_t)\, V(s_{t+1})$ |
+| policy period | $\Delta t = k\,h$ |
+
+$r_t$ is the reward at step $t$, $\gamma$ the discount, $V(s_{t+1})$ the learned estimate of future reward from the next state $s_{t+1}$, $k$ the frame skip and $h$ the physics timestep.
+
+<details>
+<summary>Math details: why truncation must bootstrap</summary>
+
+A value-based learner fits the expected discounted return $V(s) = \mathbb E\big[\sum_{l\ge0}\gamma^l r_{t+l} \mid s_t = s\big]$ (see AIEFS: [MDPs, States, Actions & Rewards](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/01-mdps-states-actions-rewards)). Replacing the tail of that sum by the current estimate $V(s_{t+1})$ is called **bootstrapping**.
+
+- **Terminal state.** After it every reward is 0 by definition, so the exact target is $y_t = r_t$.
+- **Time limit.** The last state is an ordinary state; the true return continues. Using $y = r$ there would make the target depend on the clock. The clock is not in our 15-number observation, so the same arm pose would get two different targets (with and without a future), and the value function cannot fit both. Bootstrapping keeps the target a function of the state only.
+
+**Seeding.** `reset(seed=k)` re-seeds the environment's own generator `self.np_random`. Episodes are reproducible only if *all* randomness (target, start pose) comes from that generator. Evaluation then uses a fixed list of seeds.
+
+**Frame skip.** The action is held constant for $k$ physics steps while the servo's PD loop runs at every physics step. The Go2 training config uses $h = 5$ ms and `decimation = 4`, a 20 ms (50 Hz) policy ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)). The Menagerie SO-101 also uses $h = 5$ ms, so we take $k = 4$ as well.
+
+Go deeper: [MDPs, States, Actions & Rewards](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/01-mdps-states-actions-rewards); [Gymnasium · `Env` API](https://gymnasium.farama.org/api/env/) (terminated vs truncated, seeding).
+
+</details>
 
 | Call | Returns | Robot meaning |
 |---|---|---|
@@ -28,17 +94,9 @@ The MDP itself is on AIEFS ([MDPs, States, Actions & Rewards](https://aiengineer
 | `step(action)` | `obs, reward, terminated, truncated, info` | apply the action for one policy period, advance physics |
 | `observation_space`, `action_space` | `Box` shapes and bounds | the policy's input and output sizes |
 
-**Seeding.** `reset(seed=k)` re-seeds the environment's own generator `self.np_random`; all randomness (target, start pose) must come from it, so that `reset(seed=k)` reproduces the same episode. Evaluation then uses a fixed list of seeds.
+### The reach task
 
-**Terminated vs truncated.** `terminated` means the MDP reached a terminal state (goal reached, robot fell); `truncated` means something outside the MDP stopped it, usually a time limit ([Env API](https://gymnasium.farama.org/api/env/)). The learner's value target differs:
-
-$$y_t = r_t + \gamma\,(1 - \text{terminated}_t)\, V(s_{t+1})$$
-
-On truncation the future still exists and is bootstrapped; lesson 33 implements exactly that.
-
-**Frame skip.** The policy acts every $k$ physics steps, so its period is $\Delta t = k\,h$. The Go2 training config uses $h = 5$ ms and `decimation = 4`, a 20 ms (50 Hz) policy ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)). The Menagerie SO-101 also uses $h = 5$ ms, so we take $k = 4$ as well.
-
-**The reach task** ([`reach_env.py`](../experiments/32-rl-environment/reach_env.py)):
+The environment of lessons 33–35, in [`reach_env.py`](../experiments/32-rl-environment/reach_env.py):
 
 | Element | Definition |
 |---|---|
@@ -81,16 +139,16 @@ def step(self, action):
     return self._obs(), reward, terminated, truncated, info
 ```
 
-[`experiment.py`](../experiments/32-rl-environment/experiment.py) checks the API, runs three baseline policies for 200 episodes each (seeds 0–199) and sweeps `frame_skip`. The scripted controller is one damped least-squares IK step per policy step ([lesson 10](../part-3-kinematics/10-inverse-kinematics.md)): $\Delta q = J^\top (J J^\top + 0.05^2 I)^{-1} e$, sent as $q^* = q + \Delta q$. It reads the Jacobian from the model, which a policy cannot.
+[`experiment.py`](../experiments/32-rl-environment/experiment.py) checks the API, runs three **baselines** (fixed reference policies to compare against) for 200 episodes each (seeds 0–199) and sweeps `frame_skip`. The scripted controller does one damped least-squares IK step per policy step ([lesson 10](../part-3-kinematics/10-inverse-kinematics.md)): $\Delta q = J^\top (J J^\top + 0.05^2 I)^{-1} e$, sent as $q^* = q + \Delta q$. It reads the Jacobian from the model, which a policy cannot.
 
 **Predict:** what success rate does a random policy get with a 2 cm radius?
 
-MuJoCo 3.17.0, NumPy 2.5.4, Gymnasium 1.4.0, Apple Silicon Mac (Apple M5), one thread. The full script took 54 s wall-clock on a loaded machine (it prints this at the end); `python experiment.py --quick` (50 episodes per row, 1 s per throughput row) is a smoke test and does not reproduce the tables. Sections A, B and D are deterministic (a rerun gave identical numbers); section C is a timing and changes from run to run.
+MuJoCo 3.17.0, NumPy 2.5.4, Gymnasium 1.4.0, Apple Silicon Mac (Apple M5), one thread. The full script took 54 s wall-clock on a loaded machine; `python experiment.py --quick` (50 episodes per row, 1 s per throughput row) is a smoke test and does not reproduce the tables. Sections A, B and D are deterministic (a rerun gave identical numbers); section C is a timing and changes from run to run.
 
 - `reset(seed=7)` twice (with `reset(seed=8)` in between) gives the same target: `True`.
 - With `terminate_on_success=True`, the scripted controller's 50 episodes all ended `terminated` (50), none `truncated`.
 
-**Baselines** (200 episodes each):
+**Baselines** (200 episodes each; the Wilson 95% interval is the range the true success rate plausibly lies in, see [lesson 25](../part-7-learning-from-demonstration/25-evaluating-policies.md)):
 
 | policy | return (mean ± std) | median final distance | success | Wilson 95% |
 |---|---|---|---|---|
@@ -98,9 +156,9 @@ MuJoCo 3.17.0, NumPy 2.5.4, Gymnasium 1.4.0, Apple Silicon Mac (Apple M5), one t
 | zero action (hold home) | −12.87 ± 4.92 | 170.8 mm | 1/200 | 0.1–2.8% |
 | scripted IK | −1.16 ± 0.68 | 0.2 mm | 200/200 | 98.1–100.0% |
 
-Random actions are no better than standing still: they end 185.7 and 170.8 mm (median) from the target. The scripted IK sets the ceiling; its return of −1.16 is the distance accumulated while the arm moves, not a residual error (median final distance 0.2 mm). Any learned policy in this part will be placed between these two rows.
+Random actions are no better than standing still (185.7 vs 170.8 mm median final distance). The scripted IK sets the ceiling; its return of −1.16 is the distance accumulated while the arm moves, not a residual error (median final distance 0.2 mm). Every learned policy in this part will be placed between these rows.
 
-**Throughput vs frame_skip** (random actions, one env, one thread; measured in process CPU time so the other jobs on the machine distort it less; approximate):
+**Throughput vs frame_skip** (random actions, one env, one thread; process CPU time, so other jobs distort it less; approximate):
 
 | frame_skip | policy rate | env steps / CPU s | physics steps / CPU s | sim s / CPU s |
 |---|---|---|---|---|
@@ -111,11 +169,13 @@ Random actions are no better than standing still: they end 185.7 and 170.8 mm (m
 | 16 | 12.5 Hz | 6224 | 99585 | 497.9 |
 | 32 | 6.25 Hz | 3357 | 107417 | 537.1 |
 
-A linear fit gives **31.0 µs + 8.3 µs × frame_skip** of CPU time per `env.step()`. One SO-101 physics step costs about 8 µs; the Python side of the step (clipping, observation, reward, bookkeeping) costs about as much as four physics steps. At frame_skip 1 the env spends most of its time in Python, one reason to batch many environments per Python call (lesson 36). At frame_skip 4 the simulation runs 296.2 simulated seconds per CPU second.
+![Two panels against frame_skip from 1 to 32. Left: physics steps per CPU second rise from 22595 to 107417 while env steps per CPU second fall from 22595 to 3357. Right: simulated seconds per CPU second rise from 113.0 to 537.1, with 296.2 at frame_skip 4.](../experiments/32-rl-environment/throughput_vs_frame_skip.png)
+
+A linear fit gives **31.0 µs + 8.3 µs × frame_skip** of CPU time per `env.step()`. One SO-101 physics step costs about 8 µs; the Python side of a step (clipping, observation, reward, bookkeeping) costs about as much as four physics steps. At frame_skip 1 the env spends most of its time in Python, one reason to batch many environments per Python call (lesson 36). At frame_skip 4 it runs 296.2 simulated seconds per CPU second.
 
 ## Break it
 
-Truncation is part of the task definition. Shorten the time limit and run the scripted controller, which is known to be perfect at 1.6 s:
+Truncation is part of the task definition. Shorten the time limit and run the scripted controller, which is perfect at 1.6 s:
 
 | time limit | steps | success | Wilson 95% | median final distance |
 |---|---|---|---|---|
@@ -126,13 +186,13 @@ Truncation is part of the task definition. Shorten the time limit and run the sc
 | 0.48 s | 24 | 199/200 | 97.2–99.9% | 1.0 mm |
 | 1.60 s | 80 | 200/200 | 98.1–100.0% | 0.2 mm |
 
-Below about 0.5 s even the model-based controller starts to miss: with torque-limited servos (±2.94 N·m) and one IK step per 20 ms, this controller needs between 0.32 and 0.48 s for almost every reach. It is not time-optimal (a policy can command larger target jumps), so 81/200 at 0.24 s is a reference, not a hard ceiling. Still, a learner given a 0.24 s episode is scored on a task that even a model-based controller mostly fails, and its low success would look like a learning problem. Measure a scripted or oracle baseline under the same time limit before tuning the learner.
+Below about 0.5 s even the model-based controller misses: with torque-limited servos (±2.94 N·m) and one IK step per 20 ms, it needs between 0.32 and 0.48 s for almost every reach. It is not time-optimal (a policy can command larger target jumps), so 81/200 at 0.24 s is a reference, not a hard ceiling. Still, a learner given a 0.24 s episode is scored on a task that even a model-based controller mostly fails, and its low success would look like a learning problem. Measure a scripted or oracle baseline under the same time limit before tuning the learner.
 
 ## On the real robot
 
-- On hardware `step()` has to wait for real time: one 20 ms policy step takes 20 ms. In simulation the same env ran 296.2 simulated seconds per CPU second (section C, frame_skip 4). That ratio is why policies are trained in simulation.
+- On hardware `step()` waits for real time: one 20 ms policy step takes 20 ms. In simulation the same env ran 296.2 simulated seconds per CPU second (section C, frame_skip 4). That ratio is why policies are trained in simulation.
 - `reset()` on a real arm is a motion, not an assignment: the arm has to be driven back to $q_{\text{home}}$ and the target placed or marked, which costs seconds per episode and needs a safe trajectory ([lesson 15](../part-4-dynamics-and-control/15-safety.md)).
-- The observation must be built from what the robot measures: servo encoder positions, finite-difference velocities, and a target position from a camera ([lesson 20](../part-5-perception-and-estimation/20-pixels-to-table.md)). Each of these has noise and delay that this simulated env does not have (Part 9).
+- The observation must be built from what the robot measures: servo encoder positions, finite-difference velocities, and a target position from a camera ([lesson 20](../part-5-perception-and-estimation/20-pixels-to-table.md)). Each has noise and delay that this simulated env does not have (Part 9).
 - Procedure for the SO-101: run the scripted IK baseline on 20 fixed reachable targets, measure the final gripper position with the camera, report $k/n$ with a Wilson interval. **Not yet measured on the real arm.**
 
 ## Check yourself
@@ -161,4 +221,4 @@ Next: [lesson 33](33-ppo.md), training a policy on this environment with PPO.
 - [MuJoCo documentation · Python bindings](https://mujoco.readthedocs.io/en/stable/python.html).
 - [`unitree_rl_gym` · `legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py) (BSD-3-Clause).
 - [MuJoCo Menagerie · `robotstudio_so101`](https://github.com/google-deepmind/mujoco_menagerie/tree/f3b6013/robotstudio_so101) (Apache-2.0).
-- Code: [`reach_env.py`](../experiments/32-rl-environment/reach_env.py), [`experiment.py`](../experiments/32-rl-environment/experiment.py), [`output.txt`](../experiments/32-rl-environment/output.txt).
+- Code: [`reach_env.py`](../experiments/32-rl-environment/reach_env.py), [`experiment.py`](../experiments/32-rl-environment/experiment.py), [`output.txt`](../experiments/32-rl-environment/output.txt); figure from [`plot.py`](../experiments/32-rl-environment/plot.py).

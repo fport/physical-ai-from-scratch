@@ -20,24 +20,77 @@ Ders 21'deki detector "küp (u, v) pixel'inde" diyecek. Kolun ise base frame'ind
 
 ## Ana fikir
 
-**Back-projection** ($K$, [ders 19](19-camera-calibration.md)'dan). **Optik eksen boyunca** ölçülen $Z$ depth'li $(u,v)$ pixel'i için:
+### Sade anlatımla
 
-$$X_c = Z\,K^{-1}\begin{bmatrix}u\\v\\1\end{bmatrix},\qquad X_w = R_{wc}X_c + c$$
+Bir pixel sana bir mesafe değil, bir yön söyler. Kameranın lensine tutulmuş, o pixel'in içinden nişan alan bir lazer işaretleyici düşün: ışın boyunca her nokta aynı pixel'e düşer. Pixel'i 3D bir noktaya çevirmek için bir bilgi daha gerekir; yaygın iki tanesi var.
 
-Burada $R_{wc}$'nin sütunları OpenCV kamera eksenleri, $c$ kamera merkezidir. $Z$ bunun yerine ışın boyunca Öklid mesafesi olsaydı, önce $\|K^{-1}[u,v,1]^\top\|$'ye bölmen gerekirdi.
+- **Işının nerede durduğu.** Depth görüntüsü her pixel için yüzeyin ne kadar uzakta olduğunu saklar. Işın boyunca o kadar yürürsen noktayı bulursun. Bu **back-projection**'dır, ders 19'daki kamera fonksiyonunun tersi.
+- **Nesnenin hangi yüzeyde durduğu.** Nesne masanın üstündeyse nokta, ışının masa düzlemine çarptığı yerdir. **Homography** bu durum için bir kısayoldur: masada işaretlenmiş birkaç noktadan uydurulan, görüntüden masaya giden 3×3'lük bir dönüşüm; hiç kamera modeli gerektirmez. Düz bir arazinin hava fotoğrafını bir avuç bilinen işaret noktasıyla haritaya oturtmaya benzer. Masada yatan şeyler için tamdır, yukarı doğru çıkıntı yapan her şey için yanlıştır.
 
-**MuJoCo'dan depth.** GPU metre değil, doğrusal olmayan bir z-buffer değeri $d\in[0;\,1]$ saklar. Near/far kırpma mesafeleri $n = \texttt{znear}\cdot\text{extent}$ ve $f = \texttt{zfar}\cdot\text{extent}$ ile (varsayılanlar 0,01 ve 50; [MuJoCo XML · visual/map](https://mujoco.readthedocs.io/en/stable/XMLreference.html#visual-map-znear)) klasik bir OpenGL buffer'ı $Z = \dfrac{nf}{f - d\,(f-n)}$ verir. MuJoCo 3.17'nin Python `Renderer`'ı ters çevrilmiş bir buffer okur (near'da 1, far'da 0), eşdeğer $Z = \dfrac{nf}{n + d\,(f-n)}$ dönüşümünü float64'te uygular, sonra metreyi float32 olarak döndürür ([`rendering/classic/renderer.py`, tag 3.17.0](https://github.com/google-deepmind/mujoco/blob/3.17.0/python/mujoco/rendering/classic/renderer.py)). Yani `Renderer.enable_depth_rendering()` zaten optik eksen boyunca metrik depth döndürür; ham buffer'ı kendin okursan (C API `mjr_readPixels`) doğrusallaştırman gerekir. Dokümantasyon, near düzlemini fazla yakın koymanın depth çözünürlüğüne mal olduğu konusunda uyarır.
+İkisi de robotun ve kameranın frame'lerde anlaşmasını ister: masa ve robot base aynı dünya frame'ini paylaşır, kameranın bu frame'deki pozu calibration'dan gelir.
 
-**Homography.** Bir düzlemdeki noktalar görüntüye 3×3'lük bir projektif dönüşümle gider. Masa $z=0$ için: $s\,[u,v,1]^\top = K[r_1\ r_2\ t]\,[x,y,1]^\top$, yani $[x,y,1]^\top \sim H\,[u,v,1]^\top$. $H$'nin 8 serbestlik derecesi var; 4 nokta çifti (hiçbir üçü aynı doğru üzerinde olmayan) onu belirler, daha fazlası least-squares uyumu verir (`cv2.findHomography`, method 0; outlier'lar için RANSAC/LMEDS/RHO, [OpenCV calib3d](https://github.com/opencv/opencv/blob/4.x/modules/calib3d/include/opencv2/calib3d.hpp)). $K$ ya da depth gerekmez, yalnızca bilinen masa noktaları. Bedeli: formül yalnızca $z = 0$ için doğrudur.
+### Frame'ler ve iki yol
+
+```mermaid
+flowchart TD
+    B["dünya = robot base frame'i<br/>masa z = 0 düzlemi"]
+    B -- "kamera pozu R_wc, c<br/>(calibration, ders 19)" --> C["kamera frame'i<br/>x sağa, y aşağı, z ileri"]
+    C -- "intrinsics K<br/>(ders 19)" --> I["görüntü: pixel (u, v)"]
+    I -- "yol 1: depth Z<br/>X_w = c + R_wc · Z · K⁻¹ [u, v, 1]" --> B
+    I -- "yol 2: homography H<br/>(4+ masa marker'ı)" --> T["masa noktası (x, y)<br/>yalnızca z = 0 ise geçerli"]
+    T --> B
+```
+
+### İki yol, kod olarak
+
+```python
+def back_project(u, v, Z, K, R_wc, c):
+    ray = np.linalg.inv(K) @ [u, v, 1.0]   # direction through the pixel, scaled so ray[2] == 1
+    X_c = Z * ray                          # Z = depth along the optical axis (camera z), metres
+    return R_wc @ X_c + c                  # camera frame -> world frame
+
+def table_point(u, v, H):
+    x, y, w = H @ [u, v, 1.0]              # homography: pixel -> table, up to a scale factor
+    return x / w, y / w                    # divide the scale out; z is assumed to be 0
+
+# A GPU depth buffer stores d in [0, 1], not metres. MuJoCo's Renderer converts it for you:
+Z = n * f / (n + d * (f - n))              # reversed buffer; n, f = near and far clip distances
+```
+
+| Parça | Formül |
+|---|---|
+| Back-projection, $Z$ optik eksen boyunca | $X_c = Z\,K^{-1}[u,\ v,\ 1]^\top,\quad X_w = R_{wc}X_c + c$ |
+| Sensor bunun yerine ışın uzunluğu $\rho$ raporlarsa | $X_c = \rho\,\dfrac{K^{-1}[u,v,1]^\top}{\lVert K^{-1}[u,v,1]^\top\rVert}$ |
+| Homography (masa düzlemi) | $[x,\ y,\ 1]^\top \sim H\,[u,\ v,\ 1]^\top$ |
+| Depth buffer'dan metreye (klasik / ters) | $Z = \dfrac{nf}{f - d\,(f-n)}$ / $Z = \dfrac{nf}{n + d\,(f-n)}$ |
+
+$(u, v)$ pixel, $K$ kamera matrisi, $Z$ kameranın optik ekseni boyunca ölçülen depth, $\rho$ ışın boyunca Öklid mesafesi, $X_c$ ve $X_w$ noktanın kamera ve dünya koordinatları, $R_{wc}$ sütunları dünyada ifade edilmiş kamera eksenleri olan rotation, $c$ kamera merkezinin dünyadaki konumu, $H$ 3×3'lük homography, $\sim$ "ölçek dışında eşit", $d$ ham depth buffer değeri, $n, f$ ise near ve far kırpma mesafeleridir.
 
 | Yöntem | Gerekenler | Geçerli olduğu yer | Bozulduğu durum |
 |---|---|---|---|
 | Homography | 4+ bilinen masa noktası | düzlemdeki noktalar | nesnenin yüksekliği var, masa düz değil |
 | Depth back-projection | $K$, kamera pozu, depth görüntüsü | görünen her yüzey | depth yanlış okunmuş, depth noise'u, eksik depth |
 
+<details>
+<summary>Matematik ayrıntısı: z-depth ile ışın uzunluğu, MuJoCo depth buffer'ı ve homography'nin kaynağı</summary>
+
+**Z-depth ile ışın uzunluğu.** $K^{-1}[u,v,1]^\top$'nin üçüncü bileşeni 1'dir; onu $Z$ ile çarpmak, kamera $z$'si tam olarak $Z$ olan bir nokta verir. Back-projection'ın **optik eksen boyunca** depth istemesinin sebebi budur. $Z$ bunun yerine ışın boyunca Öklid mesafesi olsaydı, önce $\|K^{-1}[u,v,1]^\top\|$'ye bölmen gerekirdi; ikisi yalnızca görüntü merkezinde örtüşür, en çok köşelerde ayrışır.
+
+**Ders 19'un extrinsics'inden.** Ders 19 $X_c = R\,X_w + t$ yazdı. $X_w$ için çözersek $X_w = R^\top X_c - R^\top t$; yani $R_{wc} = R^\top$ ve kamera merkezi $c = -R^\top t$.
+
+**MuJoCo'dan depth.** GPU metre değil, doğrusal olmayan bir z-buffer değeri $d\in[0;\,1]$ saklar. Near/far kırpma mesafeleri $n = \texttt{znear}\cdot\text{extent}$ ve $f = \texttt{zfar}\cdot\text{extent}$ ile, burada extent MuJoCo'nun hesapladığı genel model boyutudur (`znear` ve `zfar` varsayılan olarak 0,01 ve 50; [MuJoCo XML · visual/map](https://mujoco.readthedocs.io/en/stable/XMLreference.html#visual-map-znear)), klasik bir OpenGL buffer'ı $Z = \dfrac{nf}{f - d\,(f-n)}$ verir. MuJoCo 3.17'nin Python `Renderer`'ı ters çevrilmiş bir buffer okur (near'da 1, far'da 0), eşdeğer $Z = \dfrac{nf}{n + d\,(f-n)}$ dönüşümünü float64'te uygular, sonra metreyi float32 olarak döndürür ([`rendering/classic/renderer.py`, tag 3.17.0](https://github.com/google-deepmind/mujoco/blob/3.17.0/python/mujoco/rendering/classic/renderer.py)). Yani `Renderer.enable_depth_rendering()` zaten optik eksen boyunca metrik depth döndürür; ham buffer'ı kendin okursan (C API `mjr_readPixels`) doğrusallaştırman gerekir. Dokümantasyon, near düzlemini fazla yakın koymanın depth çözünürlüğüne mal olduğu konusunda uyarır.
+
+**Homography.** Bir düzlemdeki noktalar görüntüye 3×3'lük bir projektif dönüşümle gider. Masa $z=0$ için ders 19'daki projeksiyon $R$'nin üçüncü sütununu kaybeder: $s\,[u,v,1]^\top = K[r_1\ r_2\ t]\,[x,y,1]^\top$, yani $H = (K[r_1\ r_2\ t])^{-1}$ ile $[x,y,1]^\top \sim H\,[u,v,1]^\top$. $H$'nin 8 serbestlik derecesi var (9 eleman, ölçek dışında tanımlı); 4 nokta çifti (hiçbir üçü aynı doğru üzerinde olmayan) onu belirler, daha fazlası least-squares uyumu verir (`cv2.findHomography`, method 0; outlier'lar için RANSAC/LMEDS/RHO, [OpenCV calib3d](https://github.com/opencv/opencv/blob/4.x/modules/calib3d/include/opencv2/calib3d.hpp)). $K$ ya da depth gerekmez, yalnızca bilinen masa noktaları. Bedeli: formül yalnızca $z = 0$ için doğrudur.
+
+**Düzlemin üstündeki hata.** Dikeyle $\theta$ açısı yapan bir ışın üzerinde $h$ yüksekliğindeki bir nokta, o ışının $z = 0$'a ulaştığı yere, yatayda $h\tan\theta$ daha öteye eşlenir. Hata tek bir ışın boyunca $h$'de doğrusaldır ve eğik ışınlarda daha büyüktür.
+
+Daha derine: [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems), [Monocular Depth & Geometry Estimation](https://aiengineeringfromscratch.com/lesson?path=phases/04-computer-vision/26-monocular-depth); düzlemin indüklediği homography'ler ve back-projection için Hartley & Zisserman ([kitap sayfası](https://www.robots.ox.ac.uk/~vgg/hzbook/)).
+
+</details>
+
 ## Deney
 
-**Kurulum.** MuJoCo sahnesi: gri masa düzlemi, 10/20/50/100 mm yüksekliğinde dört kutu, dikeyden 30° eğik, (0,25, 0, 0)'a bakan 640×480'lik bir kamera (`fovy = 50`). Bir pixel'in ground truth'u, ışınının gördüğü yüzeyle tam kesişimidir. Homography marker'ları: 20 × 20 cm'lik bir bölgedeki 4 ya da 12 bilinen masa noktası, pixel'leri $\sigma$ Gauss noise'uyla bozulmuş; test pixel'leri tüm görüş boyunca rastgele masa pixel'leri, onlar da bozulmuş. Depth back-projection, render edilen depth'i bilinear okumayla kullanır.
+**Kurulum.** MuJoCo sahnesi: gri masa düzlemi, 10/20/50/100 mm yüksekliğinde dört kutu, dikeyden 30° eğik, (0,25, 0, 0)'a bakan 640×480'lik bir kamera (`fovy = 50`). Bir pixel'in ground truth'u, ışınının gördüğü yüzeyle tam kesişimidir. Homography marker'ları: 20 × 20 cm'lik bir bölgedeki 4 ya da 12 bilinen masa noktası, pixel'leri $\sigma$ Gauss noise'uyla bozulmuş (tespit hatasının yerine); test pixel'leri tüm görüş boyunca rastgele masa pixel'leri, onlar da bozulmuş. Depth back-projection, render edilen depth'i bilinear okumayla (en yakın dört depth pixel'i arasında interpolasyon) kullanır.
 
 ```python
 r.enable_depth_rendering(); depth = r.render()            # metres along the optical axis
@@ -45,9 +98,9 @@ P = c + depth_at(uv)[:, None] * (np.c_[uv, ones] @ np.linalg.inv(K).T @ R_wc.T)
 H, _ = cv2.findHomography(marker_px, marker_xy, 0)       # pixel -> table (x, y)
 ```
 
-**Tahmin.** Simülasyonda depth tamdır, dolayısıyla hatası pixel noise'u çarpı pixel izdüşümü olmalı. Homography kendi uydurma hatasını eklemeli ve düzlemin üstünde bozulmalı.
+**Tahmin.** Simülasyonda depth tamdır, dolayısıyla hatası pixel noise'u çarpı pixel izdüşümü (bir pixel'in masadaki boyu) olmalı. Homography kendi uydurma hatasını eklemeli ve düzlemin üstünde bozulmalı.
 
-**Çalıştır:** `python experiments/20-pixels-to-table/experiment.py` (MuJoCo 3.17.0, OpenCV 5.0.0, NumPy 2.5.4, Apple M5, deterministic). Bu Mac'te MuJoCo, stderr'e `ARB_clip_control`'ün olmadığını ve depth doğruluğunun sınırlı olacağını yazan bir uyarı basar; aşağıdaki ölçümler buna rağmen elde edilenlerdir.
+**Çalıştır:** `uv run python experiments/20-pixels-to-table/experiment.py` (MuJoCo 3.17.0, OpenCV 5.0.0, NumPy 2.5.4, Apple M5, deterministic). Bu Mac'te MuJoCo, stderr'e `ARB_clip_control`'ün olmadığını ve depth doğruluğunun sınırlı olacağını yazan bir uyarı basar; aşağıdaki ölçümler buna rağmen elde edilenlerdir.
 
 **Depth görüntüsünde ne var** (kamera 0,6 m'de; extent 0,497 m, yani near 5,0 mm, far 24,9 m; 300 masa pixel'i):
 
@@ -59,6 +112,8 @@ H, _ = cv2.findHomography(marker_px, marker_xy, 0)       # pixel -> table (x, y)
 | back-projection, depth yanlışlıkla ışın uzunluğu olarak | 45,8 mm | 138,0 mm |
 
 Dönen değerler z-depth'tir. Onları ışın uzunluğu saymak görüntü köşelerinde 138,0 mm'ye kadar hataya mal olur.
+
+![Üç panel. Sol: masa noktası hatası pixel noise'uyla doğrusal büyüyor; 4 marker'lı homography en kötü, 12 marker'lı biraz daha iyi, depth back-projection en iyi. Orta: kamera 0,3'ten 2,0 m'ye yükselirken depth hatası bir pixel'in masadaki boyunu izliyor, homography hatası daha hızlı büyüyor. Sağ: homography hatası nesne yüksekliğiyle büyüyüp 100 mm'de 88,5 mm'ye çıkıyor, depth back-projection sıfırda kalıyor.](../../experiments/20-pixels-to-table/table_errors.png)
 
 **Pixel noise'u** (kamera 0,6 m; 200 test pixel'i × 50 deneme, mm cinsinden medyan hata):
 

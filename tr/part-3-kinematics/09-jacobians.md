@@ -22,19 +22,71 @@ Bu matrisin tam doğru olması da gerekiyor: ders 10 onunla yüzlerce kez iteras
 
 ## Ana fikir
 
-Forward kinematics'in türevini al. Doğrusal hızı $v$, açısal hızı $\omega$ olan alet site'ı için (ikisi de world koordinatlarında):
+### Sade anlatımla
 
-$$\begin{bmatrix} v \\ \omega \end{bmatrix} = J(q)\,\dot q = \begin{bmatrix} J_p(q) \\ J_r(q) \end{bmatrix}\dot q ,\qquad J \in \mathbb R^{6\times n}.$$
+Bir motoru biraz döndür ve gripper'ı izle: belli bir yöne, belli bir hızla biraz hareket eder. Bunu her motor için yap ve cevapları her motor için bir sütun olacak şekilde yaz. Bu tablo **Jacobian**'dır: "her motor biraz dönünce el hangi yöne ve ne hızla gider". Birkaç motoru aynı anda döndürürsen elin hızı, her biri kendi motorunun hızıyla ölçeklenmiş bu sütunların toplamıdır. Tablo poza göre değişir, çünkü kaldıraç kolları değişir: kol gergin uzanmışken omuz eli, kol katlıyken olduğundan çok daha hızlı hareket ettirir.
 
-World ekseni $\hat a_i$ olan ve $o_i$ noktasından geçen bir $i$ hinge'i için $i$. sütun $J_{p,i} = \hat a_i \times (p - o_i)$, $J_{r,i} = \hat a_i$'dir: **geometric Jacobian** (Lynch & Park, *Modern Robotics*, Böl. 5). MuJoCo onu `mj_jac` (bir body'ye bağlı herhangi bir world noktası), `mj_jacBody` ve `mj_jacSite` ile döndürür ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)).
+Aynı tablo tersten okununca (**transpose**'u) kuvvet sorusunu cevaplar. Gripper'a bastır: her motor, baskı çarpı kendi kaldıraç kolu kadar bir tork hisseder; sütunu tam olarak bunu kodlar. Uzun bir kaldıraç torku büyütür, uzun bir anahtar gibi.
 
-**Statik kuvvet haritası.** Virtual work ilkesiyle, aletin çevreye bir $F$ kuvveti ve $M$ momenti uygulaması için joint'lerin sağlaması gereken tork:
+Tabloyu analitik olarak yazamıyorsan ölçebilirsin: bir joint'i küçük bir adım kadar oynat, aletin ne kadar gittiğine bak, böl. Bu bir **finite difference**'tır; ML'deki sayısal gradient kontrolüyle aynı numara. Adım çok büyükse hareketin eğriliği tahmini bozar; çok küçükse floating-point yuvarlaması bozar.
 
-$$\tau = J^\top \begin{bmatrix} F \\ M \end{bmatrix};$$
+```mermaid
+flowchart TD
+    Q["şu anki poz q<br/>(joint açıları)"] -.-> J["Jacobian J(q)<br/>6 satır × 5 sütun,<br/>her joint için bir sütun"]
+    QD["joint hızları q̇"] --> M1["J ile çarp"]
+    J -.-> M1
+    M1 --> V["alet hızı:<br/>doğrusal v, açısal ω"]
+    F["aletteki kuvvet<br/>ve moment (F, M)"] --> M2["Jᵀ ile çarp"]
+    J -.-> M2
+    M2 --> T["joint torkları τ"]
+```
 
-aleti iten bir dış $(F, M)$ wrench'i ise $-J^\top[F;M]$ ile tutulur.
+### Jacobian kod olarak
 
-**Finite difference**, $i$. sütunu $\frac{x(q + \varepsilon e_i) - x(q)}{\varepsilon}$ (ileri, hata $O(\varepsilon)$) ya da $\frac{x(q+\varepsilon e_i) - x(q-\varepsilon e_i)}{2\varepsilon}$ (merkezi, hata $O(\varepsilon^2)$) ile yaklaşık hesaplar. Kayan nokta yuvarlaması yaklaşık $\epsilon_{\text{mach}}\lvert x\rvert/\varepsilon$ kadar hata ekler; bu yüzden her yöntemin en iyi bir adımı vardır: ileri farkta kabaca $\sqrt{\epsilon_{\text{mach}}}$, merkezi farkta $\sqrt[3]{\epsilon_{\text{mach}}}$. Türev ve doğrusal haritalar: AIEFS [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems).
+```python
+import numpy as np
+
+def hinge_column(axis, o, p):    # axis: joint ekseni (birim, world), o: eksen üzerinde bir nokta, p: alet noktası
+    jp = np.cross(axis, p - o)   # bu joint'in 1 rad/s'si başına aletin doğrusal hızı (m/s)
+    jr = axis                    # bu joint'in 1 rad/s'si başına aletin açısal hızı (rad/s)
+    return np.r_[jp, jr]
+
+J = np.column_stack([hinge_column(a, o, p) for a, o in zip(axes, origins)])   # 6 x n
+twist = J @ qdot                 # [v; w]: qdot joint hızları için alet hızı
+tau = J.T @ np.r_[F, M]          # aletin F kuvveti ve M momentiyle itmesi için joint torkları
+
+def fd_column(tool_pos, q, i, eps=1e-5):   # i. sütun için central difference (konum satırları)
+    dq = np.zeros_like(q)
+    dq[i] = eps
+    return (tool_pos(q + dq) - tool_pos(q - dq)) / (2 * eps)
+```
+
+| Büyüklük | Formül |
+|---|---|
+| Hız haritası | $\begin{bmatrix} v \\ \omega \end{bmatrix} = J(q)\,\dot q = \begin{bmatrix} J_p(q) \\ J_r(q) \end{bmatrix}\dot q ,\qquad J \in \mathbb R^{6\times n}$ |
+| Bir hinge'in $i$. sütunu | $J_{p,i} = \hat a_i \times (p - o_i)$, $\ J_{r,i} = \hat a_i$ |
+| Statik kuvvet haritası | $\tau = J^\top \begin{bmatrix} F \\ M \end{bmatrix}$ |
+| İleri fark | $\frac{x(q + \varepsilon e_i) - x(q)}{\varepsilon}$, hata $O(\varepsilon)$ |
+| Merkezi fark | $\frac{x(q+\varepsilon e_i) - x(q-\varepsilon e_i)}{2\varepsilon}$, hata $O(\varepsilon^2)$ |
+
+$q$ ve $\dot q$ joint açıları ve hızlarıdır; $v$ ve $\omega$ aletin world koordinatlarındaki doğrusal ve açısal hızıdır; $J_p$ ve $J_r$, $J$'nin üç konum ve üç rotation satırıdır; $\hat a_i$, $i$. hinge'in world koordinatlarındaki birim ekseni, $o_i$ bu eksen üzerindeki herhangi bir noktadır; $p$ alet noktasıdır; $F$ ve $M$ aletin çevreye uyguladığı kuvvet ve momenttir; $\tau$ joint torklarının vektörüdür; $x(q)$ alet konumu, $e_i$ $i$. joint'in birim vektörü, $\varepsilon$ adımdır.
+
+Bu **geometric Jacobian**'dır (Lynch & Park, *Modern Robotics*, Böl. 5). MuJoCo onu `mj_jac` (bir body'ye bağlı herhangi bir world noktası), `mj_jacBody` ve `mj_jacSite` ile döndürür ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)). Alete bastıran bir dış wrench (kuvvet artı moment) $(F, M)$, $-J^\top[F;M]$ ile tutulur.
+
+<details>
+<summary>Matematik ayrıntısı: sütun formülü, virtual work ve en iyi finite difference adımı</summary>
+
+**Bir hinge'in sütunu.** $i$. hinge'i 1 rad/s ile döndürmek, ondan sonraki her şeyi $o_i$'den geçen $\hat a_i$ ekseni etrafında döndürür. $o$'dan geçen bir doğru etrafında $\omega$ açısal hızıyla dönen rigid bir cisim üzerindeki $p$ noktası $\omega \times (p - o)$ hızıyla hareket eder; bu da $J_{p,i} = \hat a_i \times (p - o_i)$ ve $J_{r,i} = \hat a_i$ verir.
+
+**Virtual work ile statik kuvvet haritası.** Dengede joint'lerin verdiği güç aletin aktardığı güce eşittir: her $\dot q$ için $\tau^\top \dot q = [F; M]^\top [v; \omega] = [F; M]^\top J\dot q$, dolayısıyla $\tau = J^\top [F; M]$. Sürtünme, boşluk ve yerçekimi ek terimlerdir (yerçekimi Boz bölümünde giriyor).
+
+**Finite difference hatası.** Taylor açılımı ileri fark için $\varepsilon$ mertebesinde, merkezi fark için $\varepsilon^2$ mertebesinde bir truncation hatası verir. Floating-point yuvarlaması yaklaşık $\epsilon_{\text{mach}}\lvert x\rvert/\varepsilon$ kadar hata ekler; $\epsilon_{\text{mach}}$ machine epsilon'dur (bir double'ın göreli hassasiyeti). Toplamı en küçük yapmak, ileri fark için kabaca $\sqrt{\epsilon_{\text{mach}}}$, merkezi fark için $\sqrt[3]{\epsilon_{\text{mach}}}$ civarında bir en iyi adım verir.
+
+**Rotation sütunları özeldir.** Bir hinge'i $\varepsilon$ kadar oynatmak aleti tam olarak o hinge'in ekseni etrafında $\varepsilon$ kadar döndürür; orientation fark oranında truncation hatası yoktur, yalnızca yuvarlama vardır (Adım 2).
+
+Daha derine: AIEFS [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml), [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/17-linear-systems); Lynch & Park, *Modern Robotics*, Böl. 5 "Velocity Kinematics and Statics".
+
+</details>
 
 ## Deney
 
@@ -66,9 +118,11 @@ mujoco.mj_jacSite(m, d, jp, jr, site_id)   # 3 x nv each, world frame
 
 Öteleme hatası V biçiminde. Minimumun sağında truncation (ε'un her on kat büyümesinde hata ileri farkta 10 kat, merkezi farkta 100 kat artıyor); solunda yuvarlama (ε'un her on kat küçülmesinde hata 10 kat artıyor). En iyi ileri adım 1e-8 (hata 9,8e-09), en iyi merkezi adım 1e-5 (hata 5,6e-12). Karşılaştırma için $\sqrt{\epsilon_{\text{mach}}} = $ 1,5e-08 ve $\sqrt[3]{\epsilon_{\text{mach}}} = $ 6,1e-06.
 
+![Log eksenlerde, adım boyuna göre finite difference Jacobian hatası. Translation sütunlarında iki yöntem de V çiziyor: ileri fark 1e-8 rad civarında, merkezi fark 1e-5 rad civarında en iyi; daha küçük adımlarda ikisi de kötüleşiyor. Rotation sütunlarında hata yalnızca adım küçüldükçe büyüyor.](../../experiments/09-jacobians/fd_step_sweep.png)
+
 Rotation sütunlarında **hiç truncation hatası yok**: bir hinge'i ε kadar oynatmak site'ı tam olarak o hinge'in ekseni etrafında ε kadar döndürür; fark oranı kesindir, geriye yalnızca yuvarlama kalır (ε = 0,1'de 4,8e-15, ε küçüldükçe büyüyor).
 
-**Adım 3 · simülasyonda τ = Jᵀ F doğrulaması.** Yalnızca dış kuvvet etki etsin diye yerçekimi ve joint friction loss kapatıldı. Kol position servo'larıyla bir pozu tutuyor; gripper site'ına `xfrc_applied` ile sabit bir kuvvet uygulanıyor (kuvvet artı $r\times F$ momenti, çünkü `xfrc_applied` body'nin kütle merkezinde etki eder). 20 s'lik simülasyondan sonra joint'ler duruyor (en büyük |q̇| = 8,5e-15 rad/s) ve servo torkları $J^\top F$ ile karşılaştırılıyor:
+**Adım 3 · simülasyonda τ = Jᵀ F doğrulaması.** Yalnızca dış kuvvet etki etsin diye yerçekimi ve joint friction loss kapatıldı. Kol position servo'larıyla (komut edilen açıya doğru geri iten motorlar) bir pozu tutuyor; gripper site'ına `xfrc_applied` ile sabit bir kuvvet uygulanıyor (kuvvet artı $r\times F$ momenti, çünkü `xfrc_applied` body'nin kütle merkezinde etki eder). 20 s'lik simülasyondan sonra joint'ler duruyor (en büyük |q̇| = 8,5e-15 rad/s) ve servo torkları $J^\top F$ ile karşılaştırılıyor:
 
 | site'taki F (N) | $J^\top F$ (N m), joint 1–5 | servo torku (N m), işaret çevrilmiş | en büyük fark |
 |---|---|---|---|

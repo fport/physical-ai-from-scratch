@@ -20,13 +20,64 @@ System identification (lesson 38) narrows the gap between simulator and robot bu
 
 ## Core idea
 
-**Domain randomization (DR).** Instead of optimizing the expected return on the nominal parameters $\xi_0$, optimize it over a distribution $p_w(\xi)$ of simulator parameters with width $w$:
+### In plain words
 
-$$\pi^*_w = \arg\max_\pi\ \mathbb{E}_{\xi \sim p_w}\big[J(\pi;\xi)\big].$$
+Train a driver on one simulator only and they learn its exact quirks: where to brake, how much grip there is, how quickly the car reacts. Put them in a real car that differs a little and they misjudge every corner. Train them instead on many slightly different simulators, each with its own grip, weight and reaction delay, and they learn a driving style that works across the whole family. If the real car belongs to that family, it is, in Tobin et al.'s words, "just another variation". This is *domain randomization* (DR).
 
-If the real robot's $\xi_{\text{real}}$ lies inside the support of $p_w$, the real world is, in the words of Tobin et al., "just another variation" ([arXiv 1703.06907](https://arxiv.org/abs/1703.06907)); they randomized rendering to train an object detector on simulated images only. Tan et al. randomized physical parameters, added perturbations and identified an actuator model and latency to move quadruped gaits from simulation to a real robot ([arXiv 1804.10332](https://arxiv.org/abs/1804.10332)).
+The price: a driver who must handle everything from ice to dry asphalt drives more cautiously than one who only knows dry asphalt. A range that is too narrow gives a brittle policy; one that is too wide gives a timid one. It is the same trade-off as regularization in machine learning: a little generalizes better, too much underfits.
 
-**The trade-off.** A policy that must work for every $\xi$ in a wide range cannot exploit any one of them. Width buys robustness and costs nominal performance, much like regularization trades variance for bias (see AIEFS: [Bias-Variance Tradeoff](https://aiengineeringfromscratch.com/lesson?path=phases/02-ml-fundamentals/10-bias-variance), [Sim-to-Real Transfer](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/11-sim-to-real-transfer)):
+```mermaid
+flowchart TD
+    W["choose width w"] --> S["draw a simulator:<br/>mass, damping,<br/>friction, delay"]
+    S --> R["run an episode,<br/>score the tracking error"]
+    R --> O["optimizer (CEM)<br/>updates the controller"]
+    O --> S
+    O --> P["tuned controller"]
+    P --> T["test on held-out<br/>'real' plants"]
+```
+
+### Domain randomization, as code
+
+The only change from ordinary training is where the score comes from: an average over randomly drawn simulators instead of one fixed simulator. In this lesson the optimizer is the *cross-entropy method* (CEM), a simple derivative-free search: sample candidate controllers, keep the best ones, move the sampling distribution toward them, repeat.
+
+```python
+def expected_return(gains, w, n=10):
+    plants = [sample_plant(w) for _ in range(n)]       # n random simulators of width w
+    return mean(J(gains, p) for p in plants)           # J: return of one episode (here -RMS tracking error)
+
+mu, sd = initial_mean, initial_spread                  # search distribution over (Kp, Kd, kg)
+for it in range(12):                                   # CEM iterations
+    cands = [normal(mu, sd) for _ in range(24)]        # candidate controllers
+    elite = best(cands, key=lambda g: expected_return(g, w))
+    mu, sd = mean(elite), std(elite)                   # move the search toward the best ones
+```
+
+| What | Formula |
+|---|---|
+| Nominal training | $\pi^*_0 = \arg\max_\pi\ J(\pi;\xi_0)$ |
+| Domain randomization | $\pi^*_w = \arg\max_\pi\ \mathbb{E}_{\xi \sim p_w}\big[J(\pi;\xi)\big]$ |
+| Width in this lesson | scales $\in [2^{-w}, 2^{w}]$ (log-uniform), delay $\in [5, 5+40w]$ ms |
+
+$\pi$ is the policy (here the gains $K_p$, $K_d$, $k_g$), $\xi$ a vector of simulator parameters (mass, damping, friction, delay), $\xi_0$ its nominal value, $J(\pi;\xi)$ the return of the policy on the simulator with parameters $\xi$, and $p_w$ the distribution of simulators with width $w$.
+
+<details>
+<summary>Math details: why averaging over simulators helps, and when it cannot</summary>
+
+**Coverage.** DR optimizes the average return over $p_w$. If the real robot's $\xi_{\text{real}}$ lies inside the support of $p_w$ (the set of simulators that can be drawn), the policy has been scored on simulators like it; if it lies outside, nothing in training checked that case.
+
+**Average vs worst case.** As $w$ grows, the average is increasingly dominated by hard simulators (long delays, heavy links), so the optimum moves toward a cautious, worst-case controller. In the limit this approaches a minimax problem, $\max_\pi \min_\xi J(\pi;\xi)$, which gives up nominal performance for guarantees.
+
+**The bias-variance analogy.** Training on one $\xi_0$ is like fitting one data set exactly: low error there, high error on new data. A wider $p_w$ acts like regularization: higher error on the known plant (bias), lower sensitivity to the unknown one (variance) (see AIEFS: [Bias-Variance Tradeoff](https://aiengineeringfromscratch.com/lesson?path=phases/02-ml-fundamentals/10-bias-variance)).
+
+**Limits of a fixed controller.** A controller with fixed gains must find one compromise for every $\xi$. When the real variation is larger than what any single compromise can absorb, no width helps (Observe 4).
+
+**Prior work.** Tobin et al. ([arXiv 1703.06907](https://arxiv.org/abs/1703.06907)) randomized rendering to train an object detector on simulated images only. Tan et al. ([arXiv 1804.10332](https://arxiv.org/abs/1804.10332)) randomized physical parameters, added perturbations and identified an actuator model and latency to move quadruped gaits from simulation to a real robot.
+
+Go deeper: [Sim-to-Real Transfer](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/11-sim-to-real-transfer), [Bias-Variance Tradeoff](https://aiengineeringfromscratch.com/lesson?path=phases/02-ml-fundamentals/10-bias-variance) (AIEFS); de Boer et al., "A Tutorial on the Cross-Entropy Method" (2005).
+
+</details>
+
+### The trade-off, and what to randomize
 
 | Width | Nominal sim | Real robot |
 |---|---|---|
@@ -34,15 +85,15 @@ If the real robot's $\xi_{\text{real}}$ lies inside the support of $p_w$, the re
 | just covers $\xi_{\text{real}}$ | slightly worse | works |
 | far wider | worse | worse again: the policy is tuned for the worst case |
 
-**What to randomize** for an arm: the parameters of lesson 38 (masses, damping, friction, armature, actuator gain) and the delay of lesson 37. Center the ranges on identified values and size them from the identification's uncertainty.
+For an arm, randomize the parameters of lesson 38 (masses, damping, friction, armature, actuator gain) and the delay of lesson 37. Center the ranges on identified values and size them from the identification's uncertainty.
 
 ## Experiment
 
-**Setup.** One arm joint with the STS3215 joint parameters of the Menagerie SO-101 (armature 0.028, damping 0.6, frictionloss 0.052, torque limit 2.94 N·m) carrying a 0.5 kg link with its center of mass at 15 cm (gravity torque up to 0.736 N·m). Torque control through a measurement delay. The "policy" is a three-parameter controller,
+**Setup.** One arm joint with the STS3215 joint parameters of the Menagerie SO-101 (armature 0.028, damping 0.6, frictionloss 0.052, torque limit 2.94 N·m) carrying a 0.5 kg link with its center of mass at 15 cm (gravity torque up to 0.736 N·m). Torque control through a measurement delay. The "policy" is a three-parameter controller: PD tracking plus a gravity term $k_g\cos q_{\text{ref}}$,
 
 $$\tau = \operatorname{clip}\big(K_p(q_{\text{ref}} - \tilde q) + K_d(\dot q_{\text{ref}} - \dot{\tilde q}) + k_g\cos q_{\text{ref}},\ \pm 2.94\big),$$
 
-tuned with the cross-entropy method (CEM: 12 iterations × 24 candidates × 10 sampled plants each) to minimize RMS tracking error of a 3 s reference, $0.5\sin(2\pi\,0.4t) + 0.25\sin(2\pi\,1.1t+1)$ rad, at a 2 ms step. With width $w$, every training episode draws mass, damping and friction-loss scales log-uniformly in $[2^{-w}, 2^{w}]$ and the delay uniformly in $[5, 5+40w]$ ms (nominal: scales 1, delay 5 ms).
+where $\tilde q$ is the delayed measurement. It is tuned with CEM (12 iterations × 24 candidates × 10 sampled plants each) to minimize RMS tracking error of a 3 s reference, $0.5\sin(2\pi\,0.4t) + 0.25\sin(2\pi\,1.1t+1)$ rad, at a 2 ms step. With width $w$, every training episode draws mass, damping and friction-loss scales log-uniformly in $[2^{-w}, 2^{w}]$ and the delay uniformly in $[5, 5+40w]$ ms (nominal: scales 1, delay 5 ms).
 
 ```python
 def sample_plants(rng, n, w):
@@ -62,6 +113,8 @@ Full script: [`experiments/39-domain-randomization/experiment.py`](../experiment
 | 0.5 | 5–25 | 0.71–1.41 | 55.43 | 3.244 | 0.563 | 0.475 | 1.307 | 3.293 | **28/32** |
 | 0.75 | 5–35 | 0.59–1.68 | 45.19 | 2.672 | 0.461 | 0.736 | **1.228** | 3.118 | 27/32 |
 | 1.0 | 5–45 | 0.50–2.00 | 30.41 | 1.969 | 0.591 | 1.224 | 1.233 | 3.419 | 27/32 |
+
+![Left: number of the 32 held-out real plants with RMS error below 2 degrees versus randomization width w, rising from 5 at w = 0 to 28 at w = 0.5 and falling to 13 at w = 2; widths whose training delays cover all real delays are shaded. Right: RMS tracking error on the nominal plant rises steadily with width, while the mean error on the real plants is lowest around w = 0.75 to 1 and rises again beyond.](../experiments/39-domain-randomization/width_tradeoff.png)
 
 **Observe.**
 

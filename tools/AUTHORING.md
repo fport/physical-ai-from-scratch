@@ -39,7 +39,7 @@ The reader is a good programmer who has not studied control, robotics or signal 
 4. A small table of the key formulas, and one sentence that defines every symbol right after it.
 5. `<details><summary>Math details: …</summary> … </details>` (TR: `Matematik ayrıntısı: …`) — derivations, assumptions, edge cases and a "Go deeper" line with AIEFS / primary-source links. Leave a blank line after `<summary>…</summary>` and before `</details>` so Markdown and math render inside.
 
-Figures: when a curve tells the story better than a table (an error vs. parameter trade-off, a trajectory, a learning curve), the experiment script also saves one PNG next to itself (matplotlib Agg, ~9×3.4 in, 150 dpi, log axes when values span decades) **without changing its printed output**, and the lesson embeds it with descriptive alt text: `![…](../experiments/NN-slug/figure.png)`. Keep the table too: the numbers in the text must still come from `output.txt`.
+Figures, preferred way: a small `experiments/NN-slug/plot.py` that parses that lesson's `output.txt` and saves the PNG next to it (no re-run of the experiment needed, so long experiments stay untouched). Alternative: when a curve tells the story better than a table (an error vs. parameter trade-off, a trajectory, a learning curve), the experiment script also saves one PNG next to itself (matplotlib Agg, ~9×3.4 in, 150 dpi, log axes when values span decades) **without changing its printed output**, and the lesson embeds it with descriptive alt text: `![…](../experiments/NN-slug/figure.png)`. Keep the table too: the numbers in the text must still come from `output.txt`.
 
 ## Experiments
 

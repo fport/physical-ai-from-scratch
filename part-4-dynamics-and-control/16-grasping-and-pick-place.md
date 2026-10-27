@@ -20,15 +20,60 @@ Part 7 trains policies from demonstrations, and the cheapest demonstrations come
 
 ## Core idea
 
+### In plain words
+
+When you pinch a cube between two fingers, nothing holds it from below: friction at the fingertips carries the whole weight. Friction can carry at most *grip coefficient × how hard you squeeze*. If the weight is larger, the cube slides out. Holding a wet bar of soap is the low-friction case: you have to squeeze harder, and if you squeeze while the fingers are still moving, the soap shoots away.
+
+A scripted pick-and-place is a small **state machine**, like the states of a game character or a traffic light: each state has an action (where the arm goes, whether the jaw is open) and an exit condition (a timer, or something sensed). The script moves the open jaws above the cube, lowers them, closes until the sensors say the grip has formed, lifts, and holds. The physics test at the end is honest: no welding the cube to the gripper, only contact and friction.
+
+```mermaid
+stateDiagram-v2
+    [*] --> settle
+    settle --> pre: 0.3 s
+    pre --> down: 1.2 s
+    down --> close: 0.8 s
+    close --> lift: both jaws touch, jaw speed below 0.05 rad/s for 0.1 s
+    close --> lift: timeout 4 s (lift anyway)
+    lift --> hold: 1.0 s
+    hold --> [*]: 0.8 s, then test success
+```
+
+### The grasp test and the state machine as code
+
+```python
+# Friction cone for a two-jaw grasp on parallel faces
+squeeze = N1 + N2                  # normal forces of the two jaws on the cube [N] (mj_contactForce)
+ratio = mu * squeeze / (m * g)     # how many times friction could carry the weight
+holds = ratio >= 1.0               # below 1 the cube slides out of the jaws
+
+# State machine: an action per state, an exit condition per state
+state, t0 = "settle", time()
+while state != "done":
+    command_arm_and_jaw(state)                         # IK + min-jerk target, jaw open or closed
+    t = time() - t0
+    if state == "close":
+        if both_jaws_touch() and jaw_still(speed=0.05, for_s=0.1):   # sensed, not timed
+            state, t0 = "lift", time()
+        elif t > 4.0:                                  # timeout: lift anyway, the test will tell
+            state, t0 = "lift", time()
+    elif t >= DURATION[state]:
+        state, t0 = NEXT[state], time()                # settle -> pre -> down -> close; lift -> hold -> done
+```
+
+| Formula | What it says |
+|---|---|
+| $\mu\,(N_1 + N_2) \;\ge\; m g$ | friction can carry the weight (Lynch & Park, ch. 12) |
+| $\dfrac{\mu (N_1 + N_2)}{m g} \ge 1$ | the same as a ratio: the friction-cone margin |
+| half-angle $= \arctan\mu$ | each contact force must stay inside a cone this wide around the surface normal |
+| $m_{\max} = \mu (N_1+N_2)/g$ | the heaviest cube a given squeeze can lift |
+
+Here $\mu$ is the friction coefficient between jaw and cube, $N_1, N_2$ the normal forces with which the two jaws press on the cube, $m$ the cube mass and $g$ = 9.81 m/s² gravity. The grasp is **antipodal**: two contacts whose normals point at each other along the line joining them; on two parallel cube faces the jaws press horizontally and only friction acts upward.
+
 **Gripper geometry.** The SO-101 gripper has a fixed jaw and a moving jaw on a hinge (the `gripper` joint, range −0.17 to 1.75 rad in the Menagerie model), driven by an STS3215 position servo. Commanding the closed limit (−0.17 rad) on a 3 cm cube makes the servo push until it reaches its torque cap; the squeeze force is set by that cap and the jaw lever.
 
-**Antipodal grasp.** Two contacts whose normals are opposite and lie on the line joining the contact points. For a top-down grasp on two parallel cube faces, the jaws press horizontally with normal forces $N_1, N_2$ and the weight must be carried entirely by friction (Lynch & Park, ch. 12):
+**Which friction counts.** MuJoCo uses the friction of the geom with higher `priority` in a contact (otherwise the element-wise maximum) ([Modeling](https://mujoco.readthedocs.io/en/stable/modeling.html)); the SO-101 jaw pads have priority 1 and friction 1, so the cube gets priority 2 to make its μ the one that counts.
 
-$$\mu\,(N_1 + N_2) \;\ge\; m g \qquad\Longleftrightarrow\qquad \frac{\mu (N_1 + N_2)}{m g} \ge 1$$
-
-This is the friction-cone condition: each contact force must stay inside its cone of half-angle $\arctan\mu$. MuJoCo uses the friction of the geom with higher `priority` in a contact (otherwise the element-wise maximum) ([Modeling](https://mujoco.readthedocs.io/en/stable/modeling.html)); the SO-101 jaw pads have priority 1 and friction 1, so the cube gets priority 2 to make its μ the one that counts.
-
-**State machine.** Each state has an entry action and an exit condition:
+**The states in detail:**
 
 | state | arm target | jaw | exit when |
 |---|---|---|---|
@@ -43,6 +88,21 @@ Arm targets come from damped-least-squares IK on the 5 arm joints (gripper frame
 
 **Success, physically.** At the end: cube bottom ≥ 4 cm above the floor **and** contact with both jaws.
 
+<details>
+<summary>Math details: the friction cone, the squeeze and why the lift needs a little more</summary>
+
+**Coulomb friction.** At each contact the tangential force $f_{t,i}$ can be at most $\mu N_i$. Geometrically, the total contact force must lie inside a cone around the normal with half-angle $\arctan\mu$ (lesson 04). For the antipodal grasp the two tangential forces together carry the weight: $f_{t,1} + f_{t,2} = mg$ with each $f_{t,i} \le \mu N_i$, hence $\mu(N_1 + N_2) \ge mg$.
+
+**Squeeze from the torque cap.** A stalled position servo pushes with its cap $\tau_{\max}$; at jaw lever $r_j$ the moving jaw presses with about $\tau_{\max}/r_j$, and the fixed jaw pushes back with the same force so the cube stays balanced. Each contact therefore carries about $\tau_{\max}/r_j$ and $N_1 + N_2 \approx 2\tau_{\max}/r_j$; the force is not split between them. That is why the squeeze in part B grows roughly in proportion to the cap.
+
+**The lift.** Accelerating the cube upward at $a$ needs $\mu(N_1+N_2) \ge m(g + a)$, so the measured success boundary sits slightly above a static ratio of 1. During closing the contacts are moving and the jaw pushes the cube sideways; if the contact force leaves its cone at that moment, the cube slips away before the static test even applies, which is what part A shows at very low μ.
+
+**MuJoCo contact.** `condim` 4 adds torsional friction to the sliding friction of `condim` 3, and MuJoCo's contacts are soft: they allow a small penetration, so forces and ejection speeds at very low μ are properties of the model ([Modeling](https://mujoco.readthedocs.io/en/stable/modeling.html)).
+
+Go deeper: [lesson 04 · Friction](../part-1-simulation/04-friction.md); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), ch. 12 (Grasping and Manipulation); MuJoCo [Modeling · contact parameters](https://mujoco.readthedocs.io/en/stable/modeling.html).
+
+</details>
+
 ## Experiment
 
 The pick is one function that Part 7 can import to record demonstrations:
@@ -54,13 +114,13 @@ def scripted_pick(model, data, cube_pos, record=False):
     per-step (time, state, qpos, ctrl) trajectory."""
 ```
 
-Setup: SO-101 (Menagerie `scene.xml`, timestep 2 ms), 3 cm cube, `condim` 4, cube friction μ, cube mass m, jaw torque cap τ (default 2.94 N·m). Every sweep value runs 10 cube positions uniform in a 2 × 2 cm square around (22, 0) cm, seed 0. Full script: [`experiments/16-grasping-and-pick-place/experiment.py`](../experiments/16-grasping-and-pick-place/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministic, ~30 s.
+Setup: SO-101 (Menagerie `scene.xml`, timestep 2 ms), 3 cm cube, `condim` 4 (sliding plus torsional friction), cube friction μ, cube mass m, jaw torque cap τ (default 2.94 N·m). Every sweep value runs 10 cube positions uniform in a 2 × 2 cm square around (22, 0) cm, seed 0. Full script: [`experiments/16-grasping-and-pick-place/experiment.py`](../experiments/16-grasping-and-pick-place/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministic, ~30 s.
 
 Nominal pick (μ 1.0, 30 g, default cap): success, cube bottom at 7.37 cm, IK error 0.18 mm, jaw normal forces 39.84 / 39.83 N, 2287 recorded steps. With the default cap the squeeze is about 80 N on a 0.29 N cube: friction is never the limit. To see the cone, parts A and C use a 0.5 N·m cap.
 
 *Predict:* with τ = 0.5 N·m the squeeze is about 13 N, so for a 30 g cube the cone condition fails below μ ≈ 0.02. Will the measured boundary sit there?
 
-**A. Friction sweep** (30 g, τ = 0.5 N·m). "close" = time in the close state, "squeeze" = $N_1 + N_2$ when it ends (means over trials where the jaw closed).
+**A. Friction sweep** (30 g, τ = 0.5 N·m). "close" = time in the close state, "squeeze" = $N_1 + N_2$ when it ends (means over trials where the jaw closed). "Wilson 95%" is the range of true success rates that is consistent with k successes in n trials; with only 10 trials it is wide. "Ejected" counts cubes that ended more than 30 cm away.
 
 | μ | success | Wilson 95% | close | squeeze | $\mu(N_1+N_2)/mg$ | held / not closed / dropped; ejected |
 |---|---|---|---|---|---|---|
@@ -98,6 +158,8 @@ Squeeze grows roughly in proportion to the cap (7.04 → 12.74 → 27.23 N). Bel
 | squeeze [N] | 14.24 | 14.95 | 15.52 | 15.87 | 16.25 | 16.47 | 16.61 | 16.90 |
 | $\mu(N_1+N_2)/mg$ | 14.52 | 4.57 | 2.37 | 1.62 | 1.24 | 1.12 | 1.02 | 0.74 |
 | outcome | held | held | held | held | held | dropped | dropped | dropped |
+
+![Left: outcomes of 10 trials per friction value in part A; up to μ = 0.03 most trials end with the jaw never settling on the cube, from μ = 0.05 all 10 are held. Right: success rate of part C against the friction-cone ratio on a log axis; every mass with ratio 1.24 or more succeeds, every mass with ratio 1.12 or less fails, just above the dashed limit at 1.](../experiments/16-grasping-and-pick-place/grasp_outcomes.png)
 
 Here the cone condition is the whole story: every mass whose mean ratio is ≥ 1.24 holds in all trials, every mass with mean ratio ≤ 1.12 drops in all trials during the lift (Wilson 95% for 10/10: [0.72, 1.00]; for 0/10: [0.00, 0.28]). The boundary sits slightly above the static value of 1, consistent with the extra force needed to accelerate the cube upward during the lift.
 

@@ -16,35 +16,104 @@
 
 ## Problem
 
-Inverse kinematics ([ders 10](../part-3-kinematics/10-inverse-kinematics.md)) sana hedef configuration'ı verir, oraya nasıl gideceğini vermez. Bir Franka Panda'nın önüne 20 × 20 × 50 cm'lik bir kutu koy; el kutunun solunda başlasın, sağında bitsin. İki configuration da çarpışmasız. Joint space'te aralarındaki düz çizgi ise değil: her 0,005 rad'da yeniden kontrol edildiğinde kol kutuya 139,0 mm giriyor (aşağıdaki koşumumuz). 7 boyutlu joint space'in boş kısmından geçen bir path'e ve "bulunan path"in gerçekten boş olup olmadığını bilmeye ihtiyacımız var.
+Inverse kinematics ([ders 10](../part-3-kinematics/10-inverse-kinematics.md)) sana hedef configuration'ı (tek bir eklem açıları takımını) verir, oraya nasıl gideceğini vermez. Bir Franka Panda'nın önüne 20 × 20 × 50 cm'lik bir kutu koy; el kutunun solunda başlasın, sağında bitsin. İki configuration da çarpışmasız. Joint space'te (eklem açısı vektörlerinin uzayında) aralarındaki düz çizgi ise değil: her 0,005 rad'da yeniden kontrol edildiğinde kol kutuya 139,0 mm giriyor (aşağıdaki koşumumuz). 7 boyutlu joint space'in boş kısmından geçen bir path'e ve "bulunan path"in gerçekten boş olup olmadığını bilmeye ihtiyacımız var.
 
 ## Ana fikir
+
+### Sade anlatımla
+
+Koordinatları metre değil eklem açısı olan bir labirent düşün. 7 eklemli bir kol için labirentteki tek bir nokta, kolun eksiksiz bir duruşudur: yedi sayı. Duvarlar, kolun herhangi bir parçasının bir engelle iç içe geçtiği bütün duruşlardır. Bu labirent **configuration space**'tir (C-space). Odadaki sıradan bir kutu burada tuhaf, eğri bir duvara dönüşür ve o duvarı kimse çizmez: 7 boyutta bu çok pahalıdır.
+
+Ucuz olan, bir **collision checker**'a tek tek duruş sormaktır: "kolu buraya koy; bir şey iç içe geçiyor mu?" Sampling-based bir planner labirenti yalnızca bu evet/hayır kâhiniyle keşfeder. **RRT** (rapidly-exploring random tree) dart atarak keşfeder: rastgele bir duruş seç, tree'nin zaten ulaştığı en yakın duruşu bul, ondan darta doğru kısa bir adım at ve adım çarpışmasızsa tut. Keşfedilmemiş büyük bölgeler dartların çoğunu yakalar, bu yüzden tree hızla yayılır. **RRT-Connect** biri başlangıçtan, biri hedeften iki tree büyütür ve her adımdan sonra onları birleştirmeyi dener.
+
+Sorun adımın kendisinde. Adım joint space'te düz bir doğru parçasıdır ve checker bu parça üzerinde ancak sonlu sayıda duruşu test edebilir: her *res* radyanda bir. Test edilen iki duruş arasında olan her şeyin boş olduğu varsayılır. *res* kaba olursa bir adım duvarın ince bir yerinin içinden atlayabilir ve planner yine başarı raporlar. Aramadan sonra **shortcutting**, dolambaçları aynı kontrolden geçen düz parçalarla değiştirerek zikzaklı sonucu düzeltir.
+
+### RRT-Connect döngüsü
+
+```mermaid
+flowchart TD
+    S["dart at:<br/>joint limitleri içinde rastgele duruş"] --> N["A tree'sindeki en yakın node,<br/>darta doğru en fazla ε adım"]
+    N --> C{"adım çarpışmasız mı?<br/>(her res rad'da test)"}
+    C -- "hayır" --> W["A ve B tree'lerini değiştir"]
+    C -- "evet" --> A["yeni node'u A tree'sine ekle"]
+    A --> B["B tree'si yeni node'a ulaşana<br/>ya da engellenene kadar ona doğru adım atar"]
+    B --> M{"tree'ler birleşti mi?"}
+    M -- "hayır" --> W
+    W --> S
+    M -- "evet" --> P["path → shortcutting →<br/>yoğun yeniden kontrol"]
+```
+
+### RRT-Connect kod olarak
+
+```python
+def rrt_connect(q_start, q_goal, eps=0.5, res=0.05, budget=2000):
+    A, B = Tree(q_start), Tree(q_goal)          # one tree grows from each end
+    for _ in range(budget):
+        q_rand = uniform(joint_lo, joint_hi)    # the dart: a random pose inside the joint limits
+        q_near = A.nearest(q_rand)              # closest pose tree A has already reached
+        q_new = step(q_near, q_rand, eps)       # move at most eps rad (L2) toward the dart
+        if edge_free(q_near, q_new, res):
+            A.add(q_new, parent=q_near)
+            q_b = B.nearest(q_new)              # CONNECT: tree B walks greedily toward q_new
+            while True:
+                q_next = step(q_b, q_new, eps)
+                if not edge_free(q_b, q_next, res):
+                    break                       # tree B is blocked
+                B.add(q_next, parent=q_b)
+                q_b = q_next
+                if q_b == q_new:                # the trees touch
+                    return join(A, B, q_new)    # start ... q_new ... goal
+        A, B = B, A                             # alternate which tree grows
+    return None                                 # budget used up (not proof that no path exists)
+
+def edge_free(a, b, res):                       # the only place the obstacle is ever "seen"
+    n = ceil(norm(b - a) / res)                 # number of poses tested on the segment
+    return all(free(a + (b - a) * k / n) for k in range(1, n + 1))
+
+def shortcut(path, res, tries=200):
+    for _ in range(tries):
+        i, j = sorted(random_pair(len(path)))   # two waypoints (stored poses on the path)
+        if j - i >= 2 and edge_free(path[i], path[j], res):
+            path = path[:i + 1] + path[j:]      # drop the detour between them
+    return path
+```
+
+| Büyüklük | Formül |
+|---|---|
+| Boş uzay | $\mathcal{C}_{free} = \mathcal{C} \setminus \mathcal{C}_{obs}$ |
+| Bir edge üzerinde test edilen duruş sayısı | $n = \lceil \lVert q_b - q_a \rVert / \text{res} \rceil$ |
+| İki test arasında bir noktanın en kötü hareketi | $\sum_i r_i\,\lvert \Delta q_i \rvert$ |
+
+Burada $q$ tek bir joint vektörü (bir duruş), $\mathcal{C}$ joint limitlerinin izin verdiği bütün duruşların kutusu, $\mathcal{C}_{obs}$ çarpışan duruşlar, $q_a$ ve $q_b$ bir tree edge'inin uçları, res radyan cinsinden edge-check çözünürlüğü, $\Delta q_i$ test edilen iki duruş arasında $i$. joint'in değişimi, $r_i$ ise koldaki bir noktanın $i$. joint axis'ine uzaklığıdır.
+
+Deney RRT-Connect'i ([Kuffner & LaValle 2000](http://lavalle.pl/papers/KufLav00.pdf)) sade, tek tree'li RRT ile ([LaValle 1998](http://lavalle.pl/papers/Lav98c.pdf)) karşılaştırıyor. RRT iki noktada farklıdır: %5 olasılıkla hedefin kendisini örnekler (goal bias) ve yeni bir node hedefe $\varepsilon$ kadar yaklaşıp hedefe giden edge boş olduğunda durur.
+
+<details>
+<summary>Matematik ayrıntısı: C-space, collision sorguları, edge kontrolü ve tamlık</summary>
 
 **Configuration space.** Bir configuration $q \in \mathcal{C} \subset \mathbb{R}^7$ tek bir joint vektörüdür; joint limitleri $\mathcal{C}$'yi bir kutu yapar. Engel bölgesi ve boş uzay:
 
 $$\mathcal{C}_{obs} = \{\, q : \text{robot}(q) \cap \text{engeller} \neq \emptyset \,\}, \qquad \mathcal{C}_{free} = \mathcal{C} \setminus \mathcal{C}_{obs}.$$
 
-Workspace'teki bir kutu, $\mathcal{C}$'de kimsenin açıkça hesaplamadığı eğri bir 7 boyutlu kümeye dönüşür ([Lynch & Park böl. 10](https://hades.mech.northwestern.edu/index.php/Modern_Robotics); [LaValle böl. 4](http://lavalle.pl/planning/)). Sampling-based planner'lar yalnızca bir üyelik sorusu sorar: $q$ boş mu?
+Workspace'teki bir kutu, $\mathcal{C}$'de kimsenin açıkça hesaplamadığı eğri bir 7 boyutlu kümeye dönüşür ([Lynch & Park böl. 10](https://hades.mech.northwestern.edu/index.php/Modern_Robotics); [LaValle böl. 4](http://lavalle.pl/planning/)). Sampling-based planner'lar yalnızca bir üyelik sorusu sorar: $q$ boş mu? $\mathcal{C}_{free}$ genelde convex değildir; iki boş duruş, aralarındaki doğru parçasının boş olduğu anlamına gelmez.
 
-**MuJoCo'da collision checking.** `mj_kinematics` verilen `qpos` için her link'i yerine koyar, `mj_collision` broad ve narrow phase'i çalıştırıp `d.contact`'ı doldurur. Varsayılan sıfır contact margin'inde MuJoCo yalnızca mesafesi $\le 0$ olan contact'ları raporlar; yani `d.ncon > 0` ise $q \in \mathcal{C}_{obs}$'tir ve `-contact.dist` penetrasyon derinliğidir. Bu, dinamiği hesaplamadan `mj_forward`'ın üreteceği contact'ların aynısını üretir.
+**MuJoCo'da collision checking.** `mj_kinematics` verilen `qpos` için her link'i yerine koyar. `mj_collision` broad phase'i (birbirine değebilecek geom çiftlerini bulan ucuz bir sınırlayıcı hacim testi) ve narrow phase'i (bu çiftler için tam mesafe) çalıştırıp `d.contact`'ı doldurur. Varsayılan sıfır contact margin'inde MuJoCo yalnızca mesafesi $\le 0$ olan contact'ları raporlar; yani `d.ncon > 0` ise $q \in \mathcal{C}_{obs}$'tir ve `-contact.dist` penetrasyon derinliğidir. Bu, dinamiği hesaplamadan `mj_forward`'ın üreteceği contact'ların aynısını üretir.
 
-**Edge kontrolü.** $q_a$'dan $q_b$'ye bir tree edge'i $q(s) = q_a + s\,(q_b - q_a)$ doğru parçasıdır. $n = \lceil \lVert q_b - q_a \rVert / \text{res} \rceil$ noktada kontrol edilir. Kontrol edilen iki nokta arasında olan her şeyin boş olduğu varsayılır. Bir joint axis'ten $r$ uzaklıktaki nokta, o joint $\Delta q$ döndüğünde $r\,\Delta q$ kadar yer değiştirir; yani iki kontrol arasındaki en kötü hareket $\sum_i r_i\,\lvert \Delta q_i \rvert$ ile sınırlıdır.
+**Edge kontrolü neyi garanti eder.** $q_a$'dan $q_b$'ye bir tree edge'i $q(s) = q_a + s\,(q_b - q_a)$, $s \in [0, 1]$ doğru parçasıdır ve $n = \lceil \lVert q_b - q_a \rVert / \text{res} \rceil$ noktada test edilir. Bir joint axis'ten $r$ uzaklıktaki nokta, o joint $\Delta q$ döndüğünde $r\,\Delta q$ kadar yer değiştirir; yani test edilen iki duruş arasında hiçbir nokta $\sum_i r_i\,\lvert \Delta q_i \rvert$'den fazla hareket etmez. Cauchy–Schwarz eşitsizliği ve $r_i \le r_{max}$ ile bu en fazla $r_{max}\sqrt{7}\,\lVert \Delta q \rVert_2$'dir. Bu sınırdan sığ bir iç içe geçme iki testin arasında başlayıp bitebilir ve hiç görülmez.
 
-**Planner'lar.**
+**Olasılıksal olarak tam, optimal değil.** İki RRT türü de olasılıksal olarak tamdır: boş bir path varsa, iterasyon sayısı arttıkça birini bulma olasılığı 1'e gider. Bu, kaç iterasyon gerektiği hakkında da path'in kalitesi hakkında da hiçbir şey söylemez; ham path zikzak çizer, shortcutting bu yüzden gelir ([LaValle böl. 5](http://lavalle.pl/planning/)).
 
-| Yöntem | Bir iterasyon |
-|---|---|
-| RRT (goal bias'lı) | $q_{rand}$ örnekle (%5 olasılıkla hedef), en yakın tree node'unu bul, örneğe doğru en fazla $\varepsilon$ adım at, edge boşsa yeni node'u tut; hedef $\varepsilon$ içinde ve ulaşılabilir olunca dur |
-| RRT-Connect | A tree'sini $q_{rand}$'a doğru bir adım büyüt, sonra B tree'si yeni node'a ulaşana (çözüldü) ya da engellenene kadar ona doğru tekrar tekrar adım atsın; tree'leri değiştir ([Kuffner & LaValle 2000](http://lavalle.pl/papers/KufLav00.pdf)) |
-| Shortcutting | iki waypoint seç; aradaki alt-path'i, düz doğru parçası edge kontrolünden geçiyorsa onunla değiştir; tekrarla |
+**Narrow passage'lar.** Uniform bir örnek bir bölgeye, o bölgenin $\mathcal{C}$ hacmindeki payına eşit olasılıkla düşer. Aynı anda birkaç joint yönünde ince olan bir geçidin 7 boyutlu hacmi çok küçüktür; geçit daraldıkça içine bir dart düşmeden önce beklenen dart sayısı hızla büyür (aşağıda Boz).
 
-İki RRT türü de olasılıksal olarak tamdır, optimal değildir ([LaValle böl. 5](http://lavalle.pl/planning/)): ham path zikzak çizer, shortcutting bu yüzden gelir.
+Daha derine: [Probability and Distributions](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/06-probability-and-distributions) (uniform sampling, hacim payı olarak olasılık); [LaValle 1998](http://lavalle.pl/papers/Lav98c.pdf) (RRT); [Kuffner & LaValle 2000](http://lavalle.pl/papers/KufLav00.pdf) (RRT-Connect); [LaValle, *Planning Algorithms*, böl. 4–5](http://lavalle.pl/planning/); [Lynch & Park böl. 10](https://hades.mech.northwestern.edu/index.php/Modern_Robotics).
+
+</details>
 
 ## Deney
 
 **Tahmin.** Daha kaba bir edge-check çözünürlüğü daha az collision check ister ve daha hızlı plan yapar. Ama bazı edge'lerin kutunun köşesinin üstünden atlamasına da izin vermeli.
 
-Tam script: [`experiments/22-motion-planning/experiment.py`](../../experiments/22-motion-planning/experiment.py). Özü:
+Tam script: [`experiments/22-motion-planning/experiment.py`](../../experiments/22-motion-planning/experiment.py). Collision sorgusu:
 
 ```python
 def depth(self, q):                       # penetration (m) at q, 0 if free
@@ -53,12 +122,10 @@ def depth(self, q):                       # penetration (m) at q, 0 if free
     mujoco.mj_collision(m, d)
     return 0.0 if d.ncon == 0 else -min(d.contact[i].dist for i in range(d.ncon))
 
-def edge_free(self, a, b, res):
-    n = max(1, int(np.ceil(np.linalg.norm(b - a) / res)))
-    return all(self.free(a + (b - a) * k / n) for k in range(1, n + 1))
+# free(q) is depth(q) == 0; edge_free(a, b, res) is the function from the Core idea
 ```
 
-RRT-Connect, $\varepsilon = 0{,}5$ rad'lık extend adımı (7 joint üzerinde L2 norm), 2000 iterasyon bütçesi ve 200 shortcut denemesi kullanır. Dönen her path sonra 0,005 rad'da yeniden kontrol edilir: "çarpışan path" için referans budur. MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), sabit seed'ler, satır başına 100 seed.
+RRT-Connect, $\varepsilon = 0{,}5$ rad'lık extend adımı (7 joint üzerinde L2 norm, yani düz çizgi mesafesi), 2000 iterasyon bütçesi ve 200 shortcut denemesi kullanır. Dönen her path sonra 0,005 rad'da yeniden kontrol edilir: "çarpışan path" için referans budur. MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), sabit seed'ler, satır başına 100 seed.
 
 | res (rad) | başarı | medyan iterasyon | medyan collision check | medyan uzunluk ham → shortcut (rad) | çarpışan path | en kötü penetrasyon (mm) |
 |---|---|---|---|---|---|---|
@@ -68,6 +135,8 @@ RRT-Connect, $\varepsilon = 0{,}5$ rad'lık extend adımı (7 joint üzerinde L2
 | 0,25 | 100/100 | 29 | 96 | 5,37 → 3,44 | 42/100 | 26,5 |
 | 0,50 | 100/100 | 26 | 52 | 5,01 → 3,12 | 66/100 | 72,0 |
 | 1,00 | 100/100 | 25 | 48 | 4,98 → 3,00 | 80/100 | 156,4 |
+
+![Log eksenli edge-check çözünürlüğüne karşı iki panel. Solda medyan collision check sayısı 0,01 rad'da 2070'ten 1,0 rad'da 48'e düşüyor. Sağda yoğun yeniden kontrolün çarpışan bulduğu path'ler 100'de 0'dan 80'e, en kötü penetrasyon 0'dan 156,4 mm'ye çıkıyor; oysa her koşum başarı raporladı.](../../experiments/22-motion-planning/resolution_vs_collisions.png)
 
 Verinin söyledikleri:
 
@@ -96,12 +165,14 @@ Kutuyu, $x = 0{,}40$ m'de 2 m genişliğinde, ortası $z = 0{,}45$ m'de yatay bi
 | 0,22 | 30/30 | 856 | 6372 | 5/30 |
 | 0,20 | 25/30 | 1487 | 10520 | 0/25 |
 
-0,40 m'den 0,20 m'ye medyan iterasyon 9'dan 1487'ye çıkıyor ve 30 seed'in 5'i bütçeyi bitiriyor. Başlangıç ve hedef her satırda boş (script kontrol ediyor) ve 0,20 m'de başarılı 25 path yoğun yeniden kontrolden geçiyor; yani boş bir yol var: 5 başarısızlık problemin çözümsüz olmasından değil, planner'ın bütçeyi bitirmesinden. Mekanizma: uniform sampling bir bölgeye hacmiyle orantılı olasılıkla isabet eder. Yarık yüksekliğini yarıya indirmek, içinden geçen boş tüpü aynı anda birkaç joint yönünde daraltır; 7 boyuttaki hacmi workspace'teki boşluktan çok daha hızlı küçülür. Sampling-based planning'in narrow passage problemi budur. Ayrıca daha geniş dört satırda res 0,05 rad'da 30 path'in 2 ila 5'i hâlâ duvarı sıyırıyor: kaba edge kontrolünün yanıldığı yer tam da açıklığın az olduğu yer.
+0,40 m'den 0,20 m'ye medyan iterasyon 9'dan 1487'ye çıkıyor ve 30 seed'in 5'i bütçeyi bitiriyor. Başlangıç ve hedef her satırda boş (script kontrol ediyor) ve 0,20 m'de başarılı 25 path yoğun yeniden kontrolden geçiyor; yani boş bir yol var: 5 başarısızlık problemin çözümsüz olmasından değil, planner'ın bütçeyi bitirmesinden.
+
+Mekanizma: uniform bir dart bir bölgeye hacmiyle orantılı olasılıkla isabet eder. Yarık yüksekliğini yarıya indirmek, içinden geçen boş tüpü aynı anda birkaç joint yönünde daraltır; 7 boyutlu hacmi odadaki boşluktan çok daha hızlı küçülür. Sampling-based planning'in **narrow passage problemi** budur. Ayrıca daha geniş dört satırda res 0,05 rad'da 30 path'in 2 ila 5'i hâlâ duvarı sıyırıyor: kaba edge kontrolünün yanıldığı yer tam da açıklığın az olduğu yer.
 
 ## Gerçek robotta
 
 - **Edge çözünürlüğü gerçek bir parametredir.** MoveIt'in OMPL arayüzü bunu `longest_valid_segment_fraction` / `maximum_waypoint_distance` olarak sunar ve dokümantasyonu uyarır: "Set too high and collisions will be missed around small or narrow objects" ([MoveIt OMPL tutorial](https://moveit.picknik.ai/main/doc/examples/ompl_interface/ompl_interface_tutorial.html)). Tablomuz bu cümlenin sayılarla hâli.
-- **Panda.** Planning yukarıdaki 7 boyutlu uzayda; joint limitleri Menagerie [`panda.xml`](https://github.com/google-deepmind/mujoco_menagerie/blob/f3b6013/franka_emika_panda/panda.xml)'den gelir (ör. joint 4: [−3,0718, −0,0698] rad). MuJoCo gerçek kol yüzeyini değil, link mesh'lerinin convex hull'larını çarpıştırır.
+- **Panda.** Planning yukarıdaki 7 boyutlu uzayda; joint limitleri Menagerie [`panda.xml`](https://github.com/google-deepmind/mujoco_menagerie/blob/f3b6013/franka_emika_panda/panda.xml)'den gelir (ör. joint 4: [−3,0718, −0,0698] rad). MuJoCo gerçek kol yüzeyini değil, link mesh'lerinin convex hull'larını (her mesh'i saran en sıkı convex şekli) çarpıştırır.
 - **SO-101.** Menagerie [`so101.xml`](https://github.com/google-deepmind/mujoco_menagerie/blob/f3b6013/robotstudio_so101/so101.xml)'de 5 kol joint'i ve bir gripper var; gripper sabitken planning uzayı 5 boyutlu. Prosedür: masayı ve engelleri ölç, her kutuyu ölçüm hatan kadar şişir, MuJoCo'da plan yap, son path'i yoğun yeniden kontrol et, sonra position servo'lar üzerinden yavaşça uygula. Gerçek kolda henüz ölçülmedi.
 - **Model hatası collision hatasıdır.** Gerçekte 1 cm kaymış bir kutu, modellenmemiş 1 cm'lik bir penetrasyondur. Engelleri (ya da contact `margin`'ini) en az kalibrasyon hatan kadar şişir (bkz. [ders 20](../part-5-perception-and-estimation/20-pixels-to-table.md)).
 

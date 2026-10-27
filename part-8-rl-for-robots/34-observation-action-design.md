@@ -26,7 +26,40 @@ with `stiffness = 20`, `damping = 0.5`, `action_scale = 0.25`, `decimation = 4` 
 
 ## Core idea
 
-**Three action parameterizations** ($a \in [-1,1]^n$ from the policy, $h = 5$ ms physics step, policy every $k$ steps):
+### In plain words
+
+The policy is a slow, high-level service that calls a fast, low-level one. It can call it in three ways. **Torque**: write the motor effort directly, like poking hardware registers; the policy then has to do all the fast work itself, holding the arm against gravity and damping its motion. **Absolute target**: send the joint angle it wants; a PD loop (a spring-and-damper controller, [lesson 12](../part-4-dynamics-and-control/12-joint-control.md)) chases that angle hundreds of times per second. **Delta target**: nudge the previous target by a small step.
+
+With targets, the policy only moves a setpoint 50 times per second, and the stiff loop underneath does the rest. Three more design choices sit around that call: the **action scale** (how far one unit of output reaches, which also sets how large the exploration noise is in radians), the **policy rate** (how often it decides) and the **observation** (what it sees, and in which frame: "the target is a bit to the left of my gripper" is easier to act on than "the target is at these room coordinates").
+
+### From policy to torque
+
+```mermaid
+flowchart TD
+    O["observation<br/>q, q̇, target − gripper, previous action"] --> P["policy, 50 Hz<br/>a in [-1, 1]"]
+    P --> S["scale and offset<br/>q* = q0 + s·a"]
+    S --> D["PD loop, every physics step<br/>τ = Kp (q* − q) − Kd q̇"]
+    D --> L["clip to ±τmax"]
+    L --> R["robot joints"]
+    R --> O
+    P -. "torque mode:<br/>τ = τmax · a" .-> L
+```
+
+### The three interfaces, as code
+
+```python
+def torque(a, q, qd, q_star_prev, mode, s):
+    # a: policy output in [-1, 1]^4, q / qd: joint angles / velocities, s: action scale
+    if mode == "torque":
+        return TAU_MAX * a                          # policy is the controller; held for k physics steps
+    if mode == "absolute":
+        q_star = Q0 + s * a                         # setpoint around the default pose q0
+    else:                                           # "delta"
+        q_star = q_star_prev + s * a                # move the previous setpoint
+    return clip(KP * (q_star - q) - KD * qd, -TAU_MAX, TAU_MAX)   # PD, every physics step
+
+gamma = 1 - policy_dt / 0.4                         # keep a 0.4 s horizon when the rate changes
+```
 
 | Name | Policy output means | Torque at every physics step |
 |---|---|---|
@@ -34,17 +67,26 @@ with `stiffness = 20`, `damping = 0.5`, `action_scale = 0.25`, `decimation = 4` 
 | absolute target | $q^* = q_0 + s\,a$ | $\tau = K_p (q^* - q) - K_d \dot q$, clipped |
 | delta target | $q^*_t = q^*_{t-1} + s\,a_t$ | same PD |
 
-With targets, the fast part of control (gravity, disturbances, damping) is done by a stiff loop at the physics rate, and the policy only moves a setpoint at the slow rate. With torques, the policy must do all of that itself, at 50 Hz, through a Gaussian whose noise is now in N·m. The SO-101 model already contains such a loop: each STS3215 is a MuJoCo position actuator with `kp = 998.22`, `kv = 2.731`, `forcerange = ±2.94` N·m. Our torque mode removes that loop and drives the same actuators as motors with $\tau_{\max} = 2.94$ N·m.
+$a \in [-1,1]^n$ is the policy output, $q$ and $\dot q$ the joint angles and velocities, $q^*$ the joint target, $q_0$ the default pose, $s$ the action scale, $K_p$ and $K_d$ the PD gains, $\tau_{\max}$ the torque limit and $k$ the number of $h = 5$ ms physics steps per policy step.
 
-**Action scale $s$** sets two things at once: the reachable range ($q_0 \pm s$) and the size of exploration noise in physical units (the initial policy std $e^{-1} \approx 0.37$ becomes $0.37\,s$ rad). The Go2 uses $s = 0.25$ rad; a gait stays near the default pose, an arm reaching across its workspace does not.
+<details>
+<summary>Math details: what the servo, the scale, the rate and the observation do</summary>
 
-**Policy rate.** $\Delta t = k h$. A faster policy reacts sooner but each decision matters less, and its discount must change to keep the same horizon in seconds (lesson 33): we set $\gamma = \lambda = 1 - \Delta t / 0.4\,\text{s}$.
+**The SO-101 servo is already a PD loop.** Each STS3215 is a MuJoCo position actuator with `kp = 998.22`, `kv = 2.731`, `forcerange = ±2.94` N·m; MuJoCo evaluates it inside every physics step ([XML reference, actuators](https://mujoco.readthedocs.io/en/stable/XMLreference.html#actuator)). Our torque mode removes that loop and drives the same actuators as motors with $\tau_{\max} = 2.94$ N·m. With targets, gravity, disturbances and damping are handled at the physics rate; with torques the policy must handle them at 50 Hz, through a Gaussian whose noise is now in N·m.
 
-**Observation.** The Go2 policy sees 48 numbers ([`legged_robot.py` · `compute_observations`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)): base linear and angular velocity, projected gravity, the velocity command, joint positions relative to the default, joint velocities and the previous action, each with a fixed scale. Our reach observation has the same structure: $q - q_0$, $0.1\,\dot q$, $p_{\text{target}} - p_{\text{gripper}}$, previous action. Two choices we test: dropping velocities, and giving the target as an absolute position instead of relative to the gripper.
+**Action scale.** $s$ sets two things at once: the reachable range ($q_0 \pm s$) and the size of exploration noise in physical units (the initial policy std $e^{-1} \approx 0.37$ becomes $0.37\,s$ rad). The Go2 uses $s = 0.25$ rad; a gait stays near the default pose, an arm reaching across its workspace does not.
+
+**Policy rate.** $\Delta t = k h$. A faster policy reacts sooner, but each decision matters less, and its discount must change to keep the same horizon in seconds (lesson 33): we set $\gamma = \lambda = 1 - \Delta t / 0.4\,\text{s}$.
+
+**Observation.** The Go2 policy sees 48 numbers ([`legged_robot.py` · `compute_observations`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py)): base linear and angular velocity, projected gravity, the velocity command, joint positions relative to the default, joint velocities and the previous action, each with a fixed scale. Our reach observation has the same structure: $q - q_0$, $0.1\,\dot q$, $p_{\text{target}} - p_{\text{gripper}}$, previous action. We test two changes: dropping velocities, and giving the target as an absolute position instead of relative to the gripper.
+
+Go deeper: [Proximal Policy Optimization (PPO)](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/08-ppo); [MuJoCo · actuators](https://mujoco.readthedocs.io/en/stable/XMLreference.html#actuator); [`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py).
+
+</details>
 
 ## Experiment
 
-[`experiment.py`](../experiments/34-observation-action-design/experiment.py) trains the lesson-33 PPO (same config, 300k policy steps) for every cell, 3 seeds × 100 evaluation episodes. During evaluation, the env records at the physics rate:
+[`experiment.py`](../experiments/34-observation-action-design/experiment.py) trains the lesson-33 PPO (same config, 300k policy steps) for every cell, 3 seeds × 100 evaluation episodes. During evaluation the env records, at the physics rate, how fast the torque changes (jerky commands) and how much mechanical power the joints use:
 
 $$\text{torque rate} = \sqrt{\tfrac{1}{N}\textstyle\sum_t \lVert (\tau_t - \tau_{t-1})/h \rVert^2}\ \ [\text{N·m/s}], \qquad \text{power} = \tfrac{1}{N}\textstyle\sum_t \sum_i |\tau_{i,t}\,\dot q_{i,t}|\ \ [\text{W}]$$
 
@@ -59,7 +101,7 @@ else:  # torque: servo gains removed in __init__, actuators are plain motors
 
 **Predict:** which of the three interfaces reaches the most targets in 300k steps, and which is smoothest?
 
-MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). Success counts are deterministic per seed; training times are wall-clock with six runs in parallel on a heavily loaded shared machine (the whole script, 30 runs, took 1190 s, about 20 minutes). To check a few cells instead, `python experiment.py --only A:torque,D:0.25` trains just those cells for all three seeds; this rerun reproduced both lines of the tables below exactly (except the timing column). `--quick` trains seed 0 only, which reproduces the first "success per seed" entry of every row but not the pooled columns.
+MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). Success counts are deterministic per seed; training times are wall-clock with six runs in parallel on a heavily loaded shared machine (the whole script, 30 runs, took 1190 s, about 20 minutes). `python experiment.py --only A:torque,D:0.25` trains just those cells for all three seeds; this rerun reproduced both lines exactly (except the timing column). `--quick` trains seed 0 only, which reproduces the first "success per seed" entry of every row but not the pooled columns.
 
 **A. Action parameterization** (50 Hz, 3 seeds × 100 episodes):
 
@@ -69,7 +111,7 @@ MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). 
 | delta target $+0.1\,a$ (PD) | 95 / 88 / 99 | 282/300 | 90.7–96.2% | 8.7 | 980 | 8.81 |
 | torque $2.94\,a$ N·m | 83 / 93 / 96 | 272/300 | 86.8–93.5% | 7.6 | 70 | 1.87 |
 
-(Final distance: mean over seeds of the median final distance.) Absolute targets learn best within the budget. Delta targets and torques come out lower, but their intervals overlap, so we do not rank those two; with three seeds per cell, the intervals also understate seed-to-seed variation. The torque policy is an order of magnitude smoother (70 vs 1002 N·m/s) and uses far less mechanical power (1.87 vs 9.66 W). That points at the servo, not the policy: with `kp = 998.22` and a 2.94 N·m cap, a position error of 3 mrad already saturates the actuator, so every new target at 50 Hz produces a near bang-bang torque step. A PD interface is only as gentle as its gains; Unitree's training PD on the Go2 is soft by comparison ($K_p = 20$ N·m/rad).
+(Final distance: mean over seeds of the median final distance.) Absolute targets learn best within the budget. Delta targets and torques come out lower, but their intervals overlap, so we do not rank those two; with three seeds per cell the intervals also understate seed-to-seed variation. The torque policy is an order of magnitude smoother (70 vs 1002 N·m/s) and uses far less mechanical power (1.87 vs 9.66 W). That points at the servo, not the policy: with `kp = 998.22` and a 2.94 N·m cap, a position error of 3 mrad already saturates the actuator, so every new target at 50 Hz produces a near bang-bang torque step (full torque one way, then the other). A PD interface is only as gentle as its gains; Unitree's training PD on the Go2 is soft by comparison ($K_p = 20$ N·m/rad).
 
 **B. Policy rate** (absolute targets, $\gamma = \lambda = 1 - \Delta t/0.4$ s, same 300k policy steps):
 
@@ -81,7 +123,9 @@ MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5). 
 | 8 | 25 Hz | 0.9000 | 87 / 72 / 76 | 235/300 | 73.3–82.6% | 751 | 13.54 | 245 |
 | 16 | 12.5 Hz | 0.8000 | 33 / 35 / 13 | 81/300 | 22.3–32.3% | 567 | 19.54 | 359 |
 
-There is a sweet spot, and it sits where the Go2 config also sits. Two effects meet. At a fixed number of policy steps, a 200 Hz policy sees only a quarter of the simulated time (and episodes) of a 50 Hz one, and its credit assignment spans 4× more steps for the same horizon. At 12.5 Hz each decision holds for 80 ms, so the policy cannot correct within a motion, and power rises (19.54 W), consistent with the stiff servo chasing larger target jumps. This budget is in policy steps; a budget in simulated seconds would give the 200 Hz policy four times more experience than here. We did not run that variant.
+![Left: pooled success for the three action interfaces at 50 Hz, 298/300 for absolute targets, 282/300 for delta targets and 272/300 for torque, with torque rates of 1002, 980 and 70 N·m/s. Right: success against policy rate from 12.5 to 200 Hz, an inverted U that peaks at 50 Hz.](../experiments/34-observation-action-design/success_vs_action_and_rate.png)
+
+There is a sweet spot, and it sits where the Go2 config also sits. Two effects meet. At a fixed number of policy steps, a 200 Hz policy sees only a quarter of the simulated time (and episodes) of a 50 Hz one, and its **credit assignment** (working out which earlier action caused a later reward) spans 4× more steps for the same horizon. At 12.5 Hz each decision holds for 80 ms, so the policy cannot correct within a motion, and power rises (19.54 W), consistent with the stiff servo chasing larger target jumps. This budget is in policy steps; a budget in simulated seconds would give the 200 Hz policy four times more experience. We did not run that variant.
 
 **C. Observation content** (absolute targets, 50 Hz):
 
@@ -91,7 +135,7 @@ There is a sweet spot, and it sits where the Go2 config also sits. Two effects m
 | without joint velocities | 77 / 68 / 80 | 225/300 | 69.8–79.6% | 14.4 |
 | absolute target instead of target − gripper | 26 / 40 / 35 | 101/300 | 28.6–39.2% | 27.7 |
 
-The relative goal is the single most important input here: with the absolute target position the policy has to learn forward kinematics just to know which way to move, and success drops to a third. Dropping velocities costs a quarter of the successes: without $\dot q$ the policy can only infer motion indirectly (from its previous action), so it cannot reliably tell a joint that is arriving from one that is leaving. The Go2 observation likewise includes base and joint velocities.
+The relative goal is the single most important input: with the absolute target position the policy has to learn forward kinematics just to know which way to move, and success drops to a third. Dropping velocities costs a quarter of the successes: without $\dot q$ the policy can only infer motion indirectly (from its previous action), so it cannot reliably tell a joint that is arriving from one that is leaving. The Go2 observation likewise includes base and joint velocities.
 
 ## Break it
 
@@ -102,7 +146,7 @@ Copy the Go2's action scale, 0.25 rad, onto the arm:
 | 1.0 rad | 100 / 98 / 100 | 298/300 | 97.6–99.8% | 7.5 |
 | 0.25 rad | 9 / 8 / 4 | 21/300 | 4.6–10.5% | 62.6 |
 
-The scripted IK controller, sent through the same clipped interface, reaches 100/100 targets at scale 1.0 and only **27/100** at 0.25. So the failure is not PPO's: targets are sampled up to 0.6–1.0 rad from $q_0$, and with $|a| \le 1$ the policy can command at most $q_0 \pm 0.25$ rad, so most targets are outside the action space. PPO gets 21/300 against the scripted controller's 27/100, a reference rather than a strict ceiling (the IK is not optimal under clipping). The Go2's 0.25 works because a trot stays near the default pose; the scale must cover the motion the task needs, and no more, since larger scales also multiply the exploration noise.
+The scripted IK controller, sent through the same clipped interface, reaches 100/100 targets at scale 1.0 and only **27/100** at 0.25. So the failure is not PPO's: targets are sampled up to 0.6–1.0 rad from $q_0$, and with $|a| \le 1$ the policy can command at most $q_0 \pm 0.25$ rad, so most targets are outside the action space. PPO's 21/300 against the scripted controller's 27/100 is a reference rather than a strict ceiling (the IK is not optimal under clipping). The Go2's 0.25 works because a trot stays near the default pose; the scale must cover the motion the task needs, and no more, since larger scales also multiply the exploration noise.
 
 ## On the real robot
 
@@ -137,4 +181,4 @@ Next: [lesson 35](35-reward-design.md), what the reward asks for and what the ag
 - [MuJoCo · XML reference, actuators](https://mujoco.readthedocs.io/en/stable/XMLreference.html#actuator) (position actuator = PD inside the physics step).
 - [MuJoCo Menagerie · `robotstudio_so101`](https://github.com/google-deepmind/mujoco_menagerie/tree/f3b6013/robotstudio_so101) (Apache-2.0).
 - J. Schulman et al., "Proximal Policy Optimization Algorithms", 2017. [arXiv 1707.06347](https://arxiv.org/abs/1707.06347)
-- Code: [`experiment.py`](../experiments/34-observation-action-design/experiment.py), [`output.txt`](../experiments/34-observation-action-design/output.txt); env and PPO from [lesson 32](../experiments/32-rl-environment/reach_env.py) and [lesson 33](../experiments/33-ppo/ppo.py).
+- Code: [`experiment.py`](../experiments/34-observation-action-design/experiment.py), [`output.txt`](../experiments/34-observation-action-design/output.txt); env and PPO from [lesson 32](../experiments/32-rl-environment/reach_env.py) and [lesson 33](../experiments/33-ppo/ppo.py); figure from [`plot.py`](../experiments/34-observation-action-design/plot.py).

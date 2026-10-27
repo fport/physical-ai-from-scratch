@@ -20,25 +20,82 @@ Ders 26–27 bize 120 scripted demonstration ve temiz bir dataset bıraktı. Bun
 
 ## Ana fikir
 
-**BC amacı.** Expert $\pi^*$'tan gelen demonstration'larla $\mathcal D = \{(o_t, a_t)\}$,
+### Sade anlatımla
 
-$$\theta^* = \arg\min_\theta \; \mathbb E_{(o,a) \sim \mathcal D}\, \big\| \pi_\theta(o) - a \big\|^2 ,$$
+Bir video oyununu oynayan bir bot istediğini düşün. İyi bir oyuncuyu kaydedersin: her frame'de ekranı ve bastığı tuşu. Sonra bu (ekran, tuş) çiftleri üzerinde sıradan bir supervised model eğitirsin: ekran girer, tuş çıkar. Behavior cloning budur. Training sırasında reward'a da deneme-yanılmaya da ihtiyaç duymaz, yalnız kaydedilmiş çiftlere. Robotumuz için "ekran" joint açıları artı küp konumu, "tuş" ise bir sonraki joint hedefleridir.
 
-sıradan bir MSE regression'ı (bkz. AIEFS: [Multi-Layer Networks](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/02-multi-layer-networks), [Loss Functions](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/05-loss-functions), [Introduction to PyTorch](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/11-intro-to-pytorch)). Püf noktası training dağılımı: $o$, *expert*'in ziyaret ettiği state'lerden çekiliyor; çalışma anında ise policy kendine kendi state'lerini veriyor. Ders 29 bu boşlukla uğraşıyor; bu ders onun BC'ye ne yaptığını ölçüyor.
+İki şey ters gider. Birincisi, bot hiçbir zaman oyuncuyla birebir aynı oynamaz; birkaç frame sonra oyuncunun hiç üretmediği ekranlar görür ve orada verisi yoktur; her küçük hata onu biraz daha uzağa iter. İkincisi, bazen ekran tek başına ne yapılacağını söylemez: oyuncu bekledi, sonra zıpladı; o karardan hemen önceki ve hemen sonraki ekranlar aynı görünür.
 
-**Policy'miz.**
+Üstelik training sırasında izlediğin skor (kaydedilmiş frame'lerdeki hata), önemli olan skor değildir (bot kendi başına oynarken küp kalkıyor mu). Bu ders ikisini de ölçüyor ve birbirini tutmayabildiklerini gösteriyor.
+
+### Frame'lerde eğit, loop'ta çalıştır
+
+```mermaid
+flowchart TD
+    D["demo'lar: (state, expert action) çiftleri"] --> T["regression ile MLP fit et<br/>(frame'lerde MSE)"]
+    T --> P["policy"]
+    P --> A["action: 6 joint hedefi"]
+    A --> S["40 ms simüle et"]
+    S --> O["yeni state: policy'nin kendi state'i,<br/>expert'inki değil"]
+    O --> P
+    S --> C["6 s sonra:<br/>fiziksel başarı testi"]
+```
+
+### Behavior cloning, kod olarak
+
+```python
+# Training: ordinary supervised regression on (observation, expert action) pairs
+for step in range(4000):
+    x, a = sample_batch(demos, 256)           # x: 9 state values + clock t, a: expert action (6)
+    x_in = x + noise_like(x)                  # 0.02 rad on joints and jaw, 1 mm on the cube, 0 on t
+    pred = policy(normalize(x_in))            # MLP 2 x 256, MEAN_STD from lesson 27
+    loss = ((pred - normalize_a(a)) ** 2).mean()  # MSE against the clean expert targets
+    loss.backward(); opt.step(); opt.zero_grad()
+
+# Run time: the policy feeds itself (closed loop)
+for k in range(150):                          # 6 s at 25 Hz
+    x = concat(scene.obs(), min(k / 25, 4.52))   # clock clipped to the last demo timestamp
+    a = unnormalize_a(policy(normalize(x)))
+    scene.apply(a); scene.step(20)            # hold 40 ms
+```
+
+| Büyüklük | Formül |
+|---|---|
+| BC amacı | $\theta^* = \arg\min_\theta \; \mathbb E_{(o,a) \sim \mathcal D}\, \big\| \pi_\theta(o) - a \big\|^2$ |
+| girdi gürültüsüyle | $\mathbb E_{(o,a) \sim \mathcal D,\ \epsilon}\, \big\| \pi_\theta(o + \epsilon) - a \big\|^2$ |
+| open-loop RMSE | dışarıda tutulan demo frame'leri üzerinde $\sqrt{\operatorname{mean}\big(\pi_\theta(o) - a\big)^2}$ |
+| closed-loop başarı | [ders 25](25-evaluating-policies.md)'in fiziksel testinden $k/n$ |
+
+Burada $\theta$ network ağırlıkları, $\pi_\theta$ policy network'ü, $\mathcal D = \{(o_t, a_t)\}$ expert $\pi^*$'tan gelen demonstration'lar, $o$ bir observation (9 state değeri artı saat), $a$ expert'in action'ı (6 joint hedefi) ve $\epsilon$ de standart sapması joint başına 0,02 rad, küpte 1 mm olan Gauss gürültüsüdür. Amaç sıradan bir MSE regression'ı (bkz. AIEFS: [Multi-Layer Networks](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/02-multi-layer-networks), [Loss Functions](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/05-loss-functions), [Introduction to PyTorch](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/11-intro-to-pytorch)). Püf noktası training dağılımı: $o$, *expert*'in ziyaret ettiği state'lerden çekiliyor; çalışma anında ise policy kendine kendi state'lerini veriyor. Ders 29 bu boşlukla uğraşıyor; bu ders onun BC'ye ne yaptığını ölçüyor.
+
+### Policy'miz
 
 | Parça | Seçim |
 |---|---|
 | girdi | 5 kol joint'i, çene, küp xyz (9) + episode saati $t$ (son demo timestamp'i olan 4,52 s'de kırpılmış) |
 | çıktı | sonraki 6 joint hedefi [rad], 40 ms (20 fizik adımı) tutuluyor |
-| network | MLP 2 × 256 ReLU, ders 27'den MEAN_STD normalizasyonu |
+| network | MLP 2 × 256 ReLU, ders 27'den MEAN_STD normalization'ı |
 | training | Adam, lr 1e-3, batch 256, 4000 adım, MSE |
 | augmentation | her batch'in girdilerine Gauss gürültüsü: joint'lerde 0,02 rad, küpte 1 mm; hedefler değişmiyor |
 
 **Neden saat ve neden gürültü.** Scripted expert, zamanlı segmentleri olan bir state machine. İnişin dibinde "çeneler açık, küpte" kol state'i, expert kapatmaya karar vermeden hemen önce ve hemen sonra aynı; yani tek başına state bir sonraki action'ı söylemiyor, saat söylüyor. Gürültü önemli, çünkü demonstration'lar 10 boyutlu girdi uzayında gürültüsüz eğriler: bu eğrilerin dışında network'ün çıktısı kısıtsız ve öğrenen ilk adımlarda onlardan ayrılıyor. Hafifçe bozulmuş girdiler üzerinde, expert'in bozulmamış action'larıyla eğitmek ona yakın state'leri expert'in hedeflerine eşlemeyi öğretiyor; hedefler mutlak joint pozisyonları olduğu için aynı hedef kaymış kolu geri çekiyor. İkisi de BC'nin parçası değil, bu dersin tasarım seçimleri. Boz bunları ölçüyor (50 demo, seed 0): ikisiyle 20/20, gürültüsüz 0/20, saatsiz 4/20.
 
-**Closed-loop evaluation.** Her 40 ms'de policy simüle state'i okuyor ve joint hedefleri veriyor; SO-101 position servoları onları takip ediyor. 6 s sonra [ders 25](25-evaluating-policies.md)'in fiziksel testi başarıya karar veriyor. Her konfigürasyon aynı 20 test konumunda (seed 28, training'de hiç kullanılmadı) 3 training seed'iyle koşuluyor; her seed'in k/20'sini ve birleşik k/60'ı Wilson aralığıyla raporluyoruz.
+**Closed-loop evaluation.** Her 40 ms'de policy simüle state'i okuyor ve joint hedefleri veriyor; SO-101 position servoları onları takip ediyor. 6 s sonra [ders 25](25-evaluating-policies.md)'in fiziksel testi başarıya karar veriyor. Her konfigürasyon aynı 20 test konumunda (seed 28, training'de hiç kullanılmadı) 3 training seed'iyle koşuluyor; her seed'in k/20'sini ve birleşik k/60'ı (üç seed'in denemeleri toplanmış hâlde) Wilson aralığıyla raporluyoruz.
+
+<details>
+<summary>Matematik ayrıntısı: MSE regression ne öğrenir ve loop neyi değiştirir</summary>
+
+**MSE ortalama action'ı öğrenir.** Sabit bir girdi $o$ için, o girdiyle görülen action'lar üzerinde $\mathbb E\,\|\hat a - a\|^2$'yi en küçük yapan $\hat a$ değeri onların ortalaması $\mathbb E[a \mid o]$'dur. Bir state'i çoğu frame'de "açık tut", birkaçında "kapatmaya başla" izliyorsa regression "açık tut"a yakın bir şey verir. Saati eklemek bu frame'leri farklı girdiler yapar; her biri kendi ortalamasını alır.
+
+**Training ve çalışma anı girdileri farklıdır.** Training, $o$'yu expert'in state dağılımından çeker. Çalışma anında $o_{t+1}$'i simülatör $o_t$'den ve policy'nin kendi action'ı $\pi_\theta(o_t)$'den üretir; yani her action hatası bir sonraki girdiyi kaydırır. Network yalnız expert'in state'lerinde doğruysa, küçük bir hata onu daha az doğru olduğu bir state'e götürür ve hatalar bir episode'un 150 adımı boyunca birikir.
+
+**Girdi gürültüsü burada neden işe yarar.** $\mathbb E\,\|\pi_\theta(o + \epsilon) - a\|^2$'yi küçültmek, network'ten yalnız eğrilerin üzerinde değil, demonstration'ların küçük bir komşuluğundaki her state için expert'in action'ını vermesini ister. $a$ mutlak bir joint hedefi olduğundan, onu hafifçe kaymış bir state'ten vermek gösterilen yola doğru geri dönen bir hareket komutlar. Bu bizim action uzayımızın bir özelliği; hız ya da fark (delta) action'larında bu argüman doğrudan geçerli değildir.
+
+**Open loop ve closed loop.** Open-loop RMSE tüm demonstration frame'leri üzerinde eşit ağırlıkla ortalanır. Closed-loop başarı ise birkaç belirleyici frame'e (grasp) ve expert'in hiç ziyaret etmediği state'lere bağlıdır; bu yüzden ikisinin birlikte hareket etmesi gerekmez.
+
+Daha derine: [Multi-Layer Networks and Forward Pass](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/02-multi-layer-networks), [Loss Functions](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/05-loss-functions), [Introduction to PyTorch](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/11-intro-to-pytorch); aşağıdaki kaynaklarda Pomerleau (1988) ve UC Berkeley CS 285, ders 2–3.
+
+</details>
 
 ## Deney
 
@@ -74,6 +131,8 @@ Open-loop RMSE, görülmemiş 20 demo episode'unda (100–119) ölçülüyor. Ü
 - **Daha fazla veri monoton biçimde daha iyi değildi.** 100 demoda birleşik oran 55/60'a düşüyor; 50 ve 100 demonun %95 aralıkları ancak sınırda örtüşüyor ([0,94, 1,00] ve [0,82, 0,96]). 60/60 ile 55/60 üzerinde iki taraflı Fisher testi p = 0,057 veriyor; bu bile 60 rollout'u bağımsız sayıyor, oysa değiller: üç seed aynı 100 demoyu ve aynı 20 test konumunu paylaşıyor. Başarısızlıklar, gösterilen alanın yakın kenarı x = 16,2 cm'deki test konumu #19'da yoğunlaşıyor; orada üç seed de başarısız. Yani düşüş istatistiksel olarak kanıtlanmış değil, ama göz ardı edilebilecek bir gürültü de değil. Sabit 4000 training adımıyla 100 demo, her episode üzerinden daha az geçiş demek; sebebi ayırmadık.
 - **Başarısızlıklar sayısal değil fiziksel.** 5 demoyla kol çeneleri kapatıyor ama küp yerde kalıyor (24 başarısızlığın 24'ü): nişan, ders 26'nın grasp toleransından fazla sapıyor.
 
+![Solda: demonstration sayısına göre Wilson %95 aralıklarıyla birleşik closed-loop başarı: 5'te 36/60, 10'da 57/60, 20 ve 50'de 60/60, 100'de 55/60. Sağda: logaritmik eksende open-loop action RMSE düşmeye devam ediyor; 5 demoda 4,138 dereceden 100 demoda 0,360'a.](../../experiments/28-behavior-cloning/success_vs_demos.png)
+
 ## Boz
 
 İki düğme, 50 demonstration, seed 0 (gürültü 0, küpteki 1 mm gürültüyü de kapatıyor; diğer satırlar onu koruyor):
@@ -93,7 +152,7 @@ Girdi gürültüsü olmadan policy demonstration'ları fit ediyor ve her testte 
 
 - LeRobot BC ailesinden policy'leri kaydedilmiş bir dataset üzerinde `lerobot-train --policy.type=act` (ve diğerleri) ile eğitir ve `lerobot-rollout` ile evaluate eder ([il_robots](https://huggingface.co/docs/lerobot/il_robots)). Onun policy'leri kamera görüntüsü alır; bizim yalnız state kullanan policy'miz küp konumunu simülatörden okuyor, gerçek bir kol bunu kameralardan tahmin etmek zorunda (Bölüm 5).
 - Gerçek kolda henüz ölçülmedi. Prosedür: aynı küp alanında 10, 20 ve 50 teleoperate edilmiş episode kaydet, her büyüklük için bir policy eğit, her birini ders 25'teki gibi aynı 20 işaretli konumda evaluate et ve k/20'yi Wilson aralıkları ve başarısızlık türleriyle raporla. Farklı bir eğri bekle: insan demonstration'ları scripted olanlardan daha gürültülü ve daha az tutarlı; bu kısmen yukarıdaki girdi gürültüsü gibi, kısmen label gürültüsü gibi davranır.
-- Girdi gürültüsü hilesinin donanımda bir karşılığı var: zaten küçük düzeltmeler içeren demonstration'lar. DAgger'ın bilinçli olarak topladığı şey bu.
+- Girdi gürültüsü hilesinin donanımda bir karşılığı var: zaten küçük düzeltmeler içeren demonstration'lar. DAgger'ın ([ders 29](29-dagger.md)) bilinçli olarak topladığı şey bu.
 
 ## Kendini dene
 

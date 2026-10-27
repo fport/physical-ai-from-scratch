@@ -20,9 +20,62 @@ Ders 33 bir kol uzanmasını 300.000 policy adımıyla eğitti. Unitree'nin Go2 
 
 ## Ana fikir
 
-**Floating base ve contact'lar.** Go2 modelinde `nq = 19`, `nv = 18`, `nu = 12`: 12 tahrikli eklem ve hiçbir motorun sürmediği 6-DoF'luk bir gövde. Gövde yalnızca ayaklardaki contact kuvvetleriyle hareket eder. Bir contact itebilir ama çekemez ($f_n \ge 0$) ve teğetsel kuvveti sürtünmeyle sınırlıdır, $\lVert f_t \rVert \le \mu f_n$ ([ders 04](../part-1-simulation/04-friction.md)). Ayakta durmak, normal kuvvetlerin ağırlığı taşıması demektir: $\sum f_n = m g$. Bir **gait**, hangi ayakların stance'te (contact'ta), hangilerinin swing'de olduğunun zaman çizelgesidir; trot'ta çapraz çiftler sırayla değişir. Policy contact kuvvetlerini hiçbir zaman doğrudan komut etmez. Joint hedeflerini komut eder (ders 34: $q^* = 0{,}25\,a + q_{\text{default}}$, $K_p = 20$, $K_d = 0{,}5$ ile PD) ve contact kuvvetleri fizikten çıkar.
+### Sade anlatımla
 
-**Go2 config'inin ödüllendirdiği ve rastgeleleştirdiği şeyler** ([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)):
+Bir kol masaya cıvatalıdır; köpeğe benzeyen bir robot değildir. Gövdesi (**base**) serbesttir: onu hiçbir motor tutmaz ve yalnızca ayaklar zemine bastırdığı için hareket eder. Bir ayak itebilir ama asla çekemez; yana doğru da ancak sürtünmenin izin verdiği kadar itebilir, sonra kayar. Yürümek, hangi ayakların yerde, hangilerinin havada olduğunun bir zaman çizelgesidir; buna **gait** denir. Policy bu ayak kuvvetlerini hiçbir zaman komut etmez. Joint hedefleri gönderir, bir PD döngüsü onları torka çevirir ve contact fiziği torkları gövdeye etkiyen kuvvetlere çevirir.
+
+Bunu deneme yanılmayla öğrenmek yüz milyon mertebesinde adım ister. PPO her güncelleme için mevcut policy'den taze denemeler ister ve tek bir robotun ardışık adımları neredeyse aynı veridir. Bu yüzden pratik soru throughput olur; cevap da stateless bir web servisi gibi yatay ölçeklemektir: binlerce bağımsız robot kopyasını aynı anda koşturup hepsini tek bir batch'li çağrıyla adımlamak.
+
+### Policy'den hareket eden gövdeye
+
+```mermaid
+flowchart TD
+    P["policy, her 20 ms'de<br/>12 sayı a"] --> Q["joint hedefleri<br/>q* = 0,25·a + q_default"]
+    Q --> D["her fizik adımında PD<br/>τ = 20 (q* − q) − 0,5 q̇"]
+    D --> J["12 bacak eklemi hareket eder"]
+    J --> C["ayak contact'ları:<br/>yalnızca iter, sürtünmeyle sınırlı"]
+    C --> B["serbest gövde hareket eder"]
+    B --> O["observation: gövde hızı,<br/>yerçekimi yönü, eklemler, komut"]
+    O --> P
+```
+
+### Massively parallel PPO, kod olarak
+
+```python
+num_envs, steps_per_env = 4096, 24          # Go2 training config
+obs = envs.reset()                          # shape (4096, obs_dim): one row per simulated robot
+for t in range(steps_per_env):
+    actions = policy(obs)                   # ONE batched network call for all robots
+    obs, rewards, dones = envs.step(actions)   # ONE batched physics call (on a GPU with MJX)
+samples = num_envs * steps_per_env          # 98,304 samples for this PPO update
+seconds_per_robot = steps_per_env * 0.02    # while each robot advances only 0.48 s
+```
+
+| Büyüklük | Formül |
+|---|---|
+| contact yalnızca iter | $f_n \ge 0$ |
+| sürtünme sınırı | $\lVert f_t \rVert \le \mu f_n$ |
+| ayakta durmak | $\sum f_n = m g$ |
+| güncelleme başına örnek | $N_{\text{env}} \times T$ |
+
+$f_n$ ve $f_t$ bir ayağın contact kuvvetinin normal ve teğetsel (yana doğru) bileşenleri, $\mu$ sürtünme katsayısı, $m$ robotun kütlesi, $g$ yerçekimi, $N_{\text{env}}$ paralel robot sayısı ve $T$ her birinin iterasyon başına topladığı adım sayısıdır.
+
+<details>
+<summary>Matematik ayrıntısı: floating base, sürtünme konileri ve on-policy RL neden çok kopya ister</summary>
+
+**Floating base.** Go2 modelinde `nq = 19`, `nv = 18`, `nu = 12`: 12 tahrikli eklem ve hiçbir motorun sürmediği 6-DoF'luk bir gövde (`nq`'nun `nv`'den bir fazla olmasının sebebi, gövde yöneliminin 4 sayılık bir quaternion olarak saklanmasıdır). Gövde yalnızca ayaklardaki contact kuvvetleriyle ivmelenir; bu kuvvetler sürtünme konisi $\lVert f_t \rVert \le \mu f_n$ içinde kalmalıdır ([ders 04](../part-1-simulation/04-friction.md)). Trot'ta çapraz ayak çiftleri stance (contact) ile swing arasında sırayla değişir.
+
+**On-policy örnekleme.** PPO güncellemesi yalnızca (neredeyse) mevcut policy'den gelen örnekler için geçerlidir; eski veri iterasyonlar arasında tekrar kullanılamaz. Tek bir robotun örnekleri zamanda güçlü biçimde ilişkilidir; 4096 robot güncelleme başına 4096 bağımsız trajectory verir. Darboğaz ham simülasyon hızı olur; fizik, policy ve PPO güncellemesinin hepsinin GPU'da batch'li koşmasının sebebi budur.
+
+**MJX ve MuJoCo Playground.** MJX, MuJoCo'yu JAX'te koşturur (NVIDIA GPU'lar için bir de Warp sürümü var); dokümantasyonu, binlerce sahne paralel simüle edildiğinde karşılığını verdiğini, tek bir sahnenin ise CPU MuJoCo'dan yaklaşık 10 kat yavaş olabileceğini söyler ([MJX dokümantasyonu](https://mujoco.readthedocs.io/en/stable/mjx.html)). MuJoCo Playground (Zakka vd., 2025, [arXiv 2502.08844](https://arxiv.org/abs/2502.08844), [playground.mujoco.org](https://playground.mujoco.org/)) environment'ları ve PPO training'ini MJX üzerine kurar ve "tek bir GPU'da dakikalar içinde" training bildirir. Varsayılan locomotion PPO config'i `num_envs = 8192` kullanır; `Go1JoystickFlatTerrain` için `num_timesteps = 200_000_000` ayarlar ([`locomotion_params.py`](https://github.com/google-deepmind/mujoco_playground/blob/main/mujoco_playground/config/locomotion_params.py)). Playground'un locomotion kaydında Go1, Spot ve Barkour quadruped'leri var, ama Go2 environment'ı yok ([`locomotion/__init__.py`](https://github.com/google-deepmind/mujoco_playground/blob/main/mujoco_playground/_src/locomotion/__init__.py)).
+
+Daha derine: [Introduction to JAX](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/12-intro-to-jax), [Proximal Policy Optimization (PPO)](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/08-ppo); Rudin vd. ([arXiv 2109.11978](https://arxiv.org/abs/2109.11978)); Zakka vd. ([arXiv 2502.08844](https://arxiv.org/abs/2502.08844)).
+
+</details>
+
+### Go2 config'inin ödüllendirdiği ve rastgeleleştirdiği şeyler
+
+([`legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py))
 
 | Öğe | Değer |
 |---|---|
@@ -35,10 +88,6 @@ Ders 33 bir kol uzanmasını 300.000 policy adımıyla eğitti. Unitree'nin Go2 
 | episode | `episode_length_s = 20`; gövde contact'ında (`terminate_after_contacts_on = ["base"]`) ya da roll 0,8 rad'ı veya pitch 1,0 rad'ı aşınca erken biter ([`legged_robot.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py) içinde `check_termination`) |
 
 Her satır bir ders 34 ya da ders 35 kararıdır. Sürtünmeyi $[0{,}5;\ 1{,}25]$ aralığında rastgeleleştirmek, 4096 robotun her birinin biraz farklı bir zeminde öğrenmesi demektir (Bölüm 9).
-
-**Neden bu kadar çok paralel kopya.** PPO on-policy'dir: her güncelleme mevcut policy'den taze örnekler ister ve tek bir robotun örnekleri zamanda güçlü biçimde ilişkilidir. 4096 robot × 24 adım, her robot yalnızca 0,48 s ilerlerken güncelleme başına 4096 bağımsız trajectory'den 98.304 örnek verir. Darboğaz ham simülasyon hızı olur; fizik, policy ve PPO güncellemesinin hepsinin GPU'da batch'li koşmasının sebebi budur.
-
-**MJX ve MuJoCo Playground.** MJX, MuJoCo'yu JAX'te koşturur (NVIDIA GPU'lar için bir de Warp sürümü var); dokümantasyonu, binlerce sahne paralel simüle edildiğinde karşılığını verdiğini, tek bir sahnenin ise CPU MuJoCo'dan yaklaşık 10 kat yavaş olabileceğini söyler ([MJX dokümantasyonu](https://mujoco.readthedocs.io/en/stable/mjx.html)). MuJoCo Playground (Zakka vd., 2025, [arXiv 2502.08844](https://arxiv.org/abs/2502.08844), [playground.mujoco.org](https://playground.mujoco.org/)) environment'ları ve PPO training'ini MJX üzerine kurar ve "tek bir GPU'da dakikalar içinde" training bildirir. Varsayılan locomotion PPO config'i `num_envs = 8192` kullanır; `Go1JoystickFlatTerrain` için `num_timesteps = 200_000_000` ayarlar ([`locomotion_params.py`](https://github.com/google-deepmind/mujoco_playground/blob/main/mujoco_playground/config/locomotion_params.py)). Playground'un locomotion kaydında Go1, Spot ve Barkour quadruped'leri var, ama Go2 environment'ı yok ([`locomotion/__init__.py`](https://github.com/google-deepmind/mujoco_playground/blob/main/mujoco_playground/_src/locomotion/__init__.py)).
 
 ## Deney
 
@@ -56,7 +105,7 @@ datas = [mujoco.MjData(m) for _ in range(nthread)]
 state, _ = rollout.rollout(m, datas, X0, U)   # X0: (nbatch, nstate), U: (nbatch, nstep, nu)
 ```
 
-MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5, 4 performans + 6 verimlilik çekirdeği). Makinede başka işler de çalışıyordu, bu yüzden tüm hızlar yaklaşıktır ve bir çalıştırmadan ötekine belirgin biçimde değişir; A ve B bölümleri deterministiktir; load average çıktıda yazılıdır. Script 119 s duvar saati sürdü (sonda yazdırıyor); `python experiment.py --quick` (tek ölçüm turu, 4096'lık batch yok) hızları tabloları yeniden üretmeyen bir smoke test'tir.
+MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5, 4 performans + 6 verimlilik çekirdeği). Makinede başka işler de çalışıyordu, bu yüzden tüm hızlar yaklaşıktır ve bir çalıştırmadan ötekine belirgin biçimde değişir; A ve B bölümleri deterministiktir; load average (kabaca, çekirdekler için yarışan process sayısı) çıktıda yazılıdır. Script 119 s duvar saati sürdü; `python experiment.py --quick` (tek ölçüm turu, 4096'lık batch yok) hızları tabloları yeniden üretmeyen bir smoke test'tir.
 
 **A. Contact temelleri.** 2 s ayakta durduktan sonra: gövde yüksekliği 26,2 cm, tam dört zemin contact'ı (FL, FR, RL, RR) ve contact normal kuvvetlerinin toplamı 149,2 N; $m g = 15{,}21\,\text{kg} \times 9{,}81 = 149{,}2$ N. Ağırlığın tamamını ayaklar taşıyor; zemine başka hiçbir şey değmiyor.
 
@@ -83,6 +132,8 @@ CPU saniyesi başına adım (tüm thread'lerin CPU süresi toplamı):
 | 64 | 88.725 | 86.335 | 73.876 | 69.250 |
 | 512 | 72.782 | 71.480 | 69.633 | 62.351 |
 | 4096 | 61.348 | 61.575 | 58.368 | 58.883 |
+
+![Rollout çağrısı başına robot sayısına (1'den 4096'ya) göre iki log-log panel, her thread sayısı için bir çizgi. Solda duvar saati adım/s: tek robotla her thread sayısı Python döngüsünün 66.222'sinin altında kalıyor; 8 ile 4096 robot arasında 8 thread 490.195'e kadar çıkıyor. Sağda CPU saniyesi başına adım: tüm çizgiler 58.368 ile 88.725 arasında.](../../experiments/36-legged-locomotion/throughput_vs_batch.png)
 
 İki tabloyu birlikte okuyun:
 
@@ -113,7 +164,7 @@ C bölümü her robotu oturmuş bir duruştan başlattı. Aynı 512 robotluk bat
 | oturmuş duruş (+ küçük joint hızları) | 379.209 | 1,7 | 4,0 |
 | keyframe pozundan bırakılmış, eklemler ±0,1 rad | 34.194 | 10,3 | 4,4 |
 
-Aynı model, batch ve thread'ler yaklaşık on bir kat yavaş koşuyor. Contact sayısı neredeyse değişmiyor (4,0'a karşı 4,4), ama ayaklar yere basıp contact kuvvetleri yeniden dağılırken constraint solver adım başına 1,7 yerine 10,3 iterasyon istiyor. Adım başına maliyet robotların ne yaptığına bağlı: darbeler, kayan ve düşen robotlar, yani erken locomotion training'inin çoğu, ayakta durmaktan çok daha pahalı. Sakin robotlarla koşturulan bir throughput benchmark'ı training hızını olduğundan yüksek gösterir ve bir senaryoda ölçülen "hızlanma" başka birine taşınmaz. Benchmark'ı training'inizin gerçekten ziyaret edeceği durumlarla yapın.
+Aynı model, batch ve thread'ler yaklaşık on bir kat yavaş koşuyor. Contact sayısı neredeyse değişmiyor (4,0'a karşı 4,4), ama ayaklar yere basıp contact kuvvetleri yeniden dağılırken constraint solver (MuJoCo'nun contact kuvvetlerini hesaplayan kısmı) adım başına 1,7 yerine 10,3 iterasyon istiyor. Adım başına maliyet robotların ne yaptığına bağlı: darbeler, kayan ve düşen robotlar, yani erken locomotion training'inin çoğu, ayakta durmaktan çok daha pahalı. Sakin robotlarla koşturulan bir throughput benchmark'ı training hızını olduğundan yüksek gösterir ve bir senaryoda ölçülen "hızlanma" başka birine taşınmaz. Benchmark'ı training'inizin gerçekten ziyaret edeceği durumlarla yapın.
 
 ## Gerçek robotta
 
@@ -148,4 +199,4 @@ Sıradaki: [ders 37](../part-9-sim-to-real/37-latency.md), ilk sim-to-real boşl
 - [MuJoCo · MJX dokümantasyonu](https://mujoco.readthedocs.io/en/stable/mjx.html); [Python bindings · rollout](https://mujoco.readthedocs.io/en/stable/python.html).
 - [`unitree_rl_gym` · `legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py) (BSD-3-Clause).
 - [MuJoCo Menagerie · `unitree_go2`](https://github.com/google-deepmind/mujoco_menagerie/tree/f3b6013/unitree_go2) (BSD-3-Clause).
-- Kod: [`experiment.py`](../../experiments/36-legged-locomotion/experiment.py), [`output.txt`](../../experiments/36-legged-locomotion/output.txt).
+- Kod: [`experiment.py`](../../experiments/36-legged-locomotion/experiment.py), [`output.txt`](../../experiments/36-legged-locomotion/output.txt); şekil [`plot.py`](../../experiments/36-legged-locomotion/plot.py) ile üretildi.

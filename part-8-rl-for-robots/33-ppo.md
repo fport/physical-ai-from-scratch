@@ -16,29 +16,74 @@
 
 ## The problem
 
-In [lesson 32](32-rl-environment.md) a random policy reached the target in 1 of 200 episodes and a scripted IK controller reached all 200, but only because it read the Jacobian from the model. The question here: can a policy learn the same reach from reward alone, on a CPU, in about a minute per run? And when it does, how sure are we? One training run is not a result: RL outcomes change with the seed. So we report success over fixed evaluation episodes with a Wilson 95% interval (see [lesson 25](../part-7-learning-from-demonstration/25-evaluating-policies.md)), for three seeds.
+In [lesson 32](32-rl-environment.md) a random policy reached the target in 1 of 200 episodes and a scripted IK controller reached all 200, but only because it read the Jacobian from the model. Can a policy learn the same reach from reward alone, on a CPU, in about a minute per run? And when it does, how sure are we? One training run is not a result: RL outcomes change with the seed. So we report success over fixed evaluation episodes with a Wilson 95% interval (see [lesson 25](../part-7-learning-from-demonstration/25-evaluating-policies.md)), for three seeds.
 
 ## Core idea
 
-The policy-gradient, actor-critic and PPO derivations are on AIEFS ([REINFORCE](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/06-policy-gradients-reinforce), [A2C](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/07-actor-critic-a2c-a3c), [PPO](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/08-ppo)). For continuous control you need four pieces.
+### In plain words
 
-**Gaussian policy.** The actor outputs the mean of a diagonal Gaussian, $a \sim \mathcal N(\mu_\theta(o), \mathrm{diag}\,\sigma^2)$, with $\log\sigma$ a learned vector that does not depend on the observation. The environment clips $a$ to $[-1, 1]$; the log-probability is computed for the unclipped sample.
+PPO (Proximal Policy Optimization) learns from its own attempts while refusing to change too much at once. The policy tries the task many times with a little random noise on its actions. After each batch of attempts it asks, for every action: "did this turn out better or worse than I usually do from here?" That difference is the **advantage**; "what I usually get from here" comes from a second network, the **critic**. Actions with a positive advantage become a bit more likely, the others a bit less.
 
-**GAE** (Schulman et al., [arXiv 1506.02438](https://arxiv.org/abs/1506.02438)):
+The "not too much at once" part is what makes it stable. The batch was collected by the old policy, so it only says something reliable about policies close to the old one, the way a benchmark recorded on last week's build tells you little about a complete rewrite. PPO therefore ignores any gain from making an action more than 20% more (or less) likely than before. That cap is the **clip**.
 
-$$\delta_t = r_t + \gamma (1-d_t) V(s_{t+1}) - V(s_t), \qquad \hat A_t = \sum_{l \ge 0} (\gamma\lambda)^l \delta_{t+l}$$
+On a robot one more knob carries physical meaning: the **discount** $\gamma$, how much a reward one step later counts compared with a reward now. Because a step is 20 ms of real time, $\gamma$ silently sets how many seconds ahead the policy cares about.
 
-**Clipped surrogate** (Schulman et al., [arXiv 1707.06347](https://arxiv.org/abs/1707.06347)), with $\rho_t = \pi_\theta(a_t|s_t)/\pi_{\theta_{\text{old}}}(a_t|s_t)$:
+### One PPO iteration
 
-$$L = -\mathbb E\big[\min(\rho_t \hat A_t,\ \mathrm{clip}(\rho_t, 1-\epsilon, 1+\epsilon)\hat A_t)\big] + c_v (V_\phi(s_t) - \hat R_t)^2 - c_e\, \mathcal H[\pi_\theta]$$
+```mermaid
+flowchart TD
+    A["policy (actor)<br/>mean action + noise"] --> B["collect a rollout<br/>16 envs × 64 steps"]
+    B --> C["critic estimates<br/>value of each state"]
+    C --> D["advantage (GAE):<br/>better or worse than expected?"]
+    D --> E["10 epochs of updates,<br/>probability ratio clipped to 1 ± 0.2"]
+    E --> A
+```
+
+### PPO, as code
+
+```python
+# One iteration, simplified (the full version is experiments/33-ppo/ppo.py)
+batch = collect(policy, envs, steps=64)     # obs, actions, rewards, log-probs under the OLD policy
+values = critic(batch.obs)                  # expected future reward from each state
+adv = gae(batch.rewards, values, gamma=0.95, lam=0.95)   # better (+) or worse (-) than expected
+for epoch in range(10):
+    ratio = policy.prob(batch.actions) / batch.old_prob  # how much more likely each action is now
+    clipped = ratio.clip(1 - 0.2, 1 + 0.2)               # changes beyond 20% earn nothing
+    loss = -mean(min(ratio * adv, clipped * adv))        # raise good actions, lower bad ones
+    optimize(loss + 0.5 * critic_loss)
+
+horizon_s = dt / (1 - gamma)                # 0.02 / (1 - 0.95) = 0.4 s of look-ahead
+```
+
+| Piece | Formula |
+|---|---|
+| Gaussian policy | $a \sim \mathcal N(\mu_\theta(o), \mathrm{diag}\,\sigma^2)$ |
+| TD error, GAE | $\delta_t = r_t + \gamma (1-d_t) V(s_{t+1}) - V(s_t), \quad \hat A_t = \sum_{l \ge 0} (\gamma\lambda)^l \delta_{t+l}$ |
+| clipped surrogate | $L = -\mathbb E\big[\min(\rho_t \hat A_t,\ \mathrm{clip}(\rho_t, 1-\epsilon, 1+\epsilon)\hat A_t)\big] + c_v (V_\phi(s_t) - \hat R_t)^2 - c_e\, \mathcal H[\pi_\theta]$ |
+| horizon | $\tau \approx \Delta t/(1-\gamma)$ |
+
+$\mu_\theta(o)$ is the actor's mean action for observation $o$ and $\sigma$ its learned noise; $d_t$ is 1 where an episode ended; $\lambda$ trades bias for variance in the advantage $\hat A_t$; $\rho_t = \pi_\theta(a_t|s_t)/\pi_{\theta_{\text{old}}}(a_t|s_t)$ is the probability ratio and $\epsilon$ the clip; $\hat R_t$ is the critic's target, $c_v$ and $c_e$ weight the value loss and the entropy bonus $\mathcal H$; $\Delta t$ is the policy period.
+
+<details>
+<summary>Math details: the four continuous-control pieces</summary>
+
+The policy-gradient, actor-critic and PPO derivations are on AIEFS; here are only the parts that matter for continuous control.
+
+**Gaussian policy.** The actor outputs the mean of a diagonal Gaussian; $\log\sigma$ is a learned vector that does not depend on the observation. The environment clips $a$ to $[-1, 1]$; the log-probability is computed for the unclipped sample, so the ratio $\rho_t$ stays consistent between collection and update.
+
+**GAE** (Schulman et al., [arXiv 1506.02438](https://arxiv.org/abs/1506.02438)). $\lambda = 0$ uses only the one-step error $\delta_t$ (low variance, biased by the critic); $\lambda = 1$ sums all real rewards (unbiased, noisy). The paper treats $\gamma$ the same way: as a variance-reduction parameter that introduces bias, not as part of the true objective.
+
+**Clipped surrogate** (Schulman et al., [arXiv 1707.06347](https://arxiv.org/abs/1707.06347)). $\rho_t \hat A_t$ estimates the improvement of the new policy from samples of the old one (importance sampling). The estimate is only trustworthy near $\rho = 1$. Taking the minimum with the clipped term removes any incentive to move $\rho$ outside $[1-\epsilon, 1+\epsilon]$.
 
 **Truncation is not termination.** At the 1.6 s time limit the arm is not in a terminal state, so the last reward gets the bootstrap $r_T \leftarrow r_T + \gamma V(s_{T+1})$ and only then is the episode cut ($d_t = 1$). A true terminal state (lesson 35) gets no bootstrap.
 
-**The robot-specific part: $\gamma$ is a time constant.** A discount of $\gamma$ at policy period $\Delta t$ weighs the future over roughly
+**Why $\Delta t/(1-\gamma)$.** The weights $\gamma^l$ sum to $\sum_{l\ge0}\gamma^l = 1/(1-\gamma)$ steps; multiplied by the step length that is a time. At 50 Hz, $\gamma = 0.99$ means 2 s and $\gamma = 0.95$ means 0.4 s. Change the control rate and you silently change the task's horizon.
 
-$$\tau \approx \frac{\Delta t}{1-\gamma}$$
+Go deeper: [Policy Gradient — REINFORCE from Scratch](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/06-policy-gradients-reinforce), [Actor-Critic — A2C and A3C](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/07-actor-critic-a2c-a3c), [Proximal Policy Optimization (PPO)](https://aiengineeringfromscratch.com/lesson?path=phases/09-reinforcement-learning/08-ppo); the PPO and GAE papers above.
 
-seconds. At 50 Hz, $\gamma = 0.99$ means 2 s and $\gamma = 0.95$ means 0.4 s. Change the control rate and you silently change the task's horizon. The GAE paper treats $\gamma$ explicitly as a variance-reduction parameter that introduces bias, not as part of the true objective.
+</details>
+
+### Our settings next to a real robot config
 
 | | This lesson | Go2 training config (`unitree_rl_gym`) |
 |---|---|---|
@@ -74,7 +119,7 @@ loss = pg + 0.5 * ((pi.v(o).squeeze(-1) - ret) ** 2).mean() - ent_coef * entropy
 
 **Predict** before you run: with $\gamma$ from 0.9 to 0.995, which horizon works best for a 1.6 s reach?
 
-MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU, one thread per run), Apple Silicon Mac (Apple M5). Each run is deterministic for its seed: a full rerun reproduced every success count, distance, return and KL value in [`output.txt`](../experiments/33-ppo/output.txt); only the timings changed. Evaluation uses the mean action on episodes with seeds 10000–10099.
+MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU, one thread per run), Apple Silicon Mac (Apple M5). Each run is deterministic for its seed: a full rerun reproduced every success count, distance, return and KL value in [`output.txt`](../experiments/33-ppo/output.txt); only the timings changed. Evaluation uses the mean action (no noise) on episodes with seeds 10000–10099.
 
 **Reference config, three seeds:**
 
@@ -85,9 +130,9 @@ MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU, one thread per run), Apple Sili
 | 2 | 100/100 | 96.3–100.0% | 8.0 mm | 60 s |
 | pooled | 298/300 (99.3%) | 97.6–99.8% | | |
 
-Training times are wall-clock with six runs in parallel on a Mac that was also running other jobs; treat them as approximate. The whole script (15 runs) took 222 s and prints its wall-clock time on the last line; under heavier load expect several minutes more. `python experiment.py --quick` trains seed 0 only (5 runs): it reproduces the seed-0 entries of every table, not the pooled numbers.
+Training times are wall-clock, six runs in parallel on a shared Mac: approximate. The whole script (15 runs) took 222 s. `python experiment.py --quick` trains seed 0 only (5 runs) and reproduces the seed-0 entries of every table, not the pooled numbers.
 
-Training success (stochastic policy, last 50 episodes) by environment steps:
+Training success (noisy policy, last 50 episodes) by environment steps:
 
 | seed | 50k | 100k | 150k | 200k | 250k | 299k |
 |---|---|---|---|---|---|---|
@@ -106,11 +151,13 @@ For the first 150k steps training success stays between 0.14 and 0.28; then it j
 | 0.99 | 2.0 s | 32 / 74 / 53 | 159/300 (53.0%) | 47.3–58.6% |
 | 0.995 | 4.0 s | 25 / 31 / 79 | 135/300 (45.0%) | 39.5–50.7% |
 
-The common default $\gamma = 0.99$ halves the success rate here, and the seed spread grows (25 to 79 out of 100 at 0.995). Within this budget, a reach that takes a few hundred milliseconds was best served by a horizon of the same order. We did not isolate the mechanism. Two candidates: longer horizons add the noise of distant rewards to every advantage estimate (the bias-variance trade the GAE paper describes), and the value targets grow like $1/(1-\gamma)$ while `ppo.py` neither normalizes returns nor separates the gradient-norm clip of actor and critic, so a larger value loss also shrinks the policy step. Two caveats: this is a budget-limited result (300k steps; we did not test whether $\gamma = 0.99$ catches up with more data), and the Wilson intervals count 300 evaluation episodes but only three trained policies, so they understate seed-to-seed variation. The 0.95 vs 0.99 gap holds in every seed; the 0.99 vs 0.995 difference does not.
+![Success rate against the discount γ at 50 Hz: 90.7% at γ 0.9 (0.2 s horizon), 99.3% at 0.95 (0.4 s), 53.0% at 0.99 (2 s) and 45.0% at 0.995 (4 s), with Wilson error bars and per-seed points that spread widely at the two long horizons.](../experiments/33-ppo/success_vs_gamma.png)
+
+The common default $\gamma = 0.99$ halves the success rate here, and the seed spread grows (25 to 79 out of 100 at 0.995): within this budget, a reach of a few hundred milliseconds was best served by a horizon of the same order. We did not isolate the mechanism. Candidates: longer horizons add the noise of distant rewards to every advantage estimate (the bias-variance trade the GAE paper describes); and the value targets grow like $1/(1-\gamma)$ while `ppo.py` neither normalizes returns nor clips actor and critic gradients separately, so a larger value loss also shrinks the policy step. Caveats: the result is budget-limited (300k steps; we did not test whether $\gamma = 0.99$ catches up with more data), and the Wilson intervals count 300 evaluation episodes but only three trained policies, so they understate seed-to-seed variation. The 0.95 vs 0.99 gap holds in every seed; the 0.99 vs 0.995 difference does not.
 
 ## Break it
 
-The clip is what keeps ten epochs on the same batch from walking the policy too far. Set $\epsilon = 100$ (no clipping in practice) and reuse each batch for 30 epochs:
+The clip is what keeps ten epochs on the same batch from walking the policy too far. Set $\epsilon = 100$ (no clipping in practice) and reuse each batch for 30 epochs. The last column is the approximate **KL divergence** between the policy that collected the batch and the updated one, a number for "how different are the two action distributions"; around 0.01 is a small, healthy step.
 
 | seed | success | Wilson 95% | median final distance | approx. KL per update, iter 1 / 10 / 50 / 100 / 292 |
 |---|---|---|---|---|
@@ -119,7 +166,7 @@ The clip is what keeps ten epochs on the same batch from walking the policy too 
 | 2 | 1/100 | 0.2–5.4% | 144.2 mm | 1.94 / 3.04 / 7.78 / 392 / 1070 |
 | reference ($\epsilon$ 0.2, 10 epochs) | | | | 0.00759 / 0.0201 / 0.0211 / 0.0259 / 0.0657 (mean of 3) |
 
-Mechanism: the surrogate $\rho \hat A$ is only a valid estimate of improvement near $\pi_{\theta_{\text{old}}}$. Without the clip, the optimizer keeps pushing $\rho$ for the samples with large advantages, the mean and $\log\sigma$ jump, and the approximate KL between the policy that collected the batch and the one being updated goes from about 0.01 to hundreds. The next batch is then collected by a policy that has little to do with the one the value function was fitted to, so the advantages are wrong too. The final distances (144.2–272.5 mm) are of the same order as the random policy in lesson 32 (185.7 mm median). Watching approximate KL and clip fraction per update is the cheapest early warning; Unitree's config goes one step further and adapts the learning rate to a KL target (`desired_kl = 0.01`).
+Mechanism: the surrogate $\rho \hat A$ is only a valid estimate of improvement near $\pi_{\theta_{\text{old}}}$. Without the clip, the optimizer keeps pushing $\rho$ for the samples with large advantages, the mean and $\log\sigma$ jump, and the approximate KL goes from about 0.01 to hundreds. The next batch is then collected by a policy that has little to do with the one the critic was fitted to, so the advantages are wrong too. The final distances (144.2–272.5 mm) are of the same order as the random policy in lesson 32 (185.7 mm median). Watching approximate KL and clip fraction per update is the cheapest early warning; Unitree's config goes one step further and adapts the learning rate to a KL target (`desired_kl = 0.01`).
 
 ## On the real robot
 
@@ -154,4 +201,4 @@ Next: [lesson 34](34-observation-action-design.md), what the policy sees and wha
 - [Gymnasium `Env` API](https://gymnasium.farama.org/api/env/) (terminated vs truncated).
 - [`unitree_rl_gym` · `legged_robot_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot_config.py), [`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py) (BSD-3-Clause).
 - [MuJoCo Menagerie · `robotstudio_so101`](https://github.com/google-deepmind/mujoco_menagerie/tree/f3b6013/robotstudio_so101) (Apache-2.0).
-- Code: [`experiments/33-ppo/ppo.py`](../experiments/33-ppo/ppo.py), [`experiment.py`](../experiments/33-ppo/experiment.py), [`output.txt`](../experiments/33-ppo/output.txt).
+- Code: [`experiments/33-ppo/ppo.py`](../experiments/33-ppo/ppo.py), [`experiment.py`](../experiments/33-ppo/experiment.py), [`output.txt`](../experiments/33-ppo/output.txt); figure from [`plot.py`](../experiments/33-ppo/plot.py).

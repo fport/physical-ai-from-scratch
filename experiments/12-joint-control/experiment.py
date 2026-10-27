@@ -212,12 +212,50 @@ def part_d():
     print("  target stance, geometry only (cm): " + "  ".join(f"{k} {v * 100:.2f}" for k, v in hs.items()))
 
 
+def save_figure():
+    """Step responses of parts A and B (writes step_responses.png next to this script; prints nothing)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3.4), dpi=150)
+    kp = 20.0
+    ax = axes[0]
+    for zeta in (0.1, 0.3, 0.7, 1.0, 1.5):
+        kd = 2 * zeta * np.sqrt(kp * I_LINK)
+        t, q = simulate_joint(kp, kd, 0.0, 0.5, gravity=False, T=2.0)
+        ax.plot(t, q, label=f"zeta = {zeta}", lw=1.2)
+    ax.axhline(0.5, color="k", lw=0.6, ls=":")
+    ax.set_xlabel("time (s)")
+    ax.set_ylabel("joint angle (rad)")
+    ax.set_title("A. PD step, no gravity: Kd sets the shape", fontsize=9)
+    ax.legend(frameon=False, fontsize=7)
+    ax.grid(True, alpha=0.3)
+
+    ax = axes[1]
+    kd = 2 * 0.7 * np.sqrt(kp * I_LINK)
+    for name, ki, ff in [("PD", 0.0, False), ("PID Ki=40", 40.0, False), ("PID Ki=160", 160.0, False),
+                         ("PD + qfrc_bias", 0.0, True)]:
+        t, q = simulate_joint(kp, kd, np.pi / 2, 0.0, gravity=True, ki=ki, feedforward=ff)
+        ax.plot(t, np.degrees(q), label=name, lw=1.2)
+    ax.axhline(0.0, color="k", lw=0.6, ls=":")
+    ax.set_xlabel("time (s)")
+    ax.set_ylabel("angle (deg; 90 = hanging, 0 = target)")
+    ax.set_title("B. Under gravity, Kp = 20: sag and three fixes", fontsize=9)
+    ax.legend(frameon=False, fontsize=7)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(os.path.join(os.path.dirname(os.path.abspath(__file__)), "step_responses.png"))
+    plt.close(fig)
+
+
 def main():
     print(f"mujoco {mujoco.__version__} · numpy {np.__version__}")
     part_a()
     part_b()
     part_c()
     part_d()
+    save_figure()
 
 
 if __name__ == "__main__":

@@ -16,17 +16,76 @@
 
 ## The problem
 
-A behavior-cloning policy maps the current observation to the next action. Demonstrations contain moments where the observation stays the same while the right action changes with time: the arm waits while a gripper closes, then moves on. The ACT paper ([Zhao et al. 2023](https://arxiv.org/abs/2304.13705), Sec. I) says predicting action sequences "helps tackle temporally correlated confounders", such as pauses in demonstrations. In its chunk-size ablation (Fig. 8a: 2 simulated tasks × scripted/human data, averaged, no ensembling) success rises from 1% at $k = 1$ to 44% at $k = 100$.
+A behavior-cloning policy maps the current observation to the next action. Demonstrations contain moments where the observation stays the same while the right action changes with time: the arm waits while a gripper closes, then moves on. The ACT paper (Action Chunking with Transformers, [Zhao et al. 2023](https://arxiv.org/abs/2304.13705), Sec. I) says predicting action sequences "helps tackle temporally correlated confounders", such as pauses in demonstrations. In its chunk-size ablation (Fig. 8a: 2 simulated tasks × scripted/human data, averaged, no ensembling) success rises from 1% at $k = 1$ to 44% at $k = 100$.
 
 Our version, in simulation: a planar arm reaches a target, holds still for 0.5 s, then goes to a drop point. A single-step policy trained on 100 demonstrations ends up **stuck at the target in 543 of 600 episodes**.
 
 ## Core idea
 
-**Action chunking.** Instead of $\pi(a_t \mid o_t)$, learn $\pi(a_{t:t+k} \mid o_t)$. Executing a chunk and querying again every $k$ steps "reduces the effective horizon of the task by k-fold" (Sec. I): fewer decisions, fewer chances for errors to compound ([lesson 29](29-dagger.md)).
+### In plain words
 
-**Why a pause breaks a single-step policy.** During a pause the observation (joints at rest) barely changes, and in the data the next action is "hold" at every pause step but the last. ACT's L1 loss is minimized by the per-dimension median: hold, forever (L2 would give the mean, a slow creep; [lesson 30](30-diffusion-and-flow-policies.md)). In a chunk predicted from that observation, entry $i$ is "already moving" in a growing fraction of the demonstrations, so the median chunk holds for a while and then departs, if $k$ is long enough to contain the departure.
+Picture a student driver at a red light with no countdown. From the driver's seat every second of the wait looks the same. A student who only learns "in this scene, what is my next move?" sees "stay" in almost every example from that scene, because "go" happens only once, at the very end. So the student learns to stay, forever. The scene does not say how long you have already waited; the timing lives in the past, not in the current observation.
 
-**Two ways to execute a chunk.**
+**Action chunking** fixes this by committing to the next few moves at once: instead of one action, the policy predicts the next $k$, for example "stay, stay, stay, go, go". If the plan is long enough to include the moment of leaving, the arm leaves. A side benefit: with fewer decisions there are fewer chances for errors to compound ([lesson 29](29-dagger.md)).
+
+There are two ways to execute a chunk. **Open-loop**: play all $k$ actions without looking, then ask again, like following directions to the next junction without checking the map. **Temporal ensembling**: ask every step, keep the overlapping plans made at earlier steps, and average all their advice for *now*, trusting older plans slightly more. The first commits; the second reacts and smooths, but averaging can also water down a decision to leave.
+
+```mermaid
+flowchart TD
+    O["observation o_t"] --> P["policy predicts a chunk:<br/>actions t ... t+k-1"]
+    P --> Q{"execution scheme"}
+    Q -->|"open-loop"| C["play all k actions,<br/>then query again"]
+    Q -->|"temporal ensembling"| B["keep up to k predictions<br/>for every coming step"]
+    B --> W["weighted mean for step t<br/>(older weighs more)"]
+    C --> R["robot"]
+    W --> R
+```
+
+### Chunking and ensembling as code
+
+```python
+# dataset: one observation -> the next k actions (episode end padded with the last action)
+X = [o[t] for t in range(T)]
+Y = [a_pad[t:t + k] for t in range(T)]           # shape (k, n_joints); trained with L1 loss
+
+# open-loop: query once every k steps
+if t % k == 0:
+    chunk = policy(obs)
+action = chunk[t % k]
+
+# temporal ensembling: query every step, average every prediction made for step t
+chunks[t] = policy(obs)                           # chunks[s][j] predicts step s + j
+def ensembled_action(chunks, t, k, m=0.01):
+    preds = [chunks[s][t - s] for s in range(max(0, t - k + 1), t + 1)]  # oldest first
+    w = [exp(-m * i) for i in range(len(preds))]                          # i = 0 is the oldest
+    return sum(wi * p for wi, p in zip(w, preds)) / sum(w)
+```
+
+| What | Formula |
+|---|---|
+| Single-step policy | $\pi(a_t \mid o_t)$ |
+| Chunked policy | $\pi(a_{t:t+k} \mid o_t)$ |
+| Temporal ensembling | $a_t = \dfrac{\sum_i w_i\, \hat a_t^{(i)}}{\sum_i w_i}, \qquad w_i = e^{-m i}$ |
+| L1 optimum | per-dimension median of the demonstrated actions for that observation |
+
+$o_t$ is the observation at step $t$, $a_t$ the action, $k$ the chunk size, $\hat a_t^{(i)}$ the $i$-th prediction for step $t$ with $i = 0$ the oldest, $w_i$ its weight and $m$ how fast the weight decays ($m \to 0$ is a plain average).
+
+<details>
+<summary>Math details: why L1 holds forever, and how a chunk escapes</summary>
+
+**Why a pause breaks a single-step policy.** During a pause the observation (joints at rest) barely changes, and in the data the next action is "hold" at every pause step but the last. ACT's L1 loss is minimized by the per-dimension median: hold, forever. L2 would give the mean, a slow creep ([lesson 30](30-diffusion-and-flow-policies.md)).
+
+**Why a chunk can escape.** In a chunk predicted from that observation, entry $i$ is "already moving" in a growing fraction of the demonstrations as $i$ grows. Once that fraction passes one half, the median of entry $i$ is "moving". So the median chunk holds for a while and then departs, if $k$ is long enough to contain the departure.
+
+**Fewer decisions.** Executing a chunk and querying again every $k$ steps "reduces the effective horizon of the task by k-fold" (Sec. I), which in the terms of lesson 29 means fewer steps over which errors can compound.
+
+**Ensembling weights.** With $w_i = e^{-mi}$ and $i = 0$ the oldest prediction, older predictions weigh more; in the paper's words, "a smaller m means faster incorporation" of new observations (Sec. IV-A). The paper gives no value; LeRobot's config comment says the original uses $m = 0.01$ ([`configuration_act.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py)). At most $k$ predictions exist for any step, so the mean is over up to $k$ terms.
+
+Go deeper (AIEFS): [The Full Transformer — Encoder + Decoder](https://aiengineeringfromscratch.com/lesson?path=phases/07-transformers-deep-dive/05-full-transformer), [Autoencoders & Variational Autoencoders (VAE)](https://aiengineeringfromscratch.com/lesson?path=phases/08-generative-ai/02-autoencoders-vae). Primary source: [Zhao et al. 2023](https://arxiv.org/abs/2304.13705), Sec. I and IV.
+
+</details>
+
+### Two ways to execute a chunk
 
 | | open-loop chunks | temporal ensembling |
 |---|---|---|
@@ -35,13 +94,9 @@ Our version, in simulation: a planar arm reaches a target, holds still for 0.5 s
 | reacts to disturbances | once per chunk | every step |
 | chunk boundaries | jumps | smoothed |
 
-Temporal ensembling (Sec. IV-A) averages the (up to $k$) predictions for the current step:
+### ACT's architecture
 
-$$a_t = \frac{\sum_i w_i\, \hat a_t^{(i)}}{\sum_i w_i}, \qquad w_i = e^{-m i},$$
-
-where $i = 0$ is the oldest prediction, so older predictions weigh more and $m \to 0$ is a plain average; in the paper's words, "a smaller m means faster incorporation" of new observations. The paper gives no value; LeRobot's config comment says the original uses $m = 0.01$ ([`configuration_act.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py)).
-
-**ACT's architecture** (Sec. IV; see AIEFS: [Full Transformer](https://aiengineeringfromscratch.com/lesson?path=phases/07-transformers-deep-dive/05-full-transformer), [VAE](https://aiengineeringfromscratch.com/lesson?path=phases/08-generative-ai/02-autoencoders-vae)):
+ACT adds a transformer and a CVAE on top of chunking. The CVAE (conditional variational autoencoder) compresses the demonstrated chunk into a small "style" vector $z$ during training, which lets the model represent different ways of doing the same thing (Sec. IV; see AIEFS: [Full Transformer](https://aiengineeringfromscratch.com/lesson?path=phases/07-transformers-deep-dive/05-full-transformer), [VAE](https://aiengineeringfromscratch.com/lesson?path=phases/08-generative-ai/02-autoencoders-vae)):
 
 | part | what it does |
 |---|---|
@@ -72,7 +127,7 @@ den[:, t:t + k] += w[None, :, None]
 a = num[:, t] / den[:, t]
 ```
 
-**Success:** within 3 cm of the target for ≥ 0.2 s, then within 3 cm of the drop point at 4.0 s; 200 new targets per seed, 600 episodes per row, same disturbances in every row. Failures: *miss* (never reached the target), *short* (left before 0.2 s), *stuck* (still there at 4.0 s). Pause: median longest stay at the target in successes. Jerk: RMS third difference of the commanded joint targets (rad/s³).
+**Success:** within 3 cm of the target for ≥ 0.2 s, then within 3 cm of the drop point at 4.0 s; 200 new targets per seed, 600 episodes per row, same disturbances in every row. Failures: *miss* (never reached the target), *short* (left before 0.2 s), *stuck* (still there at 4.0 s). Pause: median longest stay at the target in successes. Jerk (how abruptly the command changes): RMS third difference of the commanded joint targets (rad/s³).
 
 **Prediction:** small $k$ gets stuck; large open-loop chunks react too rarely; ensembling smooths.
 
@@ -88,6 +143,8 @@ a = num[:, t] / den[:, t]
 | $k=16$ ensembled | 160/600 | 23.3–30.3% | 5 | 1 | 362 | 0.81 | 543 |
 | $k=32$ open-loop | 297/600 | 45.5–53.5% | 200 | 103 | 0 | 0.38 | 3875 |
 | $k=32$ ensembled | **552/600** | 89.6–93.9% | 39 | 9 | 0 | 0.58 | **433** |
+
+![Two panels against chunk size k on a log scale (1, 4, 8, 16, 32), open-loop and ensembled. Left: success stays at 5.3 percent or less up to k = 8, then open-loop jumps to 71.8 percent at k = 16 and falls to 49.5 percent at k = 32, while ensembled rises to 26.7 percent at k = 16 and 92.0 percent at k = 32. Right: stuck episodes stay between 534 and 545 of 600 up to k = 8 for both schemes and drop to 0 at k = 32; at k = 16 open-loop has 6 stuck, ensembled 362.](../experiments/31-act/chunk_size.png)
 
 Why the jump between 8 and 16? Query each policy (seed 0) at rest exactly on the goal, for 200 goals, and find the first chunk entry that leaves the goal by more than 0.02 rad:
 

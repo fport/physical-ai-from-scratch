@@ -20,7 +20,29 @@ Every earlier lesson tested one layer with the others idealised: the grasp of [l
 
 ## Core idea
 
-**Architecture.** Seven layers, each built in an earlier lesson. Geometry never passes through the language model: it outputs a tool name and an object name, nothing metric.
+### In plain words
+
+Think of the robot as a chain of microservices: a language model that turns a sentence into a function call, a camera service that says where the cubes are, a validator, a motion planner, a gripper, and a judge. Each one has an API, and each API should come with a contract you can check, the way a service promises a response schema and a latency.
+
+Two things follow from the chain. First, reliability multiplies: if every request has to pass through all services, the end-to-end success rate is the product of the services' success rates, so five very good layers can still make a mediocre system. Second, when a request fails, the service that shows the error is often not the one that caused it. A camera that is slightly off produces no error at all; the failure surfaces three services later as a gripper closing on air. You need something like distributed tracing: a harness that checks every contract along the way and blames the first one that broke.
+
+One design rule keeps this chain manageable: geometry never passes through the language model. It outputs a tool name and an object name, nothing metric. Every coordinate comes from the camera and every joint angle from inverse kinematics.
+
+### Architecture
+
+```mermaid
+flowchart TD
+    U["spoken-style command<br/>(text)"] --> L["language model<br/>(Ollama, tools)"]
+    L -- "pick(object) / place(target)" --> T["tool layer"]
+    C["overhead RGB-D camera<br/>→ perception (x, y)"] --> T
+    T --> V["validation<br/>workspace, IK residual, joint margin"]
+    V --> M["motion, grasp, place<br/>IK, min-jerk, scripted_pick"]
+    M --> R["SO-101 in MuJoCo"]
+    T -. "holding / closed on nothing /<br/>rejected" .-> L
+    R --> H["harness<br/>verdict from simulator state"]
+```
+
+Seven layers, each built in an earlier lesson:
 
 | layer | component in this experiment | lesson |
 |---|---|---|
@@ -32,7 +54,59 @@ Every earlier lesson tested one layer with the others idealised: the grasp of [l
 | place | `ik_solve` over the box, open the jaw | [10](../part-3-kinematics/10-inverse-kinematics.md) |
 | harness | success from simulator state, Wilson interval | [25](../part-7-learning-from-demonstration/25-evaluating-policies.md) |
 
-**Interfaces.** An interface is a type plus a contract. A contract you cannot check is a hope.
+(HSV mask: keep the pixels whose hue, saturation and brightness fall in the cube's colour range. Depth back-projection: turn a pixel plus its depth into a 3D point. IK residual: how far the best joint solution leaves the gripper from the target.)
+
+### Failure budget and attribution, as code
+
+The harness attributes a failed episode to the **first layer, in pipeline order, that broke its contract**: language (never picked the requested cube, or never placed it) → perception (not detected, or estimate more than 8 mm from the truth) → IK/limits (rejected by validation) → grasp (cube not lifted ≥ 4 cm) → place (not in the box). The agent's `report_result` is logged and never consulted.
+
+```python
+ORDER = ["language", "perception", "IK/limits", "grasp", "place"]
+
+def attribute(ep):                       # only called for failed episodes
+    for layer in ORDER:                  # pipeline order
+        if not ep.contract_ok(layer):    # checked against simulator ground truth
+            return layer                 # the first broken contract gets the blame
+
+def end_to_end(p):                       # p[i]: pass rate of layer i among episodes that reach it
+    return math.prod(p)                  # layers in series multiply
+
+def even_split(P, L):                    # what each of L layers must reach for end-to-end P
+    return P ** (1 / L)
+
+def wilson(k, n, z=1.96):                # 95% interval for a success rate k/n (lesson 25)
+    p = k / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return centre - half, centre + half
+```
+
+| Quantity | Formula |
+|---|---|
+| end-to-end success | $P_{\text{end-to-end}} = \prod_{i=1}^{L} p_i$ |
+| even budget | $p_i = P^{1/L}$ |
+| Wilson 95% interval | $\dfrac{\hat p + \frac{z^2}{2n} \pm z\sqrt{\frac{\hat p(1-\hat p)}{n} + \frac{z^2}{4n^2}}}{1 + \frac{z^2}{n}}$ |
+
+$L$ is the number of layers in series, $p_i$ the probability that layer $i$ passes an episode that reached it, $P$ the target end-to-end rate, $\hat p = k/n$ the observed success rate over $n$ episodes and $z$ the normal quantile of the confidence level (1.96 for 95%). For 0.90 over 5 layers, an even split asks each layer for 0.979 (any split needs every $p_i \ge P$).
+
+<details>
+<summary>Math details: why the product is exact here, and what 30 episodes can certify</summary>
+
+**The product is exact by construction.** Define $p_i = \text{passed}_i / \text{reached}_i$ over the episodes that reach layer $i$. Since the episodes that reach layer $i+1$ are exactly those that passed layer $i$, the product telescopes: $\prod_i p_i = \text{passed}_L / \text{reached}_1$, the end-to-end rate. No independence assumption is needed for this bookkeeping; independence matters only when you use pass rates measured in isolation to predict a new system.
+
+**Any split needs every layer above the target.** Every factor is at most 1, so $P = \prod p_i \le p_j$ for each $j$: no single layer can be worse than the system you want.
+
+**Thirty clean episodes are not a proof.** For $k = n$ the Wilson lower bound reduces to $n / (n + z^2)$. With $n = 30$ that is $30 / (30 + 1.96^2) \approx 0.886$, below the 0.979 an even 5-layer budget asks for. The bound assumes independent trials; this experiment repeats 6 fixed commands on 5 layouts with a deterministic model, so its intervals are if anything too narrow.
+
+**Camera tilt geometry.** A small tilt $\alpha$ of a camera at height $h$ shifts where a ray meets the table by about $h\,\alpha$ (angle in radians). At $h = 0.6$ m, one degree gives $0.6 \times \pi/180$ m, about 1 cm, which matches the median estimate errors in the Break-it table (9.8 mm at 1°).
+
+Go deeper: [lesson 25](../part-7-learning-from-demonstration/25-evaluating-policies.md) (success rates and intervals), [lesson 21](../part-5-perception-and-estimation/21-object-perception.md) (perception error), [lesson 42](../part-10-foundation-models-and-agents/42-llm-agents.md) (validation and false claims); primary source: E. B. Wilson, ["Probable inference, the law of succession, and statistical inference"](https://doi.org/10.1080/01621459.1927.10502953) (1927).
+
+</details>
+
+### Interfaces and contracts
+
+An interface is a type plus a contract. A contract you cannot check is a hope.
 
 | interface | from → to | what crosses | contract |
 |---|---|---|---|
@@ -45,11 +119,7 @@ Every earlier lesson tested one layer with the others idealised: the grasp of [l
 | postcondition | gripper → LLM | "holding" / "closed on nothing" from the jaw angle | no ground truth |
 | verdict | simulator → harness | cube poses | requested cube inside the box, no other cube in it |
 
-**Failure budget.** Layers in series multiply. If layer $i$ passes the episodes that reach it with probability $p_i$,
-
-$$P_{\text{end-to-end}} = \prod_{i=1}^{L} p_i, \qquad \text{even split: } p_i = P^{1/L} .$$
-
-For 0.90 over 5 layers, an even split asks each layer for 0.979 (any split needs every $p_i \ge P$). The harness attributes a failed episode to the **first layer, in pipeline order, that broke its contract**: language (never picked the requested cube, or never placed it) → perception (not detected, or estimate more than 8 mm from the truth) → IK/limits (rejected by validation) → grasp (cube not lifted ≥ 4 cm) → place (not in the box). The agent's `report_result` is logged and never consulted.
+$K$ is the camera's intrinsic matrix (focal length and image centre, here from a 50° vertical field of view) and $T_{wc}$ its extrinsics, the camera's pose in the world frame ([lesson 19](../part-5-perception-and-estimation/19-camera-calibration.md)); `ctrlrange` is the allowed command range of each MuJoCo actuator.
 
 ## Experiment
 
@@ -107,11 +177,13 @@ Full script: [`experiments/44-capstone/experiment.py`](../experiments/44-capston
 - **The agent does not know when to stop.** On `plain`, `qwen2.5:7b` placed the red cube, then called `place` again, `look()`, and `pick(red cube)` on the cube now in the box; validation rejected it (IK) and it never called `report_result`. The task stayed done only because that pose is out of reach.
 - Other cubes were pushed more than 1 cm in 8 of 60 episodes.
 
-**Determinism.** Temperature 0 and seed 0; replies are memoised within a run by the exact request, so the 557 requests needed 93 distinct calls to Ollama (no coordinates reach the model, so conversations recur across layouts). Four runs that differed only in printed lines produced the same run signature (`f942d461a345`) and identical tables, and an independent review re-run reproduced them; only the wall-time lines changed. The determinism comes from Ollama 0.32.15 with these weights on this machine, as in lesson 42; another version or machine may produce different replies.
+**Determinism.** Temperature 0 and seed 0; replies are memoised (cached) within a run by the exact request, so the 557 requests needed 93 distinct calls to Ollama (no coordinates reach the model, so conversations recur across layouts). Four runs that differed only in printed lines produced the same run signature (`f942d461a345`) and identical tables, and an independent review re-run reproduced them; only the wall-time lines changed. The determinism comes from Ollama 0.32.15 with these weights on this machine, as in lesson 42; another version or machine may produce different replies.
 
 ## Break it
 
 The camera's extrinsics are calibrated once; then the real camera tilts by an angle the perception code does not know about (rotation about the horizontal axis $(1, 1, 0)/\sqrt 2$). At 0.6 m, each degree moves the estimate by about 1 cm. `qwen2.5:7b`, commands `plain`, `filler`, `terse` × 5 layouts:
+
+![Left: end-to-end success with Wilson 95% intervals versus unmodelled camera tilt, flat at 13/15 and 12/15 up to 1.5 degrees, then 3/15 at 2 degrees. Right: median perception estimate error grows linearly with tilt, from 0.4 mm to 19.8 mm, and crosses the 8 mm contract just below 1 degree.](../experiments/44-capstone/success_vs_tilt.png)
 
 | tilt [°] | median estimate error [mm] | success | Wilson 95% | perception | IK/limits | false claims |
 |---|---|---|---|---|---|---|
@@ -121,7 +193,7 @@ The camera's extrinsics are calibrated once; then the real camera tilts by an an
 | 1.5 | 14.9 | 12/15 | [0.55, 0.93] | 3 | 0 | 2 |
 | 2.0 | 19.8 | 3/15 | [0.07, 0.45] | 12 | 0 | 1 |
 
-The grasp tolerated up to about 15 mm of error along this direction (the open jaw is wide), then collapsed between 1.5° and 2°. At 2° the visible symptom is the gripper: "closed on nothing". The agent retried, up to three picks per episode, but each retry aimed at the same biased estimate. Two lessons follow. First, **the first contract broken is upstream of the first failure seen**: only the harness, which compares the estimate with the simulator's truth, puts these failures in perception. Second, **retries fix random errors, not systematic ones**. On hardware there is no ground truth; the remedy is a calibration check before each session, for example a fiducial at a known table position whose estimate must land within the 8 mm contract (lesson 19). Note also that at 1.0° and 1.5° two of the 3 failures are the same blue-cube rejections as at 0°, now charged to perception because its contract broke first (the third: the shifted estimate moved the green cube of layout 0 out of IK reach). First-violation attribution is a convention, not a causal proof.
+The grasp tolerated up to about 15 mm of error along this direction (the open jaw is wide), then collapsed between 1.5° and 2°. At 2° the visible symptom is the gripper: "closed on nothing". The agent retried, up to three picks per episode, but each retry aimed at the same biased estimate. Two lessons follow. First, **the first contract broken is upstream of the first failure seen**: only the harness, which compares the estimate with the simulator's truth, puts these failures in perception. Second, **retries fix random errors, not systematic ones**. On hardware there is no ground truth; the remedy is a calibration check before each session, for example a fiducial (a printed marker the camera can locate precisely) at a known table position whose estimate must land within the 8 mm contract (lesson 19). Note also that at 1.0° and 1.5° two of the 3 failures are the same blue-cube rejections as at 0°, now charged to perception because its contract broke first (the third: the shifted estimate moved the green cube of layout 0 out of IK reach). First-violation attribution is a convention, not a causal proof.
 
 ## On the real robot
 
@@ -157,7 +229,7 @@ Sources:
 - LeRobot [SO-101 documentation](https://huggingface.co/docs/lerobot/so101).
 - [MuJoCo Menagerie · robotstudio_so101](https://github.com/google-deepmind/mujoco_menagerie/tree/main/robotstudio_so101) (Apache-2.0).
 - E. B. Wilson, ["Probable inference, the law of succession, and statistical inference"](https://doi.org/10.1080/01621459.1927.10502953), *J. Amer. Statist. Assoc.* 22, 209–212, 1927.
-- All measured numbers: [`experiments/44-capstone/output.txt`](../experiments/44-capstone/output.txt).
+- All measured numbers: [`experiments/44-capstone/output.txt`](../experiments/44-capstone/output.txt), figure from [`plot.py`](../experiments/44-capstone/plot.py).
 
 ### Where to go next
 

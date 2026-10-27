@@ -16,11 +16,28 @@
 
 ## The problem
 
-Everything so far ran in simulation. The real SO-101 workflow in LeRobot is short to type and easy to get subtly wrong: the calibration is stored under the robot's `id`, and LeRobot's guide warns that the same `id` must be used when teleoperating, recording and evaluating ([LeRobot imitation-learning guide](https://huggingface.co/docs/lerobot/il_robots)). A policy trained on data recorded with one calibration and run with another sends goals that are offset by the difference, and nothing in the software complains. This lesson writes the full deployment as a procedure, and adds a simulation preflight that rejects a commanded trajectory before it reaches the motors.
+Everything so far ran in simulation. The real SO-101 workflow in LeRobot is short to type and easy to get subtly wrong: the calibration is stored under the robot's `id`, and LeRobot's guide warns that the same `id` must be used when teleoperating, recording and evaluating ([LeRobot imitation-learning guide](https://huggingface.co/docs/lerobot/il_robots)). A policy trained on data recorded with one calibration and run with another sends goals that are offset by the difference, and nothing in the software complains. This lesson writes the full deployment as a procedure and adds a simulation preflight that rejects a commanded trajectory before it reaches the motors.
 
 ## Core idea
 
-The deployment is a pipeline; every arrow is a place where an assumption can break.
+### In plain words
+
+Deploying a learned policy on the arm is a build pipeline: hardware setup, data, model, release. Each stage consumes configuration produced by an earlier one, above all the *calibration* file, which maps raw motor readings to the joint values the policy sees. Train with one calibration and run with another, and nothing crashes; every goal is silently shifted. It is the robot version of training a model with one feature normalization and serving it with another.
+
+You record data by *teleoperation*: you move a hand-held *leader* arm and the motorized *follower* arm copies it. A policy is trained on those recordings, and a *rollout* runs it on the follower without you. So the work is mostly bookkeeping: keep port, id, calibration, cameras and frame rate the same from the first teleoperation to the last rollout, and check commands against a model before they reach the motors.
+
+```mermaid
+flowchart TD
+    P["find ports,<br/>set motor IDs"] --> C["calibrate<br/>(file named by the id)"]
+    C --> T["teleoperate<br/>leader → follower"]
+    T --> R["record episodes<br/>LeRobotDataset"]
+    R --> L["train ACT"]
+    L --> F["sim preflight<br/>of the goals"]
+    F --> O["rollout on the arm"]
+    C -. "same id, cameras, fps" .-> O
+```
+
+### The pipeline and its invariants
 
 | Stage | Command | Produces | Invariant to keep |
 |---|---|---|---|
@@ -32,7 +49,9 @@ The deployment is a pipeline; every arrow is a place where an assumption can bre
 | Training | `lerobot-train` | ACT checkpoint | trained on exactly that dataset |
 | Rollout | `lerobot-rollout` | autonomous episodes | same cameras, fps, calibration as recording |
 
-Units: with the default `use_degrees = True`, LeRobot reports the five arm joints in degrees relative to the middle of the range recorded at calibration, and the gripper from 0 to 100 ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py), [`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py)). The Menagerie model uses radians from its own zero. A sim check is only meaningful after you have measured the offset and sign between the two (lesson 38).
+(The baudrate is the serial bus speed; EEPROM is the servo's own memory that survives power-off.)
+
+**Units.** With the default `use_degrees = True`, LeRobot reports the five arm joints in degrees relative to the middle of the range recorded at calibration, and the gripper from 0 to 100 ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py), [`motors_bus.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py)). The Menagerie model uses radians from its own zero. A sim check is only meaningful after you have measured the offset and sign between the two (lesson 38).
 
 ## Experiment
 
@@ -85,7 +104,7 @@ Commands and facts from the [SO-101 page](https://huggingface.co/docs/lerobot/so
 
 ### Part 2 · Simulation preflight
 
-Before step 9, and before replaying any recorded or generated trajectory, check it against the model. A pick-and-place goal sequence (9 waypoints, min-jerk segments of 1.2 s, 303 goals at 30 fps, 10.1 s) is played through the Menagerie SO-101's servos. Six checks, our thresholds:
+A *preflight* is a check that runs before anything moves. Before step 9, and before replaying any recorded or generated trajectory, play it through the model. Here: a pick-and-place goal sequence (9 waypoints, min-jerk segments of 1.2 s, i.e. smooth start and stop; 303 goals at 30 fps, 10.1 s) through the Menagerie SO-101's servos. Six checks, our thresholds:
 
 | check | rule |
 |---|---|
@@ -123,7 +142,7 @@ Full script: [`experiments/40-real-so101/experiment.py`](../experiments/40-real-
 | track [°] | 0.62 | 0.67 | 0.70 | 0.72 | 2.11 |
 | verdict | PASS | PASS | PASS | FAIL: gravity | FAIL: gravity |
 
-**Observe.** The step check trips at ×2, long before tracking fails (×4): it is a cheap, conservative proxy you can also enforce on the robot. The servo in this model sits at its torque limit for 37.2–74.8% of the steps at every speed; with $k_p$ = 998 N·m/rad its linear band is only 2.94/998 ≈ 2.9 mrad, so saturation alone says little here. At 0.6 kg the static torque (2.397 N·m) passes 80% of the limit while the arm still tracks to 0.72°: the gravity check flags a missing margin before the arm has to prove it (lesson 12 saw the stretched arm drop at 0.8 kg).
+**Observe.** The step check trips at ×2, long before tracking fails (×4): a cheap, conservative proxy you can also enforce on the robot. The model servo sits at its torque limit for 37.2–74.8% of the steps at every speed; with $k_p$ = 998 N·m/rad its linear band is only 2.94/998 ≈ 2.9 mrad, so saturation alone says little here. At 0.6 kg the static torque (2.397 N·m) passes 80% of the limit while the arm still tracks to 0.72°: the gravity check flags a missing margin before the arm has to prove it (lesson 12 saw the stretched arm drop at 0.8 kg).
 
 ## Break it
 

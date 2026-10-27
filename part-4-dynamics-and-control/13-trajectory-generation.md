@@ -16,11 +16,52 @@
 
 ## The problem
 
-In lesson 12, Unitree's real-robot stand-up example did not send the stand pose in one go: it interpolated toward it in phases of 500 to 1000 ticks of 2 ms ([`go2_stand_example.py`](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py)). Robot interfaces go further: libfranka's `rate_limiting.h` defines per-joint maxima of 10 rad/s² acceleration, 5000 rad/s³ jerk and 1000 N·m/s torque rate at a 1 ms control period, with `limitRate` functions that clip commands to them ([`rate_limiting.h`](https://github.com/frankarobotics/libfranka/blob/main/include/franka/rate_limiting.h)). A planner or an IK solver gives you *where* to go; trajectory generation decides *how the reference moves in time*, and that choice sets the peak torque, the jerk that shakes the structure, and the tracking error. This lesson measures all three on a Panda.
+In lesson 12, Unitree's real-robot stand-up example did not send the stand pose in one go: it interpolated toward it in phases of 500 to 1000 ticks of 2 ms ([`go2_stand_example.py`](https://github.com/unitreerobotics/unitree_sdk2_python/blob/master/example/go2/low_level/go2_stand_example.py)). Robot interfaces go further: libfranka's `rate_limiting.h` defines per-joint maxima of 10 rad/s² acceleration, 5000 rad/s³ jerk (the rate of change of acceleration) and 1000 N·m/s torque rate at a 1 ms control period, with `limitRate` functions that clip commands to them ([`rate_limiting.h`](https://github.com/frankarobotics/libfranka/blob/main/include/franka/rate_limiting.h)). A planner or an IK solver gives you *where* to go; trajectory generation decides *how the reference moves in time*, and that choice sets the peak torque, the jerk that shakes the structure, and the tracking error (how far the robot lags behind its reference). This lesson measures all three on a Panda.
 
 ## Core idea
 
-Write every move as $q(t) = q_0 + s(t/T)\,\Delta q$, with a time scaling $s(u)$, $u \in [0,1]$, $s(0) = 0$, $s(1) = 1$ (Lynch & Park, ch. 9).
+### In plain words
+
+A controller chases its reference, the angle it is told to be at right now. If the reference teleports to the goal (a **step**), the controller tries to get there instantly and asks for an enormous torque. A **trajectory** is the reference written as a schedule instead: where each joint should be at every tick between start and goal.
+
+Think of an elevator. A cheap one lurches when it starts and stops; a good one eases into motion, cruises and eases out. What you feel as a lurch is **jerk**, the rate at which acceleration changes. The shape of the schedule decides it:
+
+- **linear**: constant speed from the first instant, so speed jumps at both ends;
+- **trapezoid**: speed ramps up, cruises, ramps down, so acceleration jumps at the corners;
+- **cubic**: speed is smooth, but acceleration still jumps at the start and the end;
+- **quintic**: position, speed and acceleration all start and end at rest. This is the **minimum-jerk** move.
+
+Duration matters more than shape: do the same move in half the time and every acceleration (and torque) is four times larger, every jerk eight times. Two more choices follow: interpolate in joint angles (cheap, but the hand follows a curve) or along a straight line for the hand (needs IK at every point), and whether to add **feedforward**, the torque the planned acceleration needs, sent in advance instead of waiting for an error to build up.
+
+```mermaid
+flowchart TD
+    G["goal joint angles<br/>from a planner or IK"] --> TG["trajectory generator<br/>q_r(t) = q0 + s(t/T)·Δq"]
+    TG --> R["q_r, q̇_r, q̈_r<br/>every 2 ms"]
+    R --> PD["PD + gravity<br/>tracks q_r, q̇_r"]
+    R --> FF["feedforward<br/>M(q)·q̈_r"]
+    PD --> S["add, clip to torque limits"]
+    FF --> S
+    S --> A["Panda"]
+    A -- "measured q, q̇" --> PD
+```
+
+### Time scaling as code
+
+Every move is "start + fraction of the way × total change"; only the fraction `s` changes with time.
+
+```python
+def quintic(t, T):
+    u = min(max(t / T, 0.0), 1.0)              # normalised time, 0 at start, 1 at the end
+    s = 10*u**3 - 15*u**4 + 6*u**5             # fraction of the move done, 0 -> 1
+    sd = (30*u**2 - 60*u**3 + 30*u**4) / T     # ds/dt  [1/s]
+    sdd = (60*u - 180*u**2 + 120*u**3) / T**2  # d2s/dt2 [1/s^2]
+    return s, sd, sdd
+
+s, sd, sdd = quintic(t, T)
+q_ref, qd_ref, qdd_ref = q0 + s*dq, sd*dq, sdd*dq      # per-joint reference [rad, rad/s, rad/s^2]
+tau = g(q) + kp*(q_ref - q) + kd*(qd_ref - qd)         # PD tracking + gravity (lesson 12)
+tau += M(q) @ qdd_ref                                  # optional feedforward (lesson 11's M)
+```
 
 | shape | $s(u)$ | boundary conditions | peak $|\ddot q|$ | jerk |
 |---|---|---|---|---|
@@ -30,11 +71,28 @@ Write every move as $q(t) = q_0 + s(t/T)\,\Delta q$, with a time scaling $s(u)$,
 | cubic | $3u^2 - 2u^3$ | position, velocity | $6\,\Delta q/T^2$ | ∞ at the ends |
 | quintic | $10u^3 - 15u^4 + 6u^5$ | position, velocity, acceleration | $5.77\,\Delta q/T^2$ | $60\,\Delta q/T^3$ |
 
-The quintic with zero velocity and acceleration at both ends is the **minimum-jerk** trajectory: among all smooth paths between two rest states it minimises $\int \dddot q^{\,2} dt$ (Flash & Hogan 1985, who used it to model human arm motion). All accelerations scale with $1/T^2$, jerks with $1/T^3$: halve the duration and you need four times the torque.
+Here $q(t) = q_0 + s(t/T)\,\Delta q$, $u = t/T \in [0,1]$ is normalised time, $s(u)$ the time scaling with $s(0) = 0$ and $s(1) = 1$ (Lynch & Park, ch. 9), $q_0$ the start angles, $\Delta q$ the total change, $T$ the duration, $\ddot q$ the joint acceleration and jerk $\dddot q$ its time derivative. "Boundary conditions" lists what the shape sets to rest at both ends.
 
-**Joint space vs Cartesian.** Interpolating in joint space is cheap and stays inside the joint limits whenever both ends do, but the hand follows a curve. A Cartesian straight line needs IK at every waypoint (lesson 10) and can pass through singularities or joint limits; it costs more joint motion.
+![Position, velocity and acceleration of the linear, trapezoid, cubic and quintic time scalings over normalised time. Only the quintic starts and ends with both zero velocity and zero acceleration; the cubic's acceleration jumps to 6 at the ends, the trapezoid's jumps at its corners.](../experiments/13-trajectory-generation/time_scalings.png)
 
-**Feedforward.** A tracking controller $\tau = g(q) + K_p(q_r - q) + K_d(\dot q_r - \dot q)$ needs an error to produce the torque that accelerates the links. Adding the model term $M(q)\ddot q_r$ (lesson 11) supplies that torque in advance; a smooth reference makes $\ddot q_r$ available and bounded.
+**Joint space vs Cartesian.** Interpolating in joint space stays inside the joint limits whenever both ends do, but the hand follows a curve. A Cartesian straight line needs IK at every waypoint (lesson 10) and can pass through singularities or joint limits; it costs more joint motion.
+
+**Feedforward.** A tracking controller $\tau = g(q) + K_p(q_r - q) + K_d(\dot q_r - \dot q)$ produces torque only from an error. Adding the model term $M(q)\ddot q_r$ (lesson 11) supplies the accelerating torque in advance; a smooth reference makes $\ddot q_r$ available and bounded.
+
+<details>
+<summary>Math details: where the quintic comes from, and the 1/T² and 1/T³ laws</summary>
+
+**Polynomials from boundary conditions.** A cubic has four coefficients, enough for $s$ and $\dot s$ at both ends: $s(0)=0$, $s(1)=1$, $s'(0)=s'(1)=0$ give $3u^2 - 2u^3$. Its acceleration $s'' = 6 - 12u$ is $\pm 6$ at the ends, and jumps there from the zero of the rest state. A quintic has six coefficients; adding $s''(0) = s''(1) = 0$ gives $10u^3 - 15u^4 + 6u^5$. Its acceleration $s'' = 60u - 180u^2 + 120u^3$ peaks at $u = (3-\sqrt3)/6$ with value $10\sqrt3/3 \approx 5.77$; its jerk $s''' = 60 - 360u + 360u^2$ is largest at the ends, 60.
+
+**Minimum jerk.** Minimising $\int_0^1 (s''')^2\,du$ gives, by the Euler–Lagrange equation, $s^{(6)} = 0$: a fifth-order polynomial. With rest at both ends it is exactly the quintic above (Flash & Hogan 1985).
+
+**Scaling with duration.** By the chain rule, $\dot q = \Delta q\, s'(u)/T$, $\ddot q = \Delta q\, s''(u)/T^2$, $\dddot q = \Delta q\, s'''(u)/T^3$. The shape fixes the constants in the table; the duration fixes the powers of $T$. Joint torque $\approx M\ddot q$ + gravity, so halving $T$ quadruples the dynamic part of the torque.
+
+**Why a jump means infinite jerk.** If acceleration changes by a finite amount in zero time, its derivative is a spike (in a 2 ms simulation: the change divided by 2 ms), which is what the robot-jerk columns of the experiment measure.
+
+Go deeper: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/04-calculus-for-ml) (derivatives, chain rule); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), ch. 9; T. Flash, N. Hogan, [doi:10.1523/JNEUROSCI.05-07-01688.1985](https://doi.org/10.1523/JNEUROSCI.05-07-01688.1985).
+
+</details>
 
 ## Experiment
 
@@ -47,7 +105,7 @@ tau = d.qfrc_bias[:7] + KP * (q_ref - q) + KD * (qd_ref - qd)    # PD + gravity/
 tau = np.clip(tau, -lim, lim)
 ```
 
-Kp = (600, 600, 600, 600, 250, 150, 50), Kd = (50, 50, 50, 50, 20, 12, 4). "Robot" columns are measured from `qacc` in simulation; robot jerk is its finite difference at 2 ms. Full script: [`experiments/13-trajectory-generation/experiment.py`](../experiments/13-trajectory-generation/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministic, ~4 s.
+Kp = (600, 600, 600, 600, 250, 150, 50), Kd = (50, 50, 50, 50, 20, 12, 4). "Robot" columns are measured from `qacc` in simulation; robot jerk is its finite difference at 2 ms. "Steps saturated" is the share of control steps in which some joint torque was clipped at its limit. Full script: [`experiments/13-trajectory-generation/experiment.py`](../experiments/13-trajectory-generation/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministic, ~4 s.
 
 **Predict.** Which shape has the smallest tracking error? Which has the smallest jerk?
 

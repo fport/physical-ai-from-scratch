@@ -16,32 +16,86 @@
 
 ## Problem
 
-Diffusion Policy ([Chi vd. 2023](https://arxiv.org/abs/2303.04137)) multimodal action dağılımlarından yola çıkar: aynı state'te birden fazla doğru hareket olabilir. Push-T görevinde policy temas noktasına soldan ya da sağdan eşit olasılıkla yaklaşmayı öğrenir; LSTM-GMM ve IBC bir tarafa kayar, BET ise bir mode'a bağlanamaz (Böl. 5.3).
+Diffusion Policy ([Chi vd. 2023](https://arxiv.org/abs/2303.04137)) multimodal action dağılımlarından yola çıkar: aynı state'te birden fazla doğru hareket olabilir ve her biri ayrı bir "mode"dur. Push-T görevinde policy temas noktasına soldan ya da sağdan eşit olasılıkla yaklaşmayı öğrenir; LSTM-GMM ve IBC bir tarafa kayar, BET ise bir mode'a bağlanamaz (Böl. 5.3).
 
 Bu hatanın en küçük hâli: bir nokta $(0,-1)$'den $(0,+1)$'e gidecek, orijinde yarıçapı 0,30 olan yuvarlak bir engel var. 200 gösterimin 100'ü engelin solundan, 100'ü sağından geçiyor; taraf başlangıç noktasına bağlı değil. Bu gösterimlerle MSE ile eğitilmiş bir behavior cloning MLP'si (ders 28) simülasyonda **200 denemenin 200'ünde** engele çarpıyor. Bu ders nedenini ve yerine ne konduğunu gösteriyor.
 
 ## Ana fikir
 
-**MSE koşullu ortalamayı öğrenir.** $\mathbb{E}\,\lVert a - f(o)\rVert^2$'yi minimize eden fonksiyon $f^*(o) = \mathbb{E}[a \mid o]$'dur (bkz. AIEFS: [Loss Functions](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/05-loss-functions)). Eşit olasılıklı iki mode $a_L$ ve $a_R$ varsa cevap $\tfrac12(a_L + a_R)$: engelin tam ortası. L1 loss bunun yerine boyut boyut medyanı verir; mode'lar tam 50/50 iken aralarındaki her nokta bir medyandır, yani bu da daha iyi değildir (L1 [ders 31](31-act.md)'de geri dönecek).
+### Sade anlatımla
 
-**Karışım modeli.** $K$ aday action ve ağırlıklarını tahmin et, $p(a \mid o) = \sum_k \pi_k(o)\,\mathcal N(a;\mu_k(o), \sigma^2 I)$; negatif log-likelihood ile eğit, çalışırken önce $k$'yı örnekle, sonra $\mu_k$'yı ver. $K$'yı biliyorsan ve bileşenler çökmezse çalışır.
+Bir tarlanın etrafından dolaşan, eşit derecede iyi iki yol var: biri solda, biri sağda. Örnek aldığın sürücülerin yarısı soldan, yarısı sağdan gidiyor. Şimdi bir navigasyona, sürücülerin yaptığına ortalamada olabildiğince yakın *tek* bir cevap vermeyi öğret. Ortalama kare uzaklığı en küçük yapan cevap iki yolun tam ortasıdır: dosdoğru tarlanın içinden. MSE loss'lu regression tam olarak bunu yapar. O durum için gösterimlerin ortalamasını döndürür; gösterimler hemfikirse bu iyidir, ikiye ayrılıyorsa yanlıştır.
 
-**Generative action modelleri** $K$'yı sabitlemeden $p(a \mid o)$'dan *örneklemeyi* öğrenir. $a$ genellikle gelecekteki action'ların bütün bir chunk'ıdır; observation $o$ ise modelin ürettiği bir şey değil, bir koşuldur.
+Çözüm, tek bir cevap istemeyi bırakıp bir cevap *örneklemeyi* öğrenmek: her sorgu makul bir yol döndürür, sol ya da sağ, aşağı yukarı sürücülerin her birini seçtiği sıklıkta. Bir **mixture model** bunu sabit sayıda aday ve olasılıklarını tahmin edip birini seçerek yapar. **Generative modeller** (diffusion, flow matching) sabit bir sayıya ihtiyaç duymaz: rastgele gürültüden başlar ve onu adım adım, bir gösterime benzeyene kadar iter. Flow matching bu itişi doğrudan öğrenir: gürültüyü veriye taşıyan bir hız alanı olarak. Rastgele başlangıcın nerede olduğu, hangi yolda biteceğine karar verir.
+
+İtiş sayısı bir ayar düğmesidir. Çok sayıda küçük itiş, kıvrılan akışı izleyerek yollardan birine varır. Saf gürültüden tek büyük itiş ise ortalamaya iner ve yine tarlanın içindesin.
+
+```mermaid
+flowchart TD
+    O["observation o<br/>(başlangıç noktası)"] --> M{"yol nasıl üretiliyor?"}
+    M -->|"MSE regression"| A["tek cevap:<br/>ortalama yol"]
+    A --> X["engelin içinden"]
+    M -->|"flow matching"| Z["rastgele gürültü a0"]
+    Z --> V["öğrenilen hız v(a, t, o)<br/>boyunca N küçük itiş"]
+    V --> S["örneklenmiş tek yol:<br/>sol ya da sağ"]
+```
+
+### Flow matching kod olarak
+
+```python
+# MSE regression, for comparison: one answer per observation -> learns E[a1 | o]
+loss_mse = ((net_mse(o) - a1) ** 2).mean()
+
+# flow matching, one training step
+a1, o = sample_demos(batch)               # demonstrated path (80 numbers) and its observation
+a0 = torch.randn_like(a1)                 # pure noise with the same shape
+t = torch.rand(batch, 1)                  # random time in [0, 1]
+at = (1 - t) * a0 + t * a1                # a point on the straight line from noise to demo
+target = a1 - a0                          # the velocity of that straight line
+loss = ((net(at, t, o) - target) ** 2).mean()   # still MSE, but on velocities, not on paths
+
+# sampling: Euler integration from noise (t = 0) to a path (t = 1)
+def sample(net, o, n_steps):
+    a = torch.randn(80)                   # a different random start can end on the other side
+    for i in range(n_steps):
+        a = a + net(a, i / n_steps, o) / n_steps   # one small push along the learned velocity
+    return a
+```
+
+| Ne | Formül |
+|---|---|
+| MSE optimumu | $f^*(o) = \mathbb{E}[a \mid o]$; iki 50/50 mode $\tfrac12(a_L + a_R)$ verir |
+| Mixture model | $p(a \mid o) = \sum_k \pi_k(o)\,\mathcal N(a;\mu_k(o), \sigma^2 I)$ |
+| Flow matching loss'u | $a_t = (1-t)\,a_0 + t\,a_1, \quad \mathcal L = \mathbb{E}\,\bigl\lVert v_{\theta}(a_t, t, o) - (a_1 - a_0)\bigr\rVert^2$ |
+| Örnekleme (Euler) | $a \leftarrow a_0, \quad a \leftarrow a + \tfrac1N\, v_{\theta}\!\left(a, \tfrac iN, o\right), \quad i = 0,\dots,N-1$ |
+
+$o$ observation (burada başlangıç noktası), $a$ action (burada yolun tamamı), $a_L$ ve $a_R$ gösterilen sol ve sağ yollar, $\pi_k$, $\mu_k$ ve $\sigma$, $K$ bileşenin $k$. bileşeninin ağırlığı, ortalaması ve sabit yayılımı; $a_0 \sim \mathcal N(0, I)$ gürültü, $a_1$ bir gösterim, $t \sim U(0,1)$ gürültüden veriye giden yol üzerindeki zaman, $v_\theta$ öğrenilen hız ağı ve $N$ Euler adım sayısıdır (her adım bir ağ çağrısı).
+
+<details>
+<summary>Matematik ayrıntısı: MSE neden ortalar ve tek Euler adımı neden yine regression'dır</summary>
+
+**MSE koşullu ortalamayı öğrenir.** Her $f$ için $\mathbb{E}\,\lVert a - f(o)\rVert^2 = \mathbb{E}\,\lVert a - \mathbb{E}[a\mid o]\rVert^2 + \mathbb{E}\,\lVert \mathbb{E}[a\mid o] - f(o)\rVert^2$; ilk terim $f$'ye bağlı değil, dolayısıyla minimize eden $f^*(o) = \mathbb{E}[a \mid o]$'dur (bkz. AIEFS: [Loss Functions](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/05-loss-functions)). Eşit olasılıklı iki mode'la bu, engelin tam ortasıdır. L1 loss bunun yerine boyut boyut medyanı verir; mode'lar tam 50/50 iken aralarındaki her nokta bir medyandır, yani bu da daha iyi değildir (L1 [ders 31](31-act.md)'de geri dönecek).
+
+**Mixture model.** Negatif log-likelihood ile eğit; çalışırken önce $\pi_k(o)$'dan $k$'yı örnekle, sonra $\mu_k$'yı ver. $K$'yı biliyorsan ve bileşenler birbirinin üstüne çökmezse çalışır.
+
+**Generative action modelleri** $K$'yı sabitlemeden $p(a \mid o)$'dan *örneklemeyi* öğrenir. $a$ genellikle gelecekteki action'ların bütün bir chunk'ıdır; observation $o$ ise modelin ürettiği bir şey değil, bir koşuldur. Bizim uyguladığımız, düz yollu flow matching ($\sigma_{\min} = 0$).
+
+**Tek adım regression'dır.** $t = 0$'da $a_t = a_0$, $a_1$ hakkında hiçbir bilgi taşımaz; bu yüzden en iyi hız $v^*(a_0, 0, o) = \mathbb{E}[a_1 \mid o] - a_0$'dır. Tek bir Euler adımı $a_0 + v^* = \mathbb{E}[a_1 \mid o]$'ya, yani MSE cevabına iner. Sonraki adımlar zaten bir tarafa yatmış bir $a_t$ görür ve öğrenilen hız o tarafın mode'una doğru kıvrılır. Regression'ı örneklemeye çeviren şey integrasyon adımlarıdır.
+
+Daha derine (AIEFS): [Diffusion Models — DDPM from Scratch](https://aiengineeringfromscratch.com/lesson?path=phases/08-generative-ai/06-diffusion-ddpm-from-scratch), [Flow Matching & Rectified Flows](https://aiengineeringfromscratch.com/lesson?path=phases/08-generative-ai/13-flow-matching-rectified-flows), [Loss Functions](https://aiengineeringfromscratch.com/lesson?path=phases/03-deep-learning-core/05-loss-functions). Birincil kaynaklar: [Lipman vd. 2023](https://arxiv.org/abs/2210.02747), [Ho vd. 2020](https://arxiv.org/abs/2006.11239), [Chi vd. 2023](https://arxiv.org/abs/2303.04137).
+
+</details>
+
+### Bir action üretmenin dört yolu
 
 | | neyi tahmin etmeye eğitilir | örnekleme | action başına maliyet |
 |---|---|---|---|
 | MSE regression | $\mathbb{E}[a\mid o]$ | yok | 1 ağ çağrısı |
-| Karışım (MDN) | $\pi_k, \mu_k$ | $k$'yı seç, $\mu_k$'yı al | 1 çağrı |
+| Mixture (MDN) | $\pi_k, \mu_k$ | $k$'yı seç, $\mu_k$'yı al | 1 çağrı |
 | DDPM ([Ho vd. 2020](https://arxiv.org/abs/2006.11239)) | $(a_t, t, o)$ verilince $a$'ya eklenen gürültü $\epsilon$ | Gauss gürültüsünden başla, $N$ kez denoise et | $N$ çağrı |
 | Flow matching ([Lipman vd. 2023](https://arxiv.org/abs/2210.02747)) | bir hız alanı $v_{\theta}(a_t, t, o)$ | gürültüden başlayıp bir ODE'yi $N$ adımda integre et | $N$ çağrı |
 
-Temeller: AIEFS ([DDPM from scratch](https://aiengineeringfromscratch.com/lesson?path=phases/08-generative-ai/06-diffusion-ddpm-from-scratch), [Flow matching](https://aiengineeringfromscratch.com/lesson?path=phases/08-generative-ai/13-flow-matching-rectified-flows)). Bizim uyguladığımız, düz yollu flow matching ($\sigma_{\min} = 0$): gürültü $a_0 \sim \mathcal N(0, I)$, observation'ı $o$ olan bir gösterim $a_1$ ve $t \sim U(0,1)$ çek, sonra
-
-$$a_t = (1-t)\,a_0 + t\,a_1, \qquad \mathcal L = \mathbb{E}\,\bigl\lVert v_{\theta}(a_t, t, o) - (a_1 - a_0)\bigr\rVert^2,$$
-
-$$\text{örnekleme:}\quad a \leftarrow a_0, \qquad a \leftarrow a + \tfrac1N\, v_{\theta}\!\left(a, \tfrac iN, o\right), \quad i = 0,\dots,N-1.$$
-
-Deneyin test ettiği bir sonuç: $t = 0$'da $a_t = a_0$, $a_1$ hakkında hiçbir bilgi taşımaz; bu yüzden en iyi hız $v^*(a_0, 0, o) = \mathbb{E}[a_1 \mid o] - a_0$'dır. Tek bir Euler adımı $a_0 + v^* = \mathbb{E}[a_1 \mid o]$'ya, yani MSE cevabına iner. Regression'ı örneklemeye çeviren şey integrasyon adımlarıdır.
+DDPM ("denoising diffusion") ve flow matching yakın akrabadır: ikisi de gürültüden başlar ve örnek başına $N$ ağ çağrısı ister; flow matching bir hızı, DDPM ise çıkarılacak gürültüyü regress eder.
 
 ## Deney
 
@@ -49,7 +103,7 @@ Script'in tamamı: [`experiments/30-diffusion-and-flow-policies/experiment.py`](
 
 Observation başlangıç noktası $(x_0, y_0)$, $x_0 \in [-0{,}05;\ 0{,}05]$; action yolun tamamı, başlangıca göre 40 ara nokta (80 sayı). Bir deneme ya geçer ya engele çarpar; "sol/sağ" çarpmayan denemeleri geçtikleri tarafa göre sayar. Her satırda 200 deneme, %95 Wilson aralıkları (ders 25).
 
-**Tahmin:** MSE yolu ortadan geçer; karışım modeli ve flow policy kabaca 50/50 bölünür.
+**Tahmin:** MSE yolu ortadan geçer; mixture model ve flow policy kabaca 50/50 bölünür.
 
 ```python
 a0 = torch.randn(a1.shape)                          # noise
@@ -62,15 +116,15 @@ for i in range(n_steps):
     a = a + net(a, torch.full((n,), i / n_steps), o) / n_steps
 ```
 
-**A bölümü.** NumPy MLP 64-64 tanh, 1.500 full-batch Adam epoch'u; karışım modeli $K = 2$, sabit $\sigma = 0{,}2$.
+**A bölümü.** NumPy MLP 64-64 tanh, 1.500 full-batch Adam epoch'u; mixture model $K = 2$, sabit $\sigma = 0{,}2$.
 
 | model | çarptı | %95 GA | sol | sağ |
 |---|---|---|---|---|
 | MSE, gösterimler yarı sol / yarı sağ | **200/200** | %98,1–100 | 0 | 0 |
 | MSE, gösterimlerin hepsi solda | 0/200 | %0–1,9 | 200 | 0 |
-| Karışım (MDN, $K=2$) | **0/200** | %0–1,9 | 96 | 104 |
+| Mixture (MDN, $K=2$) | **0/200** | %0–1,9 | 96 | 104 |
 
-Engelin hizasında ($y = 0$) gösterimler $x = -0{,}55$ ve $+0{,}55$'ten geçiyor; MSE yolu $x = +0{,}030$'dan, yani 0,30'luk yarıçapın içinden geçiyor. Üç farklı seed'le MSE modeli 200'de 193, 184 ve 200 kez çarptı, karışım modeli her birinde 0.
+Engelin hizasında ($y = 0$) gösterimler $x = -0{,}55$ ve $+0{,}55$'ten geçiyor; MSE yolu $x = +0{,}030$'dan, yani 0,30'luk yarıçapın içinden geçiyor. Üç farklı seed'le MSE modeli 200'de 193, 184 ve 200 kez çarptı, mixture model her birinde 0.
 
 **B bölümü: daha çok veri işe yaramıyor.** Aynı MSE modeli, gösterimler yarı yarıya:
 
@@ -91,9 +145,11 @@ Olası sebep (ayrıca ölçülmedi): 10 gösterimde ağ $x_0$'daki küçük fark
 | 16 | 5/200 | %1,1–5,7 | 96 | 99 | 0,39 | 0,546 |
 | 32 | **3/200** | %0,5–4,3 | 97 | 100 | 0,77 | 0,554 |
 
+![Logaritmik ölçekte 1'den 32'ye Euler adım sayısına göre iki panel. Solda: çarpma oranı 1 adımda, MSE regression ile aynı şekilde %100'den 2 adımda %47,5'e ve 32 adımda %1,5'e düşüyor. Sağda: engel hizasındaki ortalama yanal uzaklık, 0,30'luk engel yarıçapının içindeki 0,161'den gösterimlerin 0,55'ine doğru yükseliyor.](../../experiments/30-diffusion-and-flow-policies/flow_steps.png)
+
 Süreler, başka işlerle ağır yüklü bir makinede 30 tek yörüngelik sorgunun en hızlısı; yaklaşık kabul et. Makineden bağımsız maliyet ağ çağrısı sayısıdır (= adım sayısı).
 
-Gözlemler: flow policy, iki mode olduğu söylenmeden, karışım modeli gibi sola ve sağa bölünüyor; engeldeki yanal uzaklık adım arttıkça gösterimlerin 0,55'ine yaklaşıyor; inference maliyeti (ağ çağrısı sayısı) adım sayısıyla doğrusal artıyor.
+Gözlemler: flow policy, iki mode olduğu söylenmeden, mixture model gibi sola ve sağa bölünüyor; engeldeki yanal uzaklık adım arttıkça gösterimlerin 0,55'ine yaklaşıyor; inference maliyeti (ağ çağrısı sayısı) adım sayısıyla doğrusal artıyor.
 
 ## Boz
 
@@ -105,11 +161,11 @@ Gözlemler: flow policy, iki mode olduğu söylenmeden, karışım modeli gibi s
 |---|---|---|---|---|---|---|
 | MSE çarpma | %100 | %91,5 | %63,0 | %36,5 | %0 | %0 |
 
-MSE ancak veri neredeyse tek mode'luyken güvenli: ortalama yanal uzaklık $0{,}55\,\lvert 2p_{\text{sol}} - 1\rvert$, 0,30'luk yarıçapı bir payla geçmeli.
+MSE ancak veri neredeyse tek mode'luyken (tek bir baskın mode varken) güvenli: ortalama yanal uzaklık $0{,}55\,\lvert 2p_{\text{sol}} - 1\rvert$, 0,30'luk yarıçapı bir payla geçmeli.
 
 ## Gerçek robotta
 
-- **Diffusion Policy**, observation'lar koşulundaki action dizisini, $p(A \mid O)$'yu bir DDPM ile modeller; ikisinin ortak dağılımını değil. CNN sürümü koşulu FiLM ile verir. DDIM ile 100 eğitim ve 10 inference iterasyonu, gerçek dünya düzeneklerinde bir Nvidia 3080'de yaklaşık 0,1 s inference sağlar; test edilen görevlerin çoğunda 8 adımlık action horizon en iyisiydi; 4 benchmark'tan 15 görevde önceki yöntemlere göre ortalama %46,9 iyileşme raporlanıyor ([Chi vd. 2023](https://arxiv.org/abs/2303.04137)).
+- **Diffusion Policy**, observation'lar koşulundaki action dizisini, $p(A \mid O)$'yu bir DDPM ile modeller; ikisinin ortak dağılımını değil. CNN sürümü koşulu FiLM ile verir (observation'dan hesaplanan, kanal başına öğrenilmiş bir ölçek ve kaydırma). DDIM ile (daha hızlı bir DDPM sampler'ı) 100 eğitim ve 10 inference iterasyonu, gerçek dünya düzeneklerinde bir Nvidia 3080'de yaklaşık 0,1 s inference sağlar; test edilen görevlerin çoğunda 8 adımlık action horizon en iyisiydi; 4 benchmark'tan 15 görevde önceki yöntemlere göre ortalama %46,9 iyileşme raporlanıyor ([Chi vd. 2023](https://arxiv.org/abs/2303.04137)).
 - **π0**, action'lar için conditional flow matching kullanır: 3B'lik bir vision-language modelinin üstünde 300M parametrelik bir "action expert" (toplam 3,3B), $H = 50$ action'lık chunk'lar, 10 integrasyon adımı. RTX 4090'da 10 action geçişi, 73 ms'lik robot üstü inference'ın 27 ms'sini alır ([Black vd. 2024](https://arxiv.org/abs/2410.24164)). C bölümündeki takasın gerçek ölçekteki hâli.
 - **SO-101 prosedürü.** LeRobot'un diffusion policy config'inin varsayılanları `horizon=64`, `n_action_steps=32`, 100 eğitim timestep'li bir DDPM scheduler ([`configuration_diffusion.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/diffusion/configuration_diffusion.py)). İki geçerli stratejisi olan bir görevin (küpü iki yandan birinden kavramak) teleop gösterimlerini kaydet; aynı episode'larla bir MSE behavior cloning baseline'ı ve bir diffusion policy eğit; her biri için en az 50 denemede iki stratejinin arasında biten kavramaları say. Gerçek kolda henüz ölçülmedi.
 
@@ -128,7 +184,7 @@ MSE ancak veri neredeyse tek mode'luyken güvenli: ortalama yanal uzaklık $0{,}
 ## Akılda kalanlar ve kaynaklar
 
 - MSE regression koşullu ortalamayı döndürür; iki 50/50 mode'la simülasyonda 200/200 çarptı ve daha çok veri (10 → 500 gösterim) çarpma oranını %8'den %100'e çıkardı.
-- Karışım modeli (0/200, 96 sol / 104 sağ) ve flow matching policy (32 adımda 3/200, 97 / 100) iki mode'u da temsil ediyor; flow policy'nin mode sayısını bilmesi gerekmedi.
+- Mixture model (0/200, 96 sol / 104 sağ) ve flow matching policy (32 adımda 3/200, 97 / 100) iki mode'u da temsil ediyor; flow policy'nin mode sayısını bilmesi gerekmedi.
 - Ayar düğmesi örnekleme adım sayısı: 1 adım ortalamayı üretti (200/200), 8 adım 7/200'e indi, maliyet adımla doğrusal artıyor.
 
 Sonraki: [ders 31](31-act.md), gelecekteki action'ların chunk'larını tahmin edip uygulamak.

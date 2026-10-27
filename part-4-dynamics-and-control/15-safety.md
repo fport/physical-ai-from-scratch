@@ -20,7 +20,44 @@ LeRobot's SO-101 follower has a setting whose own comment says it exists "for sa
 
 ## Core idea
 
-Safety layers sit between the command and the actuator, from the outside in:
+### In plain words
+
+Treat a learned policy like a new driver and give the car its safety equipment. A **position limit** is a fence: the goal may never leave a safe range. A **rate limit** is a speed limiter: the goal may move only a little per control tick (one cycle of the command loop). A **torque cap** is a slipping clutch: however wrong the goal, the motor pushes no harder than this. A **watchdog** is the dead-man's switch on a train: if no fresh command arrives in time, stop. An **E-stop** pulls the plug, and it must not depend on the software it protects.
+
+Two rules decide what each layer can do. First, **a limit acts on one variable, not on harm**: a torque cap bounds how hard the arm keeps pushing on an obstacle, but a fast arm still hits hard, the way a hammer swung gently still strikes hard. Second, **what "stop" means depends on the interface**: a position servo that receives no new goal holds the last one; an arm driven by velocity commands keeps moving.
+
+```mermaid
+flowchart TD
+    P["policy output<br/>goal angle"] --> WD["watchdog<br/>no fresh message? hold"]
+    WD --> PL["position limit<br/>clamp to a safe range"]
+    PL --> RL["relative-target limit<br/>present ± δ per tick"]
+    RL --> SV["servo PD loop"]
+    SV --> TC["torque cap<br/>at most τmax"]
+    TC --> M["motor and arm"]
+    ES["hardware E-stop<br/>cuts power"] -.-> M
+```
+
+### The safety layers as code
+
+```python
+def safe_goal(target, q_now, t_now, t_last_msg):
+    if t_now - t_last_msg > watchdog_timeout:          # stale command: stop where you are
+        return q_now
+    goal = np.clip(target, q_min, q_max)               # position limit: stay inside the safe range
+    goal = np.clip(goal, q_now - delta, q_now + delta) # relative-target limit: <= delta rad per tick
+    return goal                                        # the servo then pushes with at most tau_max
+
+# torque cap: set once, enforced by the actuator (MuJoCo: m.actuator_forcerange; STS3215: a register)
+```
+
+| Formula | What it bounds |
+|---|---|
+| goal $\leftarrow \text{clip}(\text{goal},\, q - \delta,\, q + \delta)$ | goal speed: at most $\delta/\Delta t$ |
+| $F \approx \tau_{\max}/r$ | steady push on an obstacle at lever $r$ |
+| travel $\approx v\, t_w$ | distance the arm keeps moving before the watchdog fires |
+| $k_p\,\delta \ge \tau_{\max}$ | when true, a stalled servo still pushes at its cap despite the rate limit |
+
+Here $q$ is the present joint angle, $\delta$ the largest allowed step of the goal per tick, $\Delta t$ the tick length (20 ms at 50 Hz), $\tau_{\max}$ the torque cap, $r$ the lever arm from the joint axis to the contact point, $F$ the contact force, $v$ the joint speed, $t_w$ the watchdog timeout and $k_p$ the servo's stiffness (lesson 12).
 
 | Layer | What it limits | Typical implementation |
 |---|---|---|
@@ -31,7 +68,20 @@ Safety layers sit between the command and the actuator, from the outside in:
 | Watchdog | stale commands | if no fresh message within $t_w$: stop and hold |
 | E-stop | everything | remove power or command a stop; must not depend on the software it protects |
 
-Two rules shape the design. First, **a limit acts on a variable, not on harm**: a torque cap bounds the steady push force ($F \approx \tau_{\max}/r$ at lever $r$) but not directly the impact peak, which depends on speed and contact stiffness. Second, **what a stopped command means depends on the interface**: a position servo with no new goal holds the last one; a velocity interface with no new command keeps moving.
+<details>
+<summary>Math details: why a torque cap bounds the push but not the impact</summary>
+
+**Steady push.** Once the arm rests against the post, nothing accelerates, so the joint torque balances the contact force's moment: $\tau = F r$. With the servo saturated at its cap, $F = \tau_{\max}/r$. This is independent of speed and of the contact model.
+
+**Impact.** Before that, the arm arrives with joint speed $\omega$ and inertia $I$ about the joint. In a simple spring-contact model with stiffness $k_c$ at lever $r$, the kinetic energy $\tfrac12 I\omega^2$ is absorbed by compressing the contact, so the peak force grows with the arrival speed and with $\sqrt{k_c}$. A torque cap limits the peak only indirectly, by limiting how fast the joint can accelerate (part B shows the speed falling with the cap); a rate limit limits the arrival speed directly.
+
+**Rate limit and a stalled servo.** The goal sits at most $\delta$ ahead of the present position. In free motion that bounds the speed near $\delta/\Delta t$. Against an obstacle the position stops changing, so the goal stays $\delta$ ahead, and the servo commands $k_p\delta$, which the cap clips to $\tau_{\max}$ whenever $k_p\delta \ge \tau_{\max}$.
+
+**Watchdog.** If the last message keeps the arm moving at $v$, it travels about $v\, t_w$ before the timeout fires, plus the distance needed to stop. It prevents a collision only if that is less than the distance to the obstacle.
+
+Go deeper: LeRobot [`robots/utils.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/utils.py) (`ensure_safe_goal_position`); MuJoCo [Modeling · actuators and `forcerange`](https://mujoco.readthedocs.io/en/stable/modeling.html); Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics), ch. 11.
+
+</details>
 
 ## Experiment
 
@@ -77,6 +127,8 @@ The cap also limits speed, because the joint accelerates more slowly; at 0.10 N�
 | speed at impact [rad/s] | 4.494 | 4.494 | 2.866 | 1.513 | 0.929 | 0.359 |
 | peak force [N] | 125.98 | 125.98 | 72.94 | 45.82 | 21.39 | 17.17 |
 | steady push [N] | 14.33 | 14.33 | 13.54 | 14.48 | 14.67 | 13.54 |
+
+![Left: impact peak and steady push on the post versus the torque cap; both fall as the cap falls, from 125.98 and 14.33 N at 2.94 N·m to zero at 0.10 N·m. Right: the same two forces versus the relative-target limit δ; the impact peak falls from 125.98 to 17.17 N as δ tightens, while the steady push stays near 14 N.](../experiments/15-safety/safeguard_sweeps.png)
 
 δ = 0.2 rad per tick is no limit at all for this servo. Smaller δ lowers the impact speed and the peak, but the steady push stays near 14 N: once the arm stalls on the post, the goal is still present + δ, and $k_p\,\delta$ ≥ 2.94 N·m for every δ here (998.22 × 0.005 ≈ 5 N·m), so the servo pushes at its cap.
 
