@@ -22,14 +22,14 @@ const LANGS = {
     dir: '', statusRow: 'Status',
     aside: { 'coming soon': ['caution', 'Coming soon'], draft: ['note', 'Draft'], done: ['tip', 'Done'] },
     status: { done: 'tam', draft: 'taslak', 'coming soon': 'yakinda' },
-    tagline: 'Start with a laptop, end with a robot arm doing a task on its own. 40 lessons, every number from a real run.',
+    tagline: 'Start with a laptop, end with a robot arm doing a task on its own. 44 lessons, every number from a real run.',
     start: 'Start the first lesson', setup: 'Setup', lessons: 'Lessons', map: 'Map', links: '**[Setup]',
   },
   tr: {
     dir: 'tr/', statusRow: 'Durum',
     aside: { yakında: ['caution', 'Yakında'], taslak: ['note', 'Taslak'], tam: ['tip', 'Tam'] },
     status: { tam: 'tam', taslak: 'taslak', yakında: 'yakinda' },
-    tagline: 'Bir dizüstüyle başla, bir robot kola kendi başına iş yaptır. 40 ders, her sayı gerçek bir koşudan.',
+    tagline: 'Bir dizüstüyle başla, bir robot kola kendi başına iş yaptır. 44 ders, her sayı gerçek bir koşudan.',
     start: 'İlk derse başla', setup: 'Kurulum', lessons: 'Ders', map: 'Harita', links: '**[Kurulum]',
   },
 }
@@ -126,7 +126,7 @@ const sidebar = summaries.en.groups.map((g, gi) => {
     collapsed: gi > 1,
     items: g.items.map((item, ii) => {
       const entry = { slug: slug(item.file), label: item.label, translations: tg?.items[ii] ? { tr: tg.items[ii].label } : {} }
-      const st = status(read(item.file), LANGS.en)
+      const st = /\/\d\d-[^/]+\.md$/.test(item.file) ? status(read(item.file), LANGS.en) : null
       if (st === 'tam') entry.badge = { text: { en: 'done', tr: 'tam' }, variant: 'success' }
       if (st === 'taslak') entry.badge = { text: { en: 'draft', tr: 'taslak' }, variant: 'caution' }
       if (st === 'yakinda') entry.attrs = { class: 'coming-soon' }
