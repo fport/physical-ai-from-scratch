@@ -36,9 +36,8 @@ Engineers and students who can program in Python and want to build robot softwar
 ```bash
 git clone https://github.com/fport/physical-ai-from-scratch.git
 cd physical-ai-from-scratch
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python experiments/02-timestep/experiment.py
+uv sync                                   # Python 3.14 + locked dependencies
+uv run python experiments/02-timestep/experiment.py
 ```
 
 To read the book as a website locally: `cd site && npm install && npm run dev` ([site/README.md](site/README.md)).

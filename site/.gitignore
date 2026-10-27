@@ -3,3 +3,4 @@ dist/
 .astro/
 src/content/docs/
 src/sidebar.generated.json
+public/figures/

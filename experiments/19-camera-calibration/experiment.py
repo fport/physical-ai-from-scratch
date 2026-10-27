@@ -257,7 +257,7 @@ def main():
           f"{100*abs(K_nd[0,0]/Kt[0,0]-1):.2f} %")
 
     # B. hand-eye
-    print(f"\n[B] hand-eye AX = XB, SO-101 wrist camera, 15 poses, 20 trials per row (median)")
+    print("\n[B] hand-eye AX = XB, SO-101 wrist camera, 15 poses, 20 trials per row (median)")
     print(f"    cv2.calibrateHandEye available in this OpenCV build: {hasattr(cv2, 'calibrateHandEye')} "
           f"-> Park & Martin closed form implemented here")
     hrng = np.random.default_rng(SEED)

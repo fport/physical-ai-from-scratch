@@ -1,0 +1,20 @@
+name: Check book
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Lint experiment code
+        run: uvx ruff@0.17.0 check .
+      - name: Links, lesson files, generated files
+        run: uv run --no-project --with pyyaml==6.0.3 python tools/check_book.py

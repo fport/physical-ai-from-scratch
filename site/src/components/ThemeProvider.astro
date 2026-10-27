@@ -1,5 +1,5 @@
 ---
-// Starlight's ThemeProvider; the only change: with no stored preference the theme is always dark.
+// Starlight's ThemeProvider; the only change: with no stored preference the theme is light.
 import { Icon } from '@astrojs/starlight/components'
 ---
 
@@ -7,7 +7,7 @@ import { Icon } from '@astrojs/starlight/components'
 	window.StarlightThemeProvider = (() => {
 		const storedTheme =
 			typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme');
-		const theme = storedTheme || 'dark';
+		const theme = storedTheme || 'light';
 		document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
 		return {
 			updatePickers(theme = storedTheme || 'auto') {

@@ -36,9 +36,8 @@ Python yazabilen ve robot yazılımını uçtan uca kurmak isteyen mühendisler 
 ```bash
 git clone https://github.com/fport/physical-ai-from-scratch.git
 cd physical-ai-from-scratch
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python experiments/02-timestep/experiment.py
+uv sync                                   # Python 3.14 + kilitli bağımlılıklar
+uv run python experiments/02-timestep/experiment.py
 ```
 
 Kitabı yerelde web sitesi olarak okumak için: `cd site && npm install && npm run dev` ([site/README.md](../site/README.md)).

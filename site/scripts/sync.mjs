@@ -14,6 +14,8 @@ import { fileURLToPath } from 'node:url'
 const SITE = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const ROOT = path.dirname(SITE)
 const OUT = path.join(SITE, 'src/content/docs')
+const FIG = path.join(SITE, 'public/figures')
+const IMAGE = /\.(png|jpe?g|svg|gif|webp)$/i
 const REPO = 'https://github.com/fport/physical-ai-from-scratch'
 const BASE = (process.env.SITE_BASE || '/').replace(/\/?$/, '/')
 
@@ -50,6 +52,11 @@ function rewriteLinks(body, srcPath) {
     const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(srcPath), file))
     if (resolved.endsWith('.md') && PAGES.has(resolved)) return `](${route(resolved)}${anchor ? '#' + anchor : ''})`
     const abs = path.join(ROOT, resolved)
+    if (IMAGE.test(resolved) && fs.existsSync(abs)) {
+      fs.mkdirSync(path.dirname(path.join(FIG, resolved)), { recursive: true })
+      fs.copyFileSync(abs, path.join(FIG, resolved))
+      return `](${BASE}figures/${resolved})`
+    }
     const kind = fs.existsSync(abs) && fs.statSync(abs).isDirectory() ? 'tree' : 'blob'
     return `](${REPO}/${kind}/main/${resolved})`
   })
@@ -137,6 +144,7 @@ const sidebar = summaries.en.groups.map((g, gi) => {
 
 // --- content ---
 fs.rmSync(OUT, { recursive: true, force: true })
+fs.rmSync(FIG, { recursive: true, force: true })
 let count = 0
 for (const [lang, L] of Object.entries(LANGS)) {
   const { groups, top } = summaries[lang]

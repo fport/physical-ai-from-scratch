@@ -137,7 +137,6 @@ def main():
     threads, batches = (1, 2, 4, 8), ((1, 8, 64, 512) if quick else (1, 8, 64, 512, 4096))
     cells = {}
     for nb in batches:
-        nstep = max(25, 50_000 // nb)
         X, U = init_states(nb), np.tile(q_home, (nb, max(25, 50_000 // nb), 1))
         for nt in threads:
             cells[nb, nt] = (X, U, [mujoco.MjData(m) for _ in range(nt)], [])

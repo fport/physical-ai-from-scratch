@@ -96,7 +96,6 @@ def evaluate(scene, labeler, pol):
 
 def dagger(scene, labeler, O, A, TS, seed, aggregate=True):
     """Returns [(expert episodes, success k, drift)] for iterations 0..ITERS."""
-    rng = np.random.default_rng(290 + seed)
     tr = L26_EP < N_DEMOS
     X, Y = features(O[tr], TS[tr]), A[tr]
     pol = L28.train_mlp(X, Y, seed=seed)

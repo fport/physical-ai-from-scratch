@@ -314,7 +314,7 @@ if __name__ == "__main__":
     for k, med, n_dep in holds:
         print(f"{k:>3}  {n_dep:>17}/{N_EVAL}  {med:>28.1f}")
 
-    print(f"\nBreak it · longer pause, k=32 ensembled, training seed 0; budget = pause + 3.5 s")
+    print("\nBreak it · longer pause, k=32 ensembled, training seed 0; budget = pause + 3.5 s")
     print(HEAD)
     for pause in [25, 50, 75, 100]:
         Op, Ap = (O, A) if pause == T_PAUSE else collect(N_DEMO, np.random.default_rng(SEED), pause)

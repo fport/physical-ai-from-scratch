@@ -98,7 +98,7 @@ def main():
     O, A, EP, FR, TS = D["obs"], D["action"], D["episode_index"], D["frame_index"], D["timestamp"]
     n_ep = int(EP.max()) + 1
     starts = np.flatnonzero(np.r_[True, EP[1:] != EP[:-1]])
-    print(f"\n[A] Anatomy of the lesson-26 dataset")
+    print("\n[A] Anatomy of the lesson-26 dataset")
     print(f"episodes {n_ep}, frames {len(O)}, fps {int(D['fps'])}, task '{D['task']}', "
           f"successful episodes {int(D['episode_success'].sum())}/{n_ep}")
     print(f"episode boundaries (first index of each episode): {starts[:4].tolist()} ... {starts[-1]}")

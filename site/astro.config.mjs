@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config'
 import starlight from '@astrojs/starlight'
+import mermaid from 'astro-mermaid'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import sidebar from './src/sidebar.generated.json' with { type: 'json' }
@@ -12,6 +13,11 @@ export default defineConfig({
   base: process.env.SITE_BASE || '/',
   markdown: { remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex] },
   integrations: [
+    mermaid({
+      theme: 'neutral',
+      autoTheme: true,
+      mermaidConfig: { themeVariables: { fontFamily: 'Inter Variable, ui-sans-serif, system-ui, sans-serif', fontSize: '16px' } },
+    }),
     starlight({
       title: { en: 'Physical AI', tr: 'Fiziksel AI' },
       description: 'Physical AI Engineering from Scratch: an open course book with runnable MuJoCo experiments, from simulation to a real SO-101 arm.',
@@ -23,10 +29,11 @@ export default defineConfig({
       social: [{ icon: 'github', label: 'GitHub', href: REPO }],
       sidebar,
       customCss: [
+        '@fontsource-variable/source-serif-4',
         '@fontsource-variable/inter',
         '@fontsource/jetbrains-mono/400.css',
         '@fontsource/jetbrains-mono/700.css',
-        '@fontsource/silkscreen/400.css',
+        '@fontsource/vt323/400.css',
         'katex/dist/katex.min.css',
         './src/styles/custom.css',
       ],

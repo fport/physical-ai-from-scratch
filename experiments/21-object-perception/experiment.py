@@ -224,7 +224,7 @@ def main():
     set_cube(m, d, positions[0])
     cam = Camera(m, d)
     print("\n[2] light intensity (headlight and directional light scaled together)")
-    print(f"    thresholds: H in [0,10] or [170,179], S >= 120, V >= 70; 'top HSV' = top-face centre, position 1")
+    print("    thresholds: H in [0,10] or [170,179], S >= 120, V >= 70; 'top HSV' = top-face centre, position 1")
     print(f"{'scale':>6} {'top HSV':>14} {'detected':>9} {'median err mm':>14} {'max err mm':>11} {'picks ok':>9}")
     for s in [0.1, 0.2, 0.35, 0.5, 1.0, 1.5, 2.0, 3.0]:
         set_light(m, scale=s)

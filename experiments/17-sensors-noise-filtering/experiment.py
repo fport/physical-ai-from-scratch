@@ -112,6 +112,31 @@ def score(y, q, v):
     return e_pos, delay_ms(y, q), e_vel
 
 
+def save_figure(ma_rows, lp_rows):
+    """Plot error vs filter delay for both filters (writes noise_vs_delay.png next to this script)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3.4), dpi=150)
+    for ax, col, label in [(axes[0], 1, "position RMS error (mrad)"), (axes[1], 2, "velocity RMS error (rad/s)")]:
+        for rows, name, mark in [(ma_rows, "moving average", "o-"), (lp_rows, "low-pass", "s--")]:
+            d = np.array([r[0] for r in rows])
+            e = np.array([r[col] for r in rows])
+            keep = d > 0
+            ax.plot(d[keep], e[keep], mark, label=name, ms=4)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("filter delay (ms)")
+        ax.set_ylabel(label)
+        ax.grid(True, which="both", alpha=0.3)
+    axes[0].legend(frameon=False)
+    fig.suptitle("Less noise costs delay: each error has a minimum", fontsize=10)
+    fig.tight_layout()
+    fig.savefig(os.path.join(os.path.dirname(os.path.abspath(__file__)), "noise_vs_delay.png"))
+    plt.close(fig)
+
+
 def main():
     print(f"mujoco {mujoco.__version__} · numpy {np.__version__} · seed {SEED} · dt {DT*1000:.0f} ms")
     m = build_model()
@@ -134,9 +159,11 @@ def main():
     print("\n[3] moving average (causal), window N")
     print(f"{'N':>5} {'theory delay ms':>16} {'measured delay ms':>18} {'pos RMS mrad':>13} {'vel RMS rad/s':>14}")
     best = (1e9, None)
+    ma_rows, lp_rows = [], []
     for n in [1, 3, 5, 9, 17, 33, 65, 129]:
         y = moving_average(z, n)
         p, dl, ve = score(y, q, v)
+        ma_rows.append((dl, p, ve))
         best = min(best, (p, f"MA N={n}"))
         print(f"{n:>5} {1000*DT*(n-1)/2:>16.1f} {dl:>18.1f} {p:>13.2f} {ve:>14.2f}")
 
@@ -146,9 +173,11 @@ def main():
     for fc in [100, 50, 20, 10, 5, 2, 1, 0.5]:
         y = low_pass(z, fc)
         p, dl, ve = score(y, q, v)
+        lp_rows.append((dl, p, ve))
         best = min(best, (p, f"LPF fc={fc} Hz"))
         print(f"{fc:>6} {1000/(2*np.pi*fc):>8.1f} {dl:>18.1f} {p:>13.2f} {ve:>14.2f}")
     print(f"\n    lowest position RMS: {best[1]} ({best[0]:.2f} mrad)")
+    save_figure(ma_rows, lp_rows)
 
     # 5. IMU at rest: gravity and gyro bias
     _, _, _, acc_r, gyro_r = simulate(m, moving=False, t_end=10.0)

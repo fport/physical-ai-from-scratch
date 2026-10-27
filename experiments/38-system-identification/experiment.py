@@ -231,7 +231,7 @@ def main():
     header()
     theta, nfev, _ = fit(cmd, q_clean, with_delay=False)
     report("no delay term", theta, nfev, val_cmd, val_real)
-    print(f"    fitted values: " + ", ".join(f"{n} {v:.3f}" for n, v in zip(NAMES[:5], theta[:5])))
+    print("    fitted values: " + ", ".join(f"{n} {v:.3f}" for n, v in zip(NAMES[:5], theta[:5])))
     print()
     exercise_forcerange(val_cmd, val_real)
 

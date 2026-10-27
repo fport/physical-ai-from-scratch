@@ -1,17 +1,19 @@
 # Kurulum
 
-Bölüm 1–7 ve 8–10'un çoğu bir dizüstünde koşar. Kitaptaki sayılar Apple Silicon bir Mac'te (Apple M5), Python 3.14 ve `requirements.txt` içindeki sabit sürümlerle (MuJoCo 3.17.0, NumPy 2.5.4, SciPy, PyTorch 2.14, Gymnasium, OpenCV, Matplotlib) üretildi.
+Bölüm 1–7 ve 8–10'un çoğu bir dizüstünde koşar. Kitaptaki sayılar Apple Silicon bir Mac'te (Apple M5), Python 3.14 ve `uv.lock` içinde kilitlenmiş tam sürümlerle (MuJoCo 3.17.0, NumPy 2.5.4, SciPy, PyTorch 2.14, Gymnasium, OpenCV, Matplotlib) üretildi.
 
 ## Kur
+
+Repo bir [uv](https://docs.astral.sh/uv/) projesi: `pyproject.toml` bağımlılıkları listeler, `uv.lock` her sürümü sabitler, `.python-version` Python 3.14'ü sabitler (sende yoksa uv indirir).
 
 ```bash
 git clone https://github.com/fport/physical-ai-from-scratch.git
 cd physical-ai-from-scratch
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python experiments/02-timestep/experiment.py
+uv sync
+uv run python experiments/02-timestep/experiment.py
 ```
+
+uv olmadan: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt` (dosya `uv.lock`'tan üretilir).
 
 Her deneyin ilk satırı kütüphane sürümlerini yazdırır. Başka sürümlerde bazı sonuçların son basamakları farklı çıkabilir.
 

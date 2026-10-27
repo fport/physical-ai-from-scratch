@@ -1,0 +1,32 @@
+[project]
+name = "physical-ai-from-scratch"
+version = "0.2.0"
+description = "Experiments for the course book Physical AI Engineering from Scratch"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Furkan Portakal" }]
+requires-python = ">=3.12"
+dependencies = [
+    "mujoco==3.17.0",
+    "numpy==2.5.4",
+    "scipy==1.18.1",
+    "torch==2.14.1",
+    "gymnasium==1.4.0",
+    "opencv-python-headless==5.0.0.93",
+    "matplotlib==3.11.2",
+    "pyyaml==6.0.3",
+]
+
+[dependency-groups]
+dev = ["ruff==0.17.0"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["site", ".cache", "notebooks"]
+
+[tool.ruff.lint]
+select = ["E9", "F"]

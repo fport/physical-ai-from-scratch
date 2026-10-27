@@ -3,9 +3,9 @@
 One folder per lesson: `NN-slug/experiment.py` runs the lesson's sweep and prints a table; `output.txt` is the exact output of the run the lesson's numbers come from.
 
 ```bash
-source ../.venv/bin/activate            # see start-here/setup.md
-python 02-timestep/experiment.py
-diff <(python 02-timestep/experiment.py) 02-timestep/output.txt
+uv sync                                  # once, at the repo root (see start-here/setup.md)
+uv run python experiments/02-timestep/experiment.py
+diff <(uv run python experiments/02-timestep/experiment.py) experiments/02-timestep/output.txt
 ```
 
 - Robot models (SO-101, Franka Panda, Unitree Go2) are loaded through `common/menagerie.py` from a pinned MuJoCo Menagerie commit.
