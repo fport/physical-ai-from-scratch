@@ -1,3 +1,27 @@
+<!-- github-only: GitHub sayfası için hero ve rozetler; site/scripts/sync.mjs bu bloğu atlar -->
+<p align="center">
+  <a href="https://fport.github.io/physical-ai-from-scratch/tr/">
+    <img src="../.github/assets/hero-tr.jpg" alt="Fiziksel AI Mühendisliği — Sıfırdan: MuJoCo'da çizilmiş Unitree Go2, Franka Panda ve SO-101" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <a href="#harita"><img alt="44 ders" src="https://img.shields.io/badge/ders-44-FF7A2E?style=flat&labelColor=0B0F24"></a>
+  <a href="#harita"><img alt="10 bölüm ve bitirme projesi" src="https://img.shields.io/badge/b%C3%B6l%C3%BCm-10%20%2B%20bitirme-6C5CE7?style=flat&labelColor=0B0F24"></a>
+  <a href="../README.md"><img alt="Türkçe ve İngilizce" src="https://img.shields.io/badge/dil-TR%20%7C%20EN-9AA3B5?style=flat&labelColor=0B0F24"></a>
+  <a href="https://fport.github.io/physical-ai-from-scratch/tr/"><img alt="Site" src="https://img.shields.io/badge/site-yay%C4%B1nda-1B1F5E?style=flat&logo=astro&logoColor=white&labelColor=0B0F24"></a>
+  <a href="https://github.com/fport/physical-ai-from-scratch/actions/workflows/pages.yml"><img alt="Pages yayını" src="https://img.shields.io/github/actions/workflow/status/fport/physical-ai-from-scratch/pages.yml?branch=main&style=flat&label=deploy&labelColor=0B0F24"></a>
+  <a href="../notebooks/README.md"><img alt="Defterler Colab'da" src="https://img.shields.io/badge/defterler-Colab'da%20a%C3%A7-F9AB00?style=flat&logo=googlecolab&logoColor=white&labelColor=0B0F24"></a>
+  <br>
+  <a href="start-here/setup.md"><img alt="Python 3.14" src="https://img.shields.io/badge/python-3.14-3776AB?style=flat&logo=python&logoColor=white&labelColor=0B0F24"></a>
+  <a href="https://github.com/google-deepmind/mujoco"><img alt="MuJoCo 3.17" src="https://img.shields.io/badge/MuJoCo-3.17-E8ECF8?style=flat&labelColor=0B0F24"></a>
+  <a href="https://github.com/google-deepmind/mujoco_menagerie"><img alt="Robotlar MuJoCo Menagerie'den" src="https://img.shields.io/badge/robotlar-SO--101%20%C2%B7%20Panda%20%C2%B7%20Go2-E8ECF8?style=flat&labelColor=0B0F24"></a>
+  <a href="../LICENSE"><img alt="Kod: MIT" src="https://img.shields.io/badge/kod-MIT-9AA3B5?style=flat&labelColor=0B0F24"></a>
+  <a href="../LICENSE-CONTENT"><img alt="Metin: CC BY 4.0" src="https://img.shields.io/badge/metin-CC%20BY%204.0-9AA3B5?style=flat&labelColor=0B0F24"></a>
+  <a href="https://github.com/fport/physical-ai-from-scratch/commits/main"><img alt="Son commit" src="https://img.shields.io/github/last-commit/fport/physical-ai-from-scratch?style=flat&label=son%20commit&labelColor=0B0F24&color=9AA3B5"></a>
+</p>
+<!-- /github-only -->
+
 # Fiziksel AI Mühendisliği — Sıfırdan
 
 Fiziksel dünyada iş yapan robotların arkasındaki mühendislik için eksiksiz, açık bir müfredat: simulation, spatial math, kinematics, dynamics ve control, perception, planning, imitation learning, reinforcement learning, sim-to-real ve robot foundation model'leri. Her dersin koşturulabilir bir deneyi var ve her sayı bir koşudan ya da bağlantısı verilen birincil bir kaynaktan geliyor.

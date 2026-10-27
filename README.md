@@ -1,3 +1,27 @@
+<!-- github-only: hero and badges for the GitHub page; site/scripts/sync.mjs drops this block -->
+<p align="center">
+  <a href="https://fport.github.io/physical-ai-from-scratch/">
+    <img src=".github/assets/hero.jpg" alt="Physical AI Engineering from Scratch: Unitree Go2, Franka Panda and SO-101, rendered in MuJoCo" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <a href="#map"><img alt="44 lessons" src="https://img.shields.io/badge/lessons-44-FF7A2E?style=flat&labelColor=0B0F24"></a>
+  <a href="#map"><img alt="10 parts and a capstone" src="https://img.shields.io/badge/parts-10%20%2B%20capstone-6C5CE7?style=flat&labelColor=0B0F24"></a>
+  <a href="tr/README.md"><img alt="English and Turkish" src="https://img.shields.io/badge/language-EN%20%7C%20TR-9AA3B5?style=flat&labelColor=0B0F24"></a>
+  <a href="https://fport.github.io/physical-ai-from-scratch/"><img alt="Website" src="https://img.shields.io/badge/site-live-1B1F5E?style=flat&logo=astro&logoColor=white&labelColor=0B0F24"></a>
+  <a href="https://github.com/fport/physical-ai-from-scratch/actions/workflows/pages.yml"><img alt="Pages deploy" src="https://img.shields.io/github/actions/workflow/status/fport/physical-ai-from-scratch/pages.yml?branch=main&style=flat&label=deploy&labelColor=0B0F24"></a>
+  <a href="notebooks/README.md"><img alt="Notebooks in Colab" src="https://img.shields.io/badge/notebooks-Open%20in%20Colab-F9AB00?style=flat&logo=googlecolab&logoColor=white&labelColor=0B0F24"></a>
+  <br>
+  <a href="start-here/setup.md"><img alt="Python 3.14" src="https://img.shields.io/badge/python-3.14-3776AB?style=flat&logo=python&logoColor=white&labelColor=0B0F24"></a>
+  <a href="https://github.com/google-deepmind/mujoco"><img alt="MuJoCo 3.17" src="https://img.shields.io/badge/MuJoCo-3.17-E8ECF8?style=flat&labelColor=0B0F24"></a>
+  <a href="https://github.com/google-deepmind/mujoco_menagerie"><img alt="Robots from MuJoCo Menagerie" src="https://img.shields.io/badge/robots-SO--101%20%C2%B7%20Panda%20%C2%B7%20Go2-E8ECF8?style=flat&labelColor=0B0F24"></a>
+  <a href="LICENSE"><img alt="Code: MIT" src="https://img.shields.io/badge/code-MIT-9AA3B5?style=flat&labelColor=0B0F24"></a>
+  <a href="LICENSE-CONTENT"><img alt="Text: CC BY 4.0" src="https://img.shields.io/badge/text-CC%20BY%204.0-9AA3B5?style=flat&labelColor=0B0F24"></a>
+  <a href="https://github.com/fport/physical-ai-from-scratch/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/fport/physical-ai-from-scratch?style=flat&labelColor=0B0F24&color=9AA3B5"></a>
+</p>
+<!-- /github-only -->
+
 # Physical AI Engineering from Scratch
 
 A complete, open curriculum for the engineering behind robots that act in the physical world: simulation, spatial math, kinematics, dynamics and control, perception, planning, imitation learning, reinforcement learning, sim-to-real, and robot foundation models. Every lesson has a runnable experiment and every number comes from a run or a linked primary source.

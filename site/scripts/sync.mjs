@@ -37,7 +37,8 @@ const LANGS = {
 }
 
 const PAGES = new Set()
-const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8')
+// READMEs open with a GitHub-only hero + badges block; the site has its own splash hero
+const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8').replace(/^<!-- github-only[\s\S]*?<!-- \/github-only -->\n+/, '')
 const yaml = (s) => JSON.stringify(s)
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
