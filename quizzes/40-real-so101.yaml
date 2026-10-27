@@ -1,0 +1,44 @@
+# Lesson 40 · Deploying on the real SO-101 (hardware walkthrough; the tables come from the
+# simulation preflight in experiments/40-real-so101/output.txt). answer = index of the correct option (0-based).
+- q:
+    en: A policy is trained on data recorded with one calibration and rolled out with another. What happens?
+    tr: Bir policy, bir kalibrasyonla kaydedilmiş veride eğitiliyor ve başka bir kalibrasyonla rollout ediliyor. Ne olur?
+  options:
+    - en: LeRobot refuses to connect because the calibration files differ.
+      tr: Kalibrasyon dosyaları farklı olduğu için LeRobot bağlanmayı reddeder.
+    - en: Every goal is shifted by the difference between the two calibrations, and nothing in the software complains.
+      tr: Her hedef iki kalibrasyon arasındaki fark kadar kayar ve yazılımda hiçbir şey şikâyet etmez.
+    - en: The servos recalibrate themselves at connect, so nothing changes.
+      tr: Servolar bağlanırken kendilerini yeniden kalibre eder, bu yüzden hiçbir şey değişmez.
+  answer: 1
+  why:
+    en: The calibration is stored as `<id>.json` under the robot's `id`, so the same `id` must be used when teleoperating, recording and rolling out (The problem; pipeline table).
+    tr: Kalibrasyon robotun `id`'si altında `<id>.json` olarak saklanır; teleoperation, kayıt ve rollout'ta aynı `id` kullanılmalı (Problem; pipeline tablosu).
+- q:
+    en: In Break it, a 10° shoulder_lift offset drives the gripper into the floor (1521 steps of contact), yet the range check passes. Why?
+    tr: Boz bölümünde 10°'lik bir shoulder_lift ofseti gripper'ı zemine sokuyor (1521 adım contact), ama range kontrolü geçiyor. Neden?
+  options:
+    - en: Joint limits are not a model of the workspace; the goals stay inside the joint range while the arm reaches into the floor.
+      tr: Joint limitleri çalışma alanının bir modeli değildir; kol zemine uzanırken hedefler joint aralığının içinde kalır.
+    - en: The range check is only applied to the gripper joint.
+      tr: Range kontrolü yalnızca gripper joint'ine uygulanır.
+    - en: An offset of 10° is below the 5° margin the check uses.
+      tr: 10°'lik ofset, kontrolün kullandığı 5°'lik margin'in altındadır.
+  answer: 0
+  why:
+    en: Break it table, range margin 10.00° in every row (the gripper's closed goal against its −10° limit). Only the contact and tracking checks catch it; the offset must be measured.
+    tr: Boz tablosu, range margin'i her satırda 10,00° (gripper'ın kapalı hedefinin −10°'lik limitine uzaklığı). Bunu yalnızca contact ve takip kontrolleri yakalıyor; ofset ölçülmeli.
+- q:
+    en: With a 0.6 kg payload the arm still tracks to 0.72°, but the preflight says FAIL. What does the gravity check catch?
+    tr: 0,6 kg yükle kol hâlâ 0,72°'ye kadar takip ediyor, ama preflight FAIL diyor. Gravity kontrolü neyi yakalıyor?
+  options:
+    - en: The servo has already saturated and the arm has dropped.
+      tr: Servo zaten doyuma ulaştı ve kol düştü.
+    - en: The trajectory is played too fast for that mass.
+      tr: Trajectory o kütle için fazla hızlı oynatılıyor.
+    - en: The static gravity torque (2.397 N·m) is past 80% of the 2.94 N·m servo limit, a missing margin before the arm has to prove it.
+      tr: Statik gravity torque'u (2,397 N·m), 2,94 N·m'lik servo limitinin %80'ini aşıyor; kol bunu kanıtlamak zorunda kalmadan önce eksik bir margin.
+  answer: 2
+  why:
+    en: 'Part B table: at 0.8 kg the static torque, 3.047 N·m, is above the limit itself and tracking degrades to 2.11°. The gravity check flags the missing margin before the arm has to prove it.'
+    tr: 'B tablosu: 0,8 kg''da statik torque, 3,047 N·m, limitin kendisini aşıyor ve takip 2,11°''ye bozuluyor. Gravity kontrolü eksik margin''i kol bunu kanıtlamak zorunda kalmadan işaretliyor.'

@@ -1,0 +1,44 @@
+# Lesson 29 · Distribution shift and DAgger. Every answer is supported by the lesson page or
+# experiments/29-dagger/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: In the DAgger loop, who chooses the states and who chooses the actions that end up in the dataset?
+    tr: DAgger döngüsünde dataset'e giren state'leri kim, action'ları kim seçiyor?
+  options:
+  - en: The expert chooses both; the learner is only retrained.
+    tr: İkisini de expert seçiyor; öğrenen yalnızca yeniden eğitiliyor.
+  - en: The learner chooses the states, because it is driving; the expert chooses the actions, the labels.
+    tr: State'leri öğrenen seçiyor, çünkü o sürüyor; action'ları, yani etiketleri expert seçiyor.
+  - en: The learner chooses both, and the expert only scores each rollout.
+    tr: İkisini de öğrenen seçiyor; expert yalnızca her rollout'u puanlıyor.
+  answer: 1
+  why:
+    en: 'Core idea, DAgger as code: the learner drives, `data.append((s, expert(s)))` stores each visited state with the expert''s label, and the policy is retrained on all of it.'
+    tr: 'Ana fikir, kod olarak DAgger: öğrenen sürüyor, `data.append((s, expert(s)))` ziyaret edilen her state''i expert''in etiketiyle saklıyor ve policy hepsiyle yeniden eğitiliyor.'
+- q:
+    en: Plain BC scores 0/60 with 20, 40 and 60 expert-labelled episodes. What does DAgger do with the same expert budget?
+    tr: Düz BC 20, 40 ve 60 expert etiketli episode'la 0/60 yapıyor. DAgger aynı expert bütçesiyle ne yapıyor?
+  options:
+  - en: 'Also 0/60: more expert labels cannot help a regression.'
+    tr: 'O da 0/60: daha çok expert etiketi bir regression''a yardım edemez.'
+  - en: 60/60 at every iteration after the first.
+    tr: İlkinden sonraki her iterasyonda 60/60.
+  - en: 50/60 after three iterations, with visited states about 6° from the demonstrations instead of about 25°.
+    tr: Üç iterasyondan sonra 50/60; ziyaret edilen state'ler demonstration'lardan yaklaşık 25° yerine yaklaşık 6° uzakta.
+  answer: 2
+  why:
+    en: 'Part B table: 26/60, 42/60, 50/60, 45/60 for iterations 1–4, distance 6.09° at iteration 3 against 24.76° for plain BC at 60 episodes; success is not monotonic, hence "return the best policy on validation".'
+    tr: 'B kısmı tablosu: iterasyon 1–4 için 26/60, 42/60, 50/60, 45/60; uzaklık 3. iterasyonda 6,09°, 60 episode''daki düz BC''de 24,76°. Başarı monoton değil, bu yüzden "validation''da en iyi policy''yi döndür".'
+- q:
+    en: Break it trains each iteration only on its newest 10 learner episodes, without the demonstrations or earlier rounds. What happens?
+    tr: Boz, her iterasyonu yalnızca en yeni 10 öğrenen episode'uyla eğitiyor; demonstration'lar ve önceki turlar yok. Ne oluyor?
+  options:
+  - en: 'Every iteration scores 0/20: each new dataset covers only the states the previous, failing policy visited, mostly after its mistakes.'
+    tr: 'Her iterasyon 0/20 yapıyor: her yeni dataset yalnızca bir önceki, başarısız policy''nin ziyaret ettiği state''leri, çoğunlukla hatalarından sonrakileri kapsıyor.'
+  - en: It learns faster, because old data no longer dilutes the new labels.
+    tr: Daha hızlı öğreniyor, çünkü eski veri artık yeni etiketleri seyreltmiyor.
+  - en: Nothing changes, because the expert's labels are the same.
+    tr: Hiçbir şey değişmiyor, çünkü expert'in etiketleri aynı.
+  answer: 0
+  why:
+    en: 'Break it table: 0/20 at every iteration without aggregation, against 3, 19, 19 and 15/20 with it; the paper''s guarantee rests on training on the union of all rounds.'
+    tr: 'Boz tablosu: aggregation olmadan her iterasyonda 0/20, aggregation ile 3, 19, 19 ve 15/20; makalenin garantisi tüm turların birleşimiyle eğitmeye dayanıyor.'

@@ -81,6 +81,8 @@ Daha derine: [Bias-Variance Tradeoff](https://aiengineeringfromscratch.com/lesso
 
 </details>
 
+<!-- figure: 29-dagger-drift -->
+
 ### Etiketleyici olarak expert
 
 DAgger, expert'in hiç ziyaret etmediği state'lerde $\pi^*(s)$'e ihtiyaç duyar. Bizim expert'imiz ders 16'nın zaman indeksli state machine'i; bu yüzden policy adımı $k$'deki bir öğrenen state'inin etiketi, scripted pick'in küpün şu anki konumu için $k$ adımında komutladığı action. Öğrenen küpü 1 cm'den fazla ittiyse expert yeni konum için yeniden planlıyor (planlar küp konumlarının 2 mm'lik bir ızgarasında önbelleğe alınıyor). Bu etiketleyici zamanında doğru, öğrenen geç ya da erken kaldığında daha zayıf; bir insan operatörün de farklı biçimde aynı sınırı var.

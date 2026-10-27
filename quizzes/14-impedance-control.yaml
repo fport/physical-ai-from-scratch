@@ -1,0 +1,44 @@
+# Lesson 14 · Operational-space and impedance control. Every answer is supported by the lesson
+# page or experiments/14-impedance-control/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: An impedance-controlled hand rests against a rigid surface, its target 5 cm behind it. What sets the force on the surface?
+    tr: Impedance control altındaki bir el, hedefi 5 cm arkasında olacak şekilde rijit bir yüzeye dayanıyor. Yüzeydeki kuvveti ne belirler?
+  options:
+    - en: The stiffness of the surface's contact.
+      tr: Yüzeyin contact stiffness'ı.
+    - en: The inertia the hand feels along z, $\Lambda_{zz}$.
+      tr: Elin z boyunca hissettiği atalet, $\Lambda_{zz}$.
+    - en: The stiffness you chose times how far the target sits behind the surface, $F = K e$.
+      tr: Seçtiğin stiffness çarpı hedefin yüzeyin ne kadar arkasında olduğu, $F = K e$.
+  answer: 2
+  why:
+    en: The force is designed, not measured - part B holds 5.00 / 14.98 / 49.77 / 148.45 N for K = 100–3000 at 5 cm. Contact stiffness and $\Lambda_{zz}$ shape the impact peak instead.
+    tr: Kuvvet ölçülmez, tasarlanır - B bölümünde 5 cm'de K = 100–3000 için tutma kuvveti 5,00 / 14,98 / 49,77 / 148,45 N. Contact stiffness ve $\Lambda_{zz}$ ise çarpma tepesini belirler.
+- q:
+    en: With one K and one D, a 5 cm step settles in 0.854 s along x but 0.532 s along y. Why?
+    tr: Tek bir K ve tek bir D ile 5 cm'lik step x boyunca 0,854 s'de, y boyunca 0,532 s'de oturuyor. Neden?
+  options:
+    - en: The hand feels a different inertia in each direction, so each axis is a different spring–mass system.
+      tr: El her yönde farklı bir atalet hissediyor, yani her eksen farklı bir yay–kütle sistemi.
+    - en: Gravity acts along x.
+      tr: Yerçekimi x boyunca etki ediyor.
+    - en: The Jacobian is singular along x.
+      tr: Jacobian x boyunca singular.
+  answer: 0
+  why:
+    en: Part A - $\Lambda_{xx}$ = 11.87 kg, $\Lambda_{yy}$ = 5.10 kg. Operational-space control scales the spring by $\Lambda$ and brings overshoot to 3.2–4.6% on all axes.
+    tr: A bölümü - $\Lambda_{xx}$ = 11,87 kg, $\Lambda_{yy}$ = 5,10 kg. Operational-space control yayı $\Lambda$ ile ölçekliyor ve overshoot'u bütün eksenlerde %3,2–4,6'ya getiriyor.
+- q:
+    en: At K = 10000 N/m the commanded wrench needs more torque than some joints can give. What happens with per-joint clipping?
+    tr: K = 10000 N/m'de komut edilen wrench bazı joint'lerin verebileceğinden fazla torque istiyor. Joint başına kırpmayla ne olur?
+  options:
+    - en: The force is simply capped, and the hand presses straight down at the maximum.
+      tr: Kuvvet sadece tavanda kesilir; el maksimumda dümdüz aşağı bastırır.
+    - en: The applied wrench changes direction and the hand tilts by 56.91°.
+      tr: Uygulanan wrench'in yönü değişir ve el 56,91° eğilir.
+    - en: Penetration grows tenfold because K grew tenfold.
+      tr: K on kat büyüdüğü için penetration da on kat büyür.
+  answer: 1
+  why:
+    en: Clipping each joint keeps each torque legal but bends the wrench (77.9% of steps saturated in part B). Up to K = 3000 penetration stayed between 0.545 and 0.888 mm, set by the contact model.
+    tr: Her joint'i ayrı kırpmak her torque'u yasal tutar ama wrench'i büker (B bölümünde adımların %77,9'u saturation'da). K = 3000'e kadar penetration 0,545 ile 0,888 mm arasında kaldı; onu contact modeli belirliyor.

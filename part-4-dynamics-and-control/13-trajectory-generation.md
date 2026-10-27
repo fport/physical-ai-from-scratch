@@ -94,6 +94,8 @@ Go deeper: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/
 
 </details>
 
+<!-- figure: 13-time-scaling -->
+
 ## Experiment
 
 **Setup.** Panda (Menagerie) from the `home` keyframe, joint move $\Delta q$ = (0.6, 0.4, −0.4, 0.5, 0.5, −0.4, 0.6) rad. The model's built-in position actuators are switched off (`actuator_gainprm` and `actuator_biasprm` set to 0) and torques go to `qfrc_applied`, clipped at the model's limits (87 N·m joints 1–4, 12 N·m joints 5–7). Controller and physics run at 2 ms:

@@ -1,0 +1,44 @@
+# Lesson 33 · PPO. Every answer is supported by the lesson page or
+# experiments/33-ppo/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: Why did $\gamma = 0.99$ do much worse than $\gamma = 0.95$ on the 1.6 s reach at 50 Hz?
+    tr: 50 Hz'de 1,6 s'lik uzanmada $\gamma = 0{,}99$ neden $\gamma = 0{,}95$'ten çok daha kötü sonuç verdi?
+  options:
+    - en: At 50 Hz, 0.99 is a 2.0 s horizon, far longer than a reach of a few hundred milliseconds; within the 300k-step budget it reached 53.0% against 99.3%.
+      tr: 50 Hz'de 0,99, birkaç yüz milisaniyelik bir uzanmadan çok daha uzun, 2,0 s'lik bir ufuktur; 300k adımlık bütçede %99,3'e karşı %53,0'a ulaştı.
+    - en: With $\gamma = 0.99$ the clip no longer limits the update.
+      tr: $\gamma = 0{,}99$ ile clip artık güncellemeyi sınırlamaz.
+    - en: $\gamma = 0.99$ makes the policy ignore every reward more than one step ahead.
+      tr: $\gamma = 0{,}99$, policy'nin bir adımdan sonraki her reward'u yok saymasına yol açar.
+  answer: 0
+  why:
+    en: $\tau = \Delta t/(1-\gamma) = 0.02/0.01 = 2.0$ s. γ sweep table, 159/300 vs 298/300; the lesson did not isolate the mechanism and the result is budget-limited.
+    tr: $\tau = \Delta t/(1-\gamma) = 0{,}02/0{,}01 = 2{,}0$ s. γ sweep tablosu, 298/300'e karşı 159/300; ders mekanizmayı ayrıştırmadı ve sonuç bütçeyle sınırlı.
+- q:
+    en: Training success sits between 0.14 and 0.28 for the first 150k steps. What should you conclude?
+    tr: Training başarısı ilk 150k adım boyunca 0,14 ile 0,28 arasında kalıyor. Ne sonuç çıkarmalısınız?
+  options:
+    - en: The run has failed; stop it and change the hyperparameters.
+      tr: Run başarısız oldu; durdurup hyperparameter'ları değiştirin.
+    - en: The reward must be wrong, because a working PPO improves steadily from the start.
+      tr: Reward yanlış olmalı, çünkü çalışan bir PPO baştan itibaren düzenli olarak iyileşir.
+    - en: Nothing yet; in all three seeds success then jumped within about 100k steps.
+      tr: Henüz hiçbir şey; üç seed'in hepsinde başarı sonra yaklaşık 100k adım içinde sıçradı.
+  answer: 2
+  why:
+    en: 'Learning-curve table: 0.18 / 0.28 / 0.28 at 150k, then 0.96 / 0.92 / 0.94 at 250k. A run stopped at 150k would look like a failure.'
+    tr: 'Öğrenme eğrisi tablosu: 150k''da 0,18 / 0,28 / 0,28, 250k''da 0,96 / 0,92 / 0,94. 150k''da durdurulan bir run başarısız görünürdü.'
+- q:
+    en: In Break it the clip is set to $\epsilon = 100$ and each batch is reused for 30 epochs. What goes wrong?
+    tr: Boz bölümünde clip $\epsilon = 100$ yapılıyor ve her batch 30 epoch tekrar kullanılıyor. Ne ters gider?
+  options:
+    - en: Nothing; more epochs simply use the data better.
+      tr: Hiçbir şey; daha fazla epoch veriyi yalnızca daha iyi kullanır.
+    - en: The updated policy moves far from the one that collected the batch, so the surrogate is no longer valid; approximate KL reaches hundreds and success falls to 0–1%.
+      tr: Güncellenen policy batch'i toplayan policy'den çok uzaklaşır, surrogate artık geçerli değildir; yaklaşık KL yüzlere çıkar, başarı %0–1'e düşer.
+    - en: The actions leave the range $[-1, 1]$ and the environment crashes.
+      tr: Action'lar $[-1, 1]$ aralığının dışına çıkar ve ortam çöker.
+  answer: 1
+  why:
+    en: Break it table, approximate KL 435 / 46.6 / 392 at iteration 100 against 0.0259 in the reference; final distances 144.2–272.5 mm, the order of a random policy.
+    tr: Boz tablosu, yaklaşık KL 100. iterasyonda 435 / 46,6 / 392, referansta ise 0,0259; son mesafeler 144,2–272,5 mm, rastgele bir policy mertebesinde.

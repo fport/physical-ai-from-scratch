@@ -1,0 +1,44 @@
+# Lesson 21 · Object perception for manipulation. Every answer is supported by the lesson page or
+# experiments/21-object-perception/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: At light scale 3.0 the red cube is brighter than ever, yet the HSV detector finds it in only 1 of 30 scenes. Why?
+    tr: Işık ölçeği 3,0'da kırmızı küp hiç olmadığı kadar parlak, ama HSV detector onu 30 sahnenin yalnızca 1'inde buluyor. Neden?
+  options:
+    - en: The hue shifts away from red when the light is bright.
+      tr: Işık parlakken hue kırmızıdan uzaklaşır.
+    - en: Channels clip at 255, the colour washes towards white, and saturation falls below $S_{\min}$ (95 < 120).
+      tr: Kanallar 255'te kırpılır, renk beyaza doğru solar ve saturation $S_{\min}$'in altına düşer (95 < 120).
+    - en: V exceeds an upper threshold of the detector.
+      tr: V, detector'ün bir üst eşiğini aşar.
+  answer: 1
+  why:
+    en: With $\max$ stuck at 255 while $\min$ keeps rising, $S = (\max-\min)/\max$ must fall. Hue stays at 0 in every row of step 2.
+    tr: $\max$ 255'te takılıp $\min$ artmaya devam edince $S = (\max-\min)/\max$ düşmek zorunda. Adım 2'nin her satırında hue 0'da kalıyor.
+- q:
+    en: In that one scene only a darker side face passed the threshold. Why is this partial detection worse than none?
+    tr: O tek sahnede eşiği yalnızca daha koyu bir yan yüz geçti. Bu kısmi tespit neden hiç tespitten kötü?
+  options:
+    - en: Its centroid is 14.9 mm off, the robot acts on it, and an aim error that large already fails most picks.
+      tr: Ağırlık merkezi 14,9 mm sapmış, robot ona göre davranıyor ve bu büyüklükte bir nişan hatası pick'lerin çoğunu zaten bozuyor.
+    - en: It takes much longer to compute than a full detection.
+      tr: Hesaplanması tam bir tespitten çok daha uzun sürüyor.
+    - en: The depth image has no values on side faces.
+      tr: Depth görüntüsünde yan yüzlerde değer yok.
+  answer: 0
+  why:
+    en: Step 1 - an aim error of 12 mm gives 15/30 picks, 16 mm 11/30; the 14.9 mm detection gives 0/30. With no detection the robot would at least not act.
+    tr: Adım 1 - 12 mm'lik nişan hatası 15/30, 16 mm 11/30 pick veriyor; 14,9 mm'lik tespit 0/30 veriyor. Hiç tespit olmasa robot en azından harekete geçmezdi.
+- q:
+    en: Lowering $V_{\min}$ from 70 to 25 recovers 30/30 picks under grazing sunlight. What is the catch?
+    tr: $V_{\min}$'i 70'ten 25'e indirmek yatay güneş ışığında 30/30 pick'i geri getiriyor. Bunun bedeli ne?
+  options:
+    - en: The nominal-light picks drop to 21/30.
+      tr: Normal ışıktaki pick'ler 21/30'a düşüyor.
+    - en: Localization error grows above 5 mm.
+      tr: Konumlandırma hatası 5 mm'nin üstüne çıkıyor.
+    - en: A lower V floor also admits dark red-brown pixels, and false positives were not measured in this scene.
+      tr: Daha düşük bir V tabanı koyu kırmızı-kahverengi pixel'leri de kabul ediyor ve bu sahnede false positive'ler ölçülmedi.
+  answer: 2
+  why:
+    en: With $V_{\min} = 25$ the nominal row is still 30/30 with 0.7 mm max error. The scene has no distractor objects, so a brown box or a wooden table might pass too.
+    tr: $V_{\min} = 25$ ile normal satır yine 30/30, en fazla 0,7 mm hata. Sahnede dikkat dağıtıcı nesne yok; kahverengi bir kutu ya da ahşap bir masa da geçebilir.

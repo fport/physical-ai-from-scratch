@@ -1,0 +1,44 @@
+# Lesson 26 · Teleoperation, replay and data collection. Every answer is supported by the lesson page or
+# experiments/26-teleop-replay-data/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: Replay never looks at the cube. Why does it still pick the cube after small shifts?
+    tr: Replay küpe hiç bakmıyor. Küçük kaymalardan sonra küpü yine de neden alıyor?
+  options:
+  - en: Replay re-reads the cube position at the start of each segment.
+    tr: Replay her segmentin başında küp konumunu yeniden okuyor.
+  - en: The recorded jaw opening is wider than the cube, so a small shift still leaves the cube between the jaws; the tolerance comes from the gripper geometry.
+    tr: Kaydedilen çene açıklığı küpten geniş; küçük bir kayma küpü yine çenelerin arasında bırakır. Tolerans gripper geometrisinden gelir.
+  - en: The position servos adapt the recorded joint targets to the new cube position.
+    tr: Pozisyon servoları kaydedilmiş joint hedeflerini küpün yeni konumuna uyarlıyor.
+  answer: 1
+  why:
+    en: 'Math details, "Why replay tolerates anything at all"; part A: replay 8/8 at 0.5 cm, 4/8 at 1.5 cm, 0/8 from 4.5 cm, against 81/81 for re-planning.'
+    tr: 'Matematik ayrıntısı, "Replay neden biraz da olsa tolere eder"; A kısmı: replay 0,5 cm''de 8/8, 1,5 cm''de 4/8, 4,5 cm''den itibaren 0/8; yeniden planlama ise 81/81.'
+- q:
+    en: Replay still succeeds 4 cm toward +y but only 0.5 cm toward −y. What is the lesson's reading?
+    tr: Replay +y yönünde 4 cm'de hâlâ başarılı, −y yönünde ise yalnızca 0,5 cm'de. Dersin yorumu ne?
+  options:
+  - en: The moving jaw sweeps a cube displaced toward it into the fixed jaw; a cube displaced toward the fixed jaw is struck by it on the way down and pushed.
+    tr: Hareketli çene, kendisine doğru kaymış bir küpü sabit çeneye süpürür; sabit çeneye doğru kaymış bir küpe ise sabit çene inerken çarpar ve onu iter.
+  - en: Inverse kinematics is less accurate on the −y side of the arm.
+    tr: Inverse kinematics kolun −y tarafında daha az doğru.
+  - en: The cube was slightly offset toward +y during the recording.
+    tr: Kayıt sırasında küp biraz +y'ye kaymıştı.
+  answer: 0
+  why:
+    en: 'Break it table: farthest replay success 4 cm at 90° (+y), 0.5 cm at 270° (−y). The lesson marks the mechanism as its reading; contacts were not instrumented.'
+    tr: 'Boz tablosu: en uzak replay başarısı 90°''de (+y) 4 cm, 270°''de (−y) 0,5 cm. Ders mekanizmayı kendi yorumu olarak işaretliyor; contact''lar ölçülmedi.'
+- q:
+    en: Replay only needs the recorded actions. Why must a demonstration dataset store the observation next to every action?
+    tr: Replay için kaydedilmiş action'lar yeter. Bir demonstration dataset'i neden her action'ın yanında observation'ı da saklamalı?
+  options:
+  - en: Observations compress the actions, so the file gets smaller.
+    tr: Observation'lar action'ları sıkıştırır, dosya küçülür.
+  - en: Replay itself needs them to time the frames.
+    tr: Replay'in kendisi frame'leri zamanlamak için onlara ihtiyaç duyar.
+  - en: A learner can only imitate the mapping from what was seen to what was done if both are stored aligned in time; actions alone cannot react to a different start state.
+    tr: Öğrenen, görülenden yapılana giden eşlemeyi ancak ikisi zamanda hizalı saklanırsa taklit edebilir; tek başına action'lar farklı bir başlangıç state'ine tepki veremez.
+  answer: 2
+  why:
+    en: Math details, "What the recording must keep"; our recording stores 9 observation values and 6 joint targets per frame, 13680 frames in 120 episodes (part B).
+    tr: Matematik ayrıntısı, "Kaydın tutması gerekenler"; kaydımız frame başına 9 observation değeri ve 6 joint hedefi saklıyor, 120 episode'da 13680 frame (B kısmı).

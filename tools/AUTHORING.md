@@ -41,6 +41,18 @@ The reader is a good programmer who has not studied control, robotics or signal 
 
 Figures, preferred way: a small `experiments/NN-slug/plot.py` that parses that lesson's `output.txt` and saves the PNG next to it (no re-run of the experiment needed, so long experiments stay untouched). Alternative: when a curve tells the story better than a table (an error vs. parameter trade-off, a trajectory, a learning curve), the experiment script also saves one PNG next to itself (matplotlib Agg, ~9×3.4 in, 150 dpi, log axes when values span decades) **without changing its printed output**, and the lesson embeds it with descriptive alt text: `![…](../experiments/NN-slug/figure.png)`. Keep the table too: the numbers in the text must still come from `output.txt`.
 
+## Interactive figures and quizzes (website only)
+
+Both are invisible on GitHub (an HTML comment / a separate data file) and come alive on the website. Reference implementation: lesson 12 (`site/src/figures/12-pd-step.ts`, `quizzes/12-joint-control.yaml`).
+
+**Interactive figure.** Only where touching a parameter teaches something the static table cannot (a trade-off, a threshold, a geometry). One per lesson at most.
+- Module `site/src/figures/NN-name.ts` (NN = lesson number), `export default function (root, lang)`. Build the box with `frame()` from `./_kit` (title, caption, canvas, sliders/checkboxes/selects/buttons, readouts); animate with `animate()` (runs only while on screen); random numbers with `rng(seed)`; charts with `axes()`. Colors only from `colors()` (works in light and dark). No external libraries. Every visible string has `en` and `tr`.
+- Marker on its own line in both language pages, same place: `<!-- figure: NN-name -->`, usually right after the Core idea's `</details>` or inside Break it. `site/scripts/sync.mjs` turns it into the slot.
+- Honesty: it is a toy model in the browser and `frame()` says so. Use the lesson's parameters where you can (masses, gains, ranges), but never print a readout as if it were a measured result, and don't quote figure readouts in the lesson text. Cheap enough to run at 60 fps on a laptop.
+- Canvas text: `mono` font, ≥ 12 px at the 640-px drawing width; leave room for labels.
+
+**Quiz.** `quizzes/<slug>.yaml`, 3 multiple-choice questions (3–4 options, one correct, `answer` = 0-based index; vary its position). Inserted automatically at the top of "Check yourself" / "Kendini dene". Each `q`, option and `why` has `en` and `tr` (markdown: `$math$`, `code`, **bold**; one line each). Ask about understanding (why, what happens if, which reading of the table), not trivia. Every correct answer and every number in `why` must be on the lesson page or in its `output.txt`; `why` says where (part/table) when it uses a number. Wrong options are plausible misconceptions, not jokes.
+
 ## Experiments
 
 - Run with `uv run python …` from the repo root (Python 3.14 via `.python-version`; MuJoCo 3.17.0, NumPy 2.5.4, SciPy, PyTorch 2.14 CPU/MPS, Gymnasium, OpenCV, Matplotlib, all locked in `uv.lock`). Before finishing: `uv run ruff check .` and `uv run python tools/check_book.py`.

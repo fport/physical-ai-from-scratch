@@ -1,0 +1,44 @@
+# Lesson 04 · Friction and friction cones. Every answer is supported by the lesson page or
+# experiments/04-friction/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: On the same ramp (μ = 0.3), does a 10 kg cube slip at a larger angle than a 0.1 kg cube?
+    tr: Aynı rampada (μ = 0,3) 10 kg'lık küp, 0,1 kg'lık küpten daha büyük bir açıda mı kayar?
+  options:
+    - en: Yes, a heavier cube presses harder into the ramp and gets a bigger friction budget.
+      tr: Evet, ağır küp rampaya daha sert bastırır ve daha büyük bir friction bütçesi alır.
+    - en: No, the downhill pull and the friction budget both scale with $m$, so the slip angle depends only on μ.
+      tr: Hayır, aşağı çeken kuvvet de friction bütçesi de $m$ ile ölçeklenir; kayma açısı yalnızca μ'ye bağlıdır.
+    - en: No, the lighter cube holds longer because it has less momentum.
+      tr: Hayır, hafif küp daha az momentumu olduğu için daha uzun tutunur.
+  answer: 1
+  why:
+    en: $\tan\theta > \mu$ has no mass in it. In the Experiment table all three masses slip at 16.75° for μ = 0.3 (theory 16.70°).
+    tr: $\tan\theta > \mu$ koşulunda kütle yok. Deney tablosunda μ = 0,3 için üç kütle de 16,75°'de kayıyor (teori 16,70°).
+- q:
+    en: Below the threshold the simulated cube still moves at a small constant speed. What goes wrong if "slipping" just means "faster than 2 cm/s"?
+    tr: Eşiğin altında simüle edilen küp hâlâ küçük, sabit bir hızla hareket ediyor. "Kayma" yalnızca "2 cm/s'den hızlı" demekse ne ters gider?
+  options:
+    - en: Nothing; the creep is a rounding error far below 2 cm/s at every angle.
+      tr: Hiçbir şey; creep her açıda 2 cm/s'nin çok altında bir yuvarlama hatası.
+    - en: The measured slip angle comes out too large, because creep slows the cube down.
+      tr: Ölçülen kayma açısı fazla büyük çıkar, çünkü creep küpü yavaşlatır.
+    - en: Creep is counted as slip, so the measured slip angle comes out too small.
+      tr: Creep kayma sayılır, yani ölçülen kayma açısı fazla küçük çıkar.
+  answer: 2
+  why:
+    en: Soft friction creeps. Under Observe, the speed-only criterion gives 16.35° (−0.35°) for μ = 0.3 and 26.25° (−0.32°) for μ = 0.5; requiring acceleration fixes it.
+    tr: Yumuşak friction creep yapar. Gözlemle'de yalnızca hıza bakan kriter μ = 0,3 için 16,35° (−0,35°), μ = 0,5 için 26,25° (−0,32°) veriyor; ivmelenme şartı bunu düzeltiyor.
+- q:
+    en: The cube is rotated 45° about the ramp normal. Coulomb friction is isotropic, so nothing should change. What did the run show at μ = 0.8?
+    tr: Küp rampa normali etrafında 45° döndürülüyor. Coulomb friction izotroptur, hiçbir şey değişmemeli. μ = 0,8'de koşu ne gösterdi?
+  options:
+    - en: The default pyramidal cone slipped almost 1° early (37.70°); the elliptic cone stayed close to theory (38.60°).
+      tr: Default pyramidal cone neredeyse 1° erken kaydı (37,70°); elliptic cone teoriye yakın kaldı (38,60°).
+    - en: Both cones gave the same angle; the cone only affects solver speed.
+      tr: İki cone da aynı açıyı verdi; cone yalnızca solver hızını etkiler.
+    - en: The elliptic cone slipped early and the pyramidal cone stayed exact.
+      tr: Elliptic cone erken kaydı, pyramidal cone tam teoride kaldı.
+  answer: 0
+  why:
+    en: Break it table, pyramidal −0.96° with up to 27.24 cm/s of sliding where it should hold. If friction limits matter, use `cone="elliptic"` or check with a sweep.
+    tr: Boz tablosu, pyramidal −0,96° ve durması gereken yerde 27,24 cm/s'ye kadar kayma. Friction limitleri önemliyse `cone="elliptic"` kullan ya da bir sweep'le kontrol et.

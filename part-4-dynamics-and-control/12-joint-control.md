@@ -96,6 +96,8 @@ Go deeper: [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=pha
 
 </details>
 
+<!-- figure: 12-pd-step -->
+
 ## Experiment
 
 Full script: [`experiments/12-joint-control/experiment.py`](../experiments/12-joint-control/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministic, ~2 s. Four parts, each a sweep.

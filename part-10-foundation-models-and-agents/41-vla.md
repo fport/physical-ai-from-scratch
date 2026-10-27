@@ -94,6 +94,8 @@ Go deeper: [Embodied VLAs: RT-2, OpenVLA, π0, GR00T](https://aiengineeringfroms
 
 </details>
 
+<!-- figure: 41-action-tokenization -->
+
 ### Three models side by side
 
 π0 uses 10 Euler steps (δ = 0.1) and H = 50, a 3B PaliGemma VLM plus a 300M action expert, 3.3B in total ([arXiv 2410.24164](https://arxiv.org/abs/2410.24164)). SmolVLA keeps the idea at 450M parameters (about 100M in the expert), uses only the first 16 layers of SmolVLM-2, 64 visual tokens per frame, chunks of n = 50, and interleaves cross- and self-attention in the expert ([arXiv 2506.01844](https://arxiv.org/abs/2506.01844)).

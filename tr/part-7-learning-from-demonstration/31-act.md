@@ -85,6 +85,8 @@ Daha derine (AIEFS): [The Full Transformer — Encoder + Decoder](https://aiengi
 
 </details>
 
+<!-- figure: 31-action-chunks -->
+
 ### Bir chunk'ı uygulamanın iki yolu
 
 | | open-loop chunk'lar | temporal ensembling |

@@ -91,6 +91,8 @@ burada $g$, $t_d$ büyüdükçe azalır (moving average için $t_d = \frac{n-1}{
 Daha derine (random variable, varyans, noise süreçleri): [Probability and Distributions](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/06-probability-and-distributions), [Stochastic Processes](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/22-stochastic-processes).
 </details>
 
+<!-- figure: 17-moving-average -->
+
 ### Kısaca sensor'ler
 
 | Sensor | Ne raporlar | Tipik hata |

@@ -88,6 +88,8 @@ Go deeper: AIEFS [Matrix Transformations](https://aiengineeringfromscratch.com/l
 
 </details>
 
+<!-- figure: 08-arm-plane-workspace -->
+
 ## Experiment
 
 Script: [`experiments/08-forward-kinematics/experiment.py`](../experiments/08-forward-kinematics/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, SciPy, Apple Silicon Mac (Apple M5), deterministic seeds, about 80 s of CPU time.

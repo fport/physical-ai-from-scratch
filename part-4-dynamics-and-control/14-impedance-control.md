@@ -85,6 +85,8 @@ Go deeper: [Calculus for Machine Learning](https://aiengineeringfromscratch.com/
 
 </details>
 
+<!-- figure: 14-impedance-wall -->
+
 ## Experiment
 
 Full script: [`experiments/14-impedance-control/experiment.py`](../experiments/14-impedance-control/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministic, ~3 s. Start pose: IK from `home` to TCP (50, 0, 30) cm, hand pointing down (q = 0.0, −0.11, −0.0, −2.273, −0.0, 2.163, −0.785).

@@ -1,0 +1,78 @@
+---
+// Starlight's MarkdownContent plus two kinds of interactive blocks that scripts/sync.mjs writes into
+// lesson pages: figures (<div class="fa-fig" data-fig="NN-name">, module in src/figures/) and
+// quizzes (<div class="fa-quiz">, built from quizzes/NN-slug.yaml).
+import Default from '@astrojs/starlight/components/MarkdownContent.astro'
+---
+
+<Default><slot /></Default>
+
+<script>
+	const figures = import.meta.glob<{ default: (root: HTMLElement, lang: 'en' | 'tr') => void }>('../figures/[0-9]*.ts')
+	const lang = document.documentElement.lang.startsWith('tr') ? 'tr' : 'en'
+
+	const io = new IntersectionObserver((entries) => {
+		for (const e of entries) {
+			if (!e.isIntersecting) continue
+			io.unobserve(e.target)
+			const root = e.target as HTMLElement
+			const load = figures[`../figures/${root.dataset.fig}.ts`]
+			if (!load) { root.textContent = `missing figure: ${root.dataset.fig}`; continue }
+			load().then((m) => m.default(root, lang))
+		}
+	}, { rootMargin: '400px 0px' })
+	document.querySelectorAll<HTMLElement>('.fa-fig[data-fig]').forEach((el) => io.observe(el))
+
+	const T = lang === 'tr'
+		? { right: 'Doğru.', wrong: 'Değil.', score: (k: number, n: number) => `${n} sorudan ${k} doğru.`, again: 'Yeniden dene', best: 'en iyi' }
+		: { right: 'Correct.', wrong: 'Not quite.', score: (k: number, n: number) => `${k} of ${n} correct.`, again: 'Try again', best: 'best' }
+
+	document.querySelectorAll<HTMLElement>('.fa-quiz').forEach((quiz) => {
+		const qs = [...quiz.querySelectorAll<HTMLElement>('.fa-q')]
+		const scoreEl = quiz.querySelector<HTMLElement>('.fa-quiz-score')!
+		const key = `fa-quiz:${quiz.dataset.lesson}`
+		let best = 0
+		try { best = Number(localStorage.getItem(key)) || 0 } catch {}
+		const done = () => {
+			const answered = qs.filter((q) => q.dataset.state)
+			if (answered.length < qs.length) return
+			const k = qs.filter((q) => q.dataset.state === 'right').length
+			best = Math.max(best, k)
+			try { localStorage.setItem(key, String(best)) } catch {}
+			scoreEl.replaceChildren(document.createTextNode(`${T.score(k, qs.length)} (${T.best}: ${best}/${qs.length}) `))
+			const again = document.createElement('button')
+			again.type = 'button'; again.textContent = T.again
+			again.addEventListener('click', reset)
+			scoreEl.append(again)
+		}
+		const reset = () => {
+			scoreEl.textContent = ''
+			qs.forEach((q) => {
+				delete q.dataset.state
+				q.querySelectorAll('li').forEach((li) => li.removeAttribute('data-pick'))
+				q.querySelector<HTMLElement>('.fa-q-verdict')?.remove()
+			})
+		}
+		qs.forEach((q) => {
+			const answer = Number(q.dataset.answer)
+			const items = [...q.querySelectorAll<HTMLLIElement>(':scope > ul > li')]
+			items.forEach((li, i) => {
+				li.tabIndex = 0
+				li.setAttribute('role', 'button')
+				const pick = () => {
+					if (q.dataset.state) return
+					const ok = i === answer
+					q.dataset.state = ok ? 'right' : 'wrong'
+					li.dataset.pick = ok ? 'right' : 'wrong'
+					items[answer].dataset.pick = 'right'
+					const v = document.createElement('p')
+					v.className = 'fa-q-verdict'; v.textContent = ok ? T.right : T.wrong
+					q.querySelector('.fa-q-why')?.before(v)
+					done()
+				}
+				li.addEventListener('click', pick)
+				li.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick() } })
+			})
+		})
+	})
+</script>

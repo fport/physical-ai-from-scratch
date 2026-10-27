@@ -93,6 +93,8 @@ Go deeper: [Image Fundamentals — Pixels, Channels, Color Spaces](https://aieng
 
 </details>
 
+<!-- figure: 19-pinhole -->
+
 ## Experiment
 
 **Setup.** A 9×6 inner-corner checkerboard with 25 mm squares, built from box geoms (exact geometry, no texture mapping), moved as a mocap body (a body you place directly, without physics) to random poses (±35° tilt about x and y, ±20° about z) 0.5–0.65 m in front of a 640×480 camera with `fovy = 50`. Ground truth: $f_x = f_y = 514.68$ px, $c_x = 319.5$, $c_y = 239.5$. Corners from `findChessboardCorners` + `cornerSubPix`. 60 training views, 15 **held-out** views (not used for fitting, like a test set). Held-out error = estimate each held-out board pose with `solvePnP` under the estimated $K$ and distortion, then reproject.

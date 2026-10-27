@@ -98,6 +98,8 @@ An *integrator* is the rule that turns accelerations into the next velocity and 
 
 Source: [Computation · Integrators](https://mujoco.readthedocs.io/en/stable/computation/index.html#geintegrators), [option/integrator](https://mujoco.readthedocs.io/en/stable/XMLreference.html#option-integrator). Whether the choice matters for the falling cube is measured below.
 
+<!-- figure: 02-timestep-tunnel -->
+
 ## Experiment
 
 Scene: floor, a 24 × 24 × 1 cm tabletop with its top at 30 cm (mid-plane 29.5 cm), and a 5 cm, 100 g cube whose bottom face starts 97.5 cm above the tabletop.

@@ -117,6 +117,8 @@ Daha derine: [Probability and Distributions](https://aiengineeringfromscratch.co
 
 </details>
 
+<!-- figure: 18-kalman -->
+
 ## Deney
 
 **Kurulum.** Ders 17 ile aynı sinyal: MuJoCo'da SO-101 `shoulder_pan`, 2 ms timestep, aynı trajectory, 12-bit encoder modeli artı 10 mrad beyaz noise, aynı seed; noise dizisi birebir aynı. $R = 1{,}002\times10^{-4}$ rad² (σ 10,01 mrad). $q_c$'yi altı dekad boyunca sweep ediyor; konum ve hız RMS hatasını, delay'i ve **2σ coverage**'ı ölçüyoruz: gerçek konumun $\pm2\sqrt{P_{00}}$ içinde kaldığı örneklerin oranı. Hatası iddia ettiği $P$ ile uyumlu Gauss bir filtre için coverage yaklaşık %95'tir.

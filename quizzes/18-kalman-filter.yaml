@@ -1,0 +1,44 @@
+# Lesson 18 · The Kalman filter. Every answer is supported by the lesson page or
+# experiments/18-kalman-filter/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: The moving average of lesson 17 lags 4 ms at its best; the tuned Kalman filter shows 0.0 ms of delay. Where does the difference come from?
+    tr: Ders 17'deki moving average en iyi hâlinde 4 ms geride kalıyor; ayarlı Kalman filter 0,0 ms delay gösteriyor. Fark nereden geliyor?
+  options:
+    - en: The Kalman filter peeks one sample ahead, like `np.gradient`.
+      tr: Kalman filter, `np.gradient` gibi bir örnek ileriye bakıyor.
+    - en: The predict step moves the estimate forward with the estimated velocity before comparing it with the new reading.
+      tr: Predict adımı, tahmini yeni okumayla karşılaştırmadan önce tahmin edilen hızla ileri taşıyor.
+    - en: It averages fewer samples than the moving average.
+      tr: Moving average'dan daha az örneği ortalıyor.
+  answer: 1
+  why:
+    en: The filter is strictly causal; a smooth motion is not "averaged into the past". At $q_c = 1$ it reaches 3.15 mrad against MA N=5's 5.17 mrad.
+    tr: Filtre tamamen causal; yumuşak bir hareket "geçmişe doğru ortalanmaz". $q_c = 1$'de MA N=5'in 5,17 mrad'ına karşı 3,15 mrad'a iniyor.
+- q:
+    en: You tell the filter that the encoder noise $R$ is 100 times smaller than it really is ($q_c = 1$). What goes wrong?
+    tr: Filtreye encoder noise'u $R$'nin gerçekte olduğundan 100 kat küçük olduğunu söylüyorsun ($q_c = 1$). Ne bozulur?
+  options:
+    - en: The filter diverges and the estimate grows without bound.
+      tr: Filtre ıraksar ve tahmin sınırsız büyür.
+    - en: Nothing, because only the ratio $q_c/R$ matters.
+      tr: Hiçbir şey, çünkü yalnızca $q_c/R$ oranı önemli.
+    - en: The estimate behaves like $q_c = 100$, and the filter becomes overconfident - only 17.5% of samples fall inside its 2σ band.
+      tr: Tahmin $q_c = 100$ gibi davranır ve filtre aşırı emin olur - örneklerin yalnızca %17,5'i 2σ bandına düşer.
+  answer: 2
+  why:
+    en: Break it - $R \times 0.01$ gives the same 5.22 mrad / 0.482 rad/s as $q_c = 100$ with the true $R$, but coverage drops from 97.8% to 17.5%. RMS can look fine while $P$ is wrong.
+    tr: Boz - $R \times 0{,}01$, gerçek $R$ ile $q_c = 100$'ün verdiği 5,22 mrad / 0,482 rad/s'yi veriyor, ama coverage %97,8'den %17,5'e düşüyor. RMS iyi görünürken $P$ yanlış olabilir.
+- q:
+    en: A 0.3 rad step command makes the tuned filter lag by up to 44.1 mrad. What is the fix the lesson recommends?
+    tr: 0,3 rad'lık bir basamak komutu ayarlı filtreyi 44,1 mrad'a kadar geride bırakıyor. Dersin önerdiği çözüm ne?
+  options:
+    - en: Put the known command into the model as a control input $Bu$.
+      tr: Bilinen komutu modele control input $Bu$ olarak koymak.
+    - en: Raise $q_c$ to $10^4$ so the filter follows any motion.
+      tr: Filtre her hareketi izlesin diye $q_c$'yi $10^4$'e çıkarmak.
+    - en: Increase $R$ so the filter ignores the surprising readings.
+      tr: Filtre şaşırtıcı okumaları yok saysın diye $R$'yi artırmak.
+  answer: 0
+  why:
+    en: The constant-velocity model cannot represent a known command. At $q_c = 10^4$ the filter follows noise and the velocity error explodes to 7.74 rad/s.
+    tr: Constant-velocity modeli bilinen bir komutu temsil edemez. $q_c = 10^4$'te filtre noise'u izliyor ve hız hatası 7,74 rad/s'ye patlıyor.

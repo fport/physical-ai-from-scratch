@@ -1,0 +1,44 @@
+# Lesson 09 · Jacobians and differential kinematics. Every answer is supported by the lesson page or
+# experiments/09-jacobians/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: You compute the position Jacobian by finite differences. Is a smaller step ε always more accurate?
+    tr: Konum Jacobian'ını finite difference ile hesaplıyorsun. Daha küçük ε adımı her zaman daha mı doğru?
+  options:
+    - en: Yes; the truncation error falls with ε, so the smallest step a double allows is best.
+      tr: Evet; truncation hatası ε ile düşer, yani double'ın izin verdiği en küçük adım en iyisidir.
+    - en: Yes, but only for central differences.
+      tr: Evet, ama yalnızca merkezi farklar için.
+    - en: No; below the best step round-off takes over, so the error curve is V-shaped.
+      tr: Hayır; en iyi adımın altında yuvarlama hatası baskın çıkar, yani hata eğrisi V biçimindedir.
+  answer: 2
+  why:
+    en: Step 2 table, the best forward step is 1e-8 (error 9.8e-09) and the best central step 1e-5 (error 5.6e-12); at 1e-14 the central error is 4.5e-03.
+    tr: Adım 2 tablosu, en iyi ileri adım 1e-8 (hata 9,8e-09), en iyi merkezi adım 1e-5 (hata 5,6e-12); 1e-14'te merkezi hata 4,5e-03.
+- q:
+    en: The model's servos hold 9.61 N of extra tip load in the mid pose but only 4.95 N in the stretched pose. Why?
+    tr: Modelin servo'ları orta pozda 9,61 N ek uç yükü tutarken gergin pozda yalnızca 4,95 N tutuyor. Neden?
+  options:
+    - en: The servo force limit is lower when the arm is stretched.
+      tr: Kol gerginken servo kuvvet limiti daha düşüktür.
+    - en: The lever from the lift axis to the tip grows from 0.220 to 0.411 m, and $\tau = J^\top F$ scales with that lever.
+      tr: Lift ekseninden uca kaldıraç 0,220'den 0,411 m'ye çıkıyor ve $\tau = J^\top F$ bu kaldıraçla ölçekleniyor.
+    - en: The Jacobian is singular in the stretched pose, so no torque reaches the tip.
+      tr: Gergin pozda Jacobian singular olduğu için uca hiç tork ulaşmaz.
+  answer: 1
+  why:
+    en: Break it, every joint has the same 2.94 N m limit; in the stretched pose gravity alone already takes −0.909 N m at the lift and shoulder_lift saturates first.
+    tr: Boz bölümünde her joint'in limiti aynı, 2,94 N m; gergin pozda yalnız yerçekimi lift'te −0,909 N m alıyor ve ilk doyan shoulder_lift oluyor.
+- q:
+    en: Why do the finite-difference rotation columns $J_r$ show no truncation error at all?
+    tr: Finite difference ile bulunan rotation sütunları $J_r$ neden hiç truncation hatası göstermiyor?
+  options:
+    - en: Moving one hinge by ε rotates the tool by exactly ε about that hinge's axis, so the difference quotient is exact.
+      tr: Bir hinge'i ε kadar oynatmak aleti tam olarak o hinge'in ekseni etrafında ε kadar döndürür, yani fark oranı kesindir.
+    - en: Orientation differences are computed in single precision, which hides the error.
+      tr: Orientation farkları single precision'da hesaplanır ve bu hatayı gizler.
+    - en: Rotation columns are always zero for a hinge.
+      tr: Bir hinge için rotation sütunları hep sıfırdır.
+  answer: 0
+  why:
+    en: Only round-off remains; in Step 2 the forward $J_r$ error is 4.8e-15 at ε = 0.1 and grows as ε shrinks.
+    tr: Geriye yalnızca yuvarlama kalır; Adım 2'de ileri $J_r$ hatası ε = 0,1'de 4,8e-15 ve ε küçüldükçe büyüyor.

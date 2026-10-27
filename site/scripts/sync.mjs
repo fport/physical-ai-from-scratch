@@ -7,9 +7,12 @@
 // - "> **Status: …**" / "> **Durum: …**" blocks become Starlight asides.
 // - The sidebar comes from SUMMARY.md (labels translated from tr/SUMMARY.md); lesson badges from
 //   the Status row of each page's metadata table.
+// - "<!-- figure: NN-name -->" lines become interactive figure slots (module src/figures/NN-name.ts).
+// - quizzes/NN-slug.yaml becomes a clickable quiz at the top of "Check yourself" / "Kendini dene".
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import YAML from 'yaml'
 
 const SITE = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const ROOT = path.dirname(SITE)
@@ -21,14 +24,14 @@ const BASE = (process.env.SITE_BASE || '/').replace(/\/?$/, '/')
 
 const LANGS = {
   en: {
-    dir: '', statusRow: 'Status',
+    dir: '', statusRow: 'Status', check: 'Check yourself', quiz: (n) => `Quick check · ${n} questions. Click an answer.`, why: 'Why:',
     aside: { 'coming soon': ['caution', 'Coming soon'], draft: ['note', 'Draft'], done: ['tip', 'Done'] },
     status: { done: 'tam', draft: 'taslak', 'coming soon': 'yakinda' },
     tagline: 'Start with a laptop, end with a robot arm doing a task on its own. 44 lessons, every number from a real run.',
     start: 'Start the first lesson', setup: 'Setup', lessons: 'Lessons', map: 'Map', links: '**[Setup]',
   },
   tr: {
-    dir: 'tr/', statusRow: 'Durum',
+    dir: 'tr/', statusRow: 'Durum', check: 'Kendini dene', quiz: (n) => `Hızlı kontrol · ${n} soru. Bir cevaba tıkla.`, why: 'Neden:',
     aside: { yakında: ['caution', 'Yakında'], taslak: ['note', 'Taslak'], tam: ['tip', 'Tam'] },
     status: { tam: 'tam', taslak: 'taslak', yakında: 'yakinda' },
     tagline: 'Bir dizüstüyle başla, bir robot kola kendi başına iş yaptır. 44 ders, her sayı gerçek bir koşudan.',
@@ -77,6 +80,48 @@ function statusAsides(body, L) {
   return out.join('\n')
 }
 
+// interactive figure slots: a marker line in the markdown → an empty div the page script fills
+function figures(body, lang) {
+  return body.replace(/^<!-- figure: ([0-9][\w-]*) -->$/gm, (m, name) => {
+    if (!fs.existsSync(path.join(SITE, 'src/figures', `${name}.ts`))) throw new Error(`figure module missing: ${name}`)
+    return `<div class="fa-fig not-content" data-fig="${name}" data-lang="${lang}"></div>`
+  })
+}
+
+// quizzes/NN-slug.yaml → markdown inside HTML wrappers, so math and inline code still render
+function quiz(body, srcPath, L, lang) {
+  const name = path.posix.basename(srcPath, '.md')
+  const file = path.join(ROOT, 'quizzes', `${name}.yaml`)
+  if (!fs.existsSync(file)) return body
+  const qs = YAML.parse(fs.readFileSync(file, 'utf8'))
+  const block = [
+    `<div class="fa-quiz" data-lesson="${name}-${lang}">`,
+    `<p class="fa-quiz-tag">${L.quiz(qs.length)}</p>`,
+    '',
+    ...qs.flatMap((q, i) => [
+      `<div class="fa-q" data-answer="${q.answer}">`,
+      '',
+      `**${i + 1}.** ${q.q[lang].trim()}`,
+      '',
+      ...q.options.map((o) => `- ${o[lang].trim()}`),
+      '',
+      '<div class="fa-q-why">',
+      '',
+      `**${L.why}** ${q.why[lang].trim()}`,
+      '',
+      '</div>',
+      '</div>',
+      '',
+    ]),
+    '<p class="fa-quiz-score"></p>',
+    '</div>',
+    '',
+  ].join('\n')
+  const heading = new RegExp(`^## ${escapeRe(L.check)}\\n+`, 'm')
+  if (!heading.test(body)) throw new Error(`${srcPath}: no "## ${L.check}" heading for the quiz`)
+  return body.replace(heading, (h) => h + block + '\n')
+}
+
 function splitTitle(src) {
   const m = src.match(/^# (.+)\n+/)
   if (!m) throw new Error('missing title')
@@ -104,7 +149,8 @@ function convert(srcPath, L, extra = {}) {
   if (d && !fm.description) fm.description = d
   fm.editUrl = `${REPO}/edit/main/${srcPath}`
   const front = ['---', ...Object.entries(fm).map(([k, v]) => `${k}: ${typeof v === 'string' ? yaml(v) : JSON.stringify(v)}`), '---', '']
-  return { front: front.join('\n'), body: statusAsides(rewriteLinks(body, srcPath), L) }
+  const lang = L.dir ? 'tr' : 'en'
+  return { front: front.join('\n'), body: quiz(figures(statusAsides(rewriteLinks(body, srcPath), L), lang), srcPath, L, lang) }
 }
 
 function parseSummary(file) {

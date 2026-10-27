@@ -1,0 +1,44 @@
+# Lesson 15 · Safety. Every answer is supported by the lesson page or
+# experiments/15-safety/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: A tight relative-target limit (δ = 0.005 rad/tick) cuts the impact on the post to 17.17 N. Why does the arm still push on it with 13.54 N afterwards?
+    tr: Sıkı bir relative-target limit (δ = 0,005 rad/tick) direğe çarpmayı 17,17 N'ye indiriyor. Kol neden sonrasında yine de 13,54 N ile itmeye devam ediyor?
+  options:
+    - en: Once the arm stalls, the goal stays δ ahead and $k_p\delta$ (about 5 N·m) is above the 2.94 N·m cap, so the servo pushes at its cap.
+      tr: Kol durunca hedef δ kadar önde kalıyor ve $k_p\delta$ (yaklaşık 5 N·m) 2,94 N·m'lik cap'in üstünde; servo cap'inde itiyor.
+    - en: The rate limit only applies while the arm is moving freely.
+      tr: Rate limit yalnızca kol serbestçe hareket ederken geçerli.
+    - en: Gravity pulls the arm into the post.
+      tr: Yerçekimi kolu direğe doğru çekiyor.
+  answer: 0
+  why:
+    en: Part C - the steady push stays near 14 N for every δ (998.22 × 0.005 ≈ 5 N·m ≥ 2.94 N·m). A rate limit bounds the speed at impact, not the push.
+    tr: C bölümü - kalıcı itme her δ için 14 N civarında kalıyor (998,22 × 0,005 ≈ 5 N·m ≥ 2,94 N·m). Rate limit itmeyi değil, çarpma anındaki hızı sınırlar.
+- q:
+    en: Which single safeguard lowered both the impact peak and the steady push on the post in part A?
+    tr: A bölümünde direkteki hem çarpma tepesini hem de kalıcı itmeyi hangi tek safeguard düşürdü?
+  options:
+    - en: The relative-target limit of 0.02 rad/tick.
+      tr: 0,02 rad/tick'lik relative-target limit.
+    - en: The torque cap of 0.5 N·m.
+      tr: 0,5 N·m'lik torque cap.
+    - en: Neither; only the hardware E-stop changes contact forces.
+      tr: Hiçbiri; contact kuvvetlerini yalnızca donanım E-stop'u değiştirir.
+  answer: 1
+  why:
+    en: Torque cap 0.5 N·m - 21.34 N peak, 2.12 N push (none - 125.98 / 14.33 N). The rate limit gives 45.82 N peak but 14.48 N push. Only the position limit avoided contact, because we knew where the post was.
+    tr: 0,5 N·m torque cap - 21,34 N tepe, 2,12 N itme (hiçbiri - 125,98 / 14,33 N). Rate limit 45,82 N tepe ama 14,48 N itme veriyor. Contact'ı yalnızca position limit engelledi, çünkü direğin yerini biliyorduk.
+- q:
+    en: A watchdog with a 0.5 s timeout guards a 1 rad/s jog, but the arm still hits the post. Why?
+    tr: 0,5 s timeout'lu bir watchdog 1 rad/s'lik bir jog'u koruyor ama kol yine de direğe çarpıyor. Neden?
+  options:
+    - en: The watchdog turns the torque off, so the arm falls into the post.
+      tr: Watchdog torku kesiyor, kol da direğe düşüyor.
+    - en: Watchdogs only work with position commands.
+      tr: Watchdog'lar yalnızca position komutlarıyla çalışır.
+    - en: The arm reaches the post 0.350 s after the last message, before the timeout fires.
+      tr: Kol son mesajdan 0,350 s sonra direğe ulaşıyor, timeout tetiklenmeden önce.
+  answer: 2
+  why:
+    en: Part D - a watchdog helps only if it fires before the arm can reach anything; 0.2 s and shorter avoided the post (0.00 N), 0.5 s and 1 s gave 24.48 N.
+    tr: D bölümü - watchdog ancak kol bir şeye ulaşmadan tetiklenirse işe yarar; 0,2 s ve daha kısası direkten kaçındı (0,00 N), 0,5 s ve 1 s 24,48 N verdi.

@@ -1,0 +1,44 @@
+# Lesson 23 · Trajectory optimization. Every answer is supported by the lesson page or
+# experiments/23-trajectory-optimization/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: At N = 10, collocation converges with a residual of 5.9e-12, yet its torque replayed in MuJoCo ends 23.82° short of upright. Why?
+    tr: N = 10'da collocation 5,9e-12 residual ile yakınsıyor, ama torque'u MuJoCo'da replay edilince dikin 23,82° gerisinde kalıyor. Neden?
+  options:
+  - en: SLSQP stopped too early; more iterations would remove the error.
+    tr: SLSQP fazla erken durdu; daha çok iterasyon hatayı kaldırırdı.
+  - en: The MuJoCo replay uses different pendulum parameters from the optimizer.
+    tr: MuJoCo replay'i optimizer'dan farklı sarkaç parametreleri kullanıyor.
+  - en: The solver met the trapezoidal equations exactly, but the trapezoid rule only approximates the dynamics between knots.
+    tr: Solver trapez denklemlerini tam sağladı, ama trapez kuralı knot'lar arasındaki dinamiğe yalnızca yaklaşır.
+  answer: 2
+  why:
+    en: 'Experiment table, point 1: the replay error falls as knots are added (23.82 → 6.73 → 2.27 → 0.61°); shooting replays with 0.00° because its constraint is the RK4 rollout itself.'
+    tr: 'Deney tablosu, 1. madde: knot eklendikçe replay hatası düşüyor (23,82 → 6,73 → 2,27 → 0,61°); shooting 0,00° ile replay ediyor, çünkü kısıtı RK4 rollout''unun kendisi.'
+- q:
+    en: Which reading of the experiment table is right?
+    tr: Deney tablosunun hangi okuması doğru?
+  options:
+  - en: Collocation needs fewer iterations (22–91 vs 123–158), while converged shooting plans replay exactly.
+    tr: Collocation daha az iterasyon istiyor (22–91'e karşı 123–158); yakınsamış shooting planları ise tam replay ediyor.
+  - en: Shooting is both cheaper to solve and more accurate.
+    tr: Shooting hem daha ucuz çözülüyor hem daha doğru.
+  - en: At N = 80 the two methods reach very different costs.
+    tr: N = 80'de iki yöntem çok farklı maliyetlere ulaşıyor.
+  answer: 0
+  why:
+    en: 'Points 2–3: each shooting iteration also needs N + 1 extra rollouts for its finite-difference Jacobian; at N = 80 the costs meet (38.09 vs 38.11).'
+    tr: '2–3. maddeler: her shooting iterasyonu finite-difference Jacobian''ı için N + 1 ek rollout da istiyor; N = 80''de maliyetler buluşuyor (38,09''a karşı 38,11).'
+- q:
+    en: In Break it the straight-line guess θ 0 → π converges cleanly, but at cost 50.63 instead of 38.41. What happened?
+    tr: Boz bölümünde düz çizgi tahmini θ 0 → π temiz yakınsıyor, ama maliyet 38,41 yerine 50,63. Ne oldu?
+  options:
+  - en: It found an infeasible plan that only looks converged.
+    tr: Yalnızca yakınsamış görünen, uygulanamaz bir plan buldu.
+  - en: It converged to a different local minimum, one big back-swing instead of a three-reversal pump; the success flag cannot tell which minimum you got.
+    tr: 'Farklı bir local minimum''a yakınsadı: üç dönüşlü pompalama yerine tek büyük geri salınım; başarı bayrağı hangi minimum''u bulduğunu söyleyemez.'
+  - en: The straight line is a bad guess, so SLSQP should have reported a failure.
+    tr: Düz çizgi kötü bir tahmin, SLSQP başarısızlık raporlamalıydı.
+  answer: 1
+  why:
+    en: 'Break it table: the defects contain $\sin\theta$, so the feasible set is not convex; of 8 noisy guesses 5 land at 50.63, 2 at 38.41, and 1 does not converge.'
+    tr: 'Boz tablosu: defect''ler $\sin\theta$ içeriyor, yani uygulanabilir küme convex değil; 8 gürültülü tahminin 5''i 50,63''e, 2''si 38,41''e düşüyor, 1''i yakınsamıyor.'

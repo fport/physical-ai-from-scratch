@@ -1,0 +1,44 @@
+# Lesson 05 · Joints and actuators. Every answer is supported by the lesson page or
+# experiments/05-joints-and-actuators/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: A `<position>` servo holds a link against gravity. You raise kp from 10 to 100. What happens to the sag and the rise time?
+    tr: Bir `<position>` servo bir link'i yerçekimine karşı tutuyor. kp'yi 10'dan 100'e çıkarıyorsun. Sarkmaya ve yükselme süresine ne olur?
+  options:
+    - en: The sag drops to zero; the rise time stays the same.
+      tr: Sarkma sıfıra iner; yükselme süresi aynı kalır.
+    - en: Both fall ten times.
+      tr: İkisi de on kat düşer.
+    - en: The sag falls about ten times, the rise time only by about $\sqrt{10}$.
+      tr: Sarkma yaklaşık on kat, yükselme süresi ise yalnızca yaklaşık $\sqrt{10}$ kat düşer.
+  answer: 2
+  why:
+    en: Sag $\approx \tau_g/k_p$ and rise time $\propto 1/\sqrt{k_p}$. In the kp sweep the sag goes 1.685° → 0.169° and the rise time 185.6 → 56.7 ms.
+    tr: Sarkma $\approx \tau_g/k_p$, yükselme süresi $\propto 1/\sqrt{k_p}$. kp sweep'inde sarkma 1,685° → 0,169°, yükselme süresi 185,6 → 56,7 ms.
+- q:
+    en: You copy the SO-101 servo gains (kp 998.22, kv 2.731) into a model at `dt` = 5 ms but drop the armature. What does `Euler` do?
+    tr: SO-101 servo gain'lerini (kp 998,22, kv 2,731) `dt` = 5 ms'lik bir modele kopyalıyor ama armature'ı atıyorsun. `Euler` ne yapar?
+  options:
+    - en: It diverges already at armature 0.005 ($h\omega$ = 1.67), because it integrates the actuator's `kv` explicitly.
+      tr: Daha armature 0,005'te ($h\omega$ = 1,67) ıraksar, çünkü actuator'ün `kv` terimini explicit integre eder.
+    - en: Nothing changes, because armature only models the rotor for display.
+      tr: Hiçbir şey değişmez, çünkü armature rotor'u yalnızca görüntü için modeller.
+    - en: It stays stable down to $h\omega$ = 2, exactly as the undamped limit says.
+      tr: Damping'siz limitin dediği gibi tam $h\omega$ = 2'ye kadar stabil kalır.
+  answer: 0
+  why:
+    en: Break it A, Euler diverges from 0.005 on while `implicitfast` and `discrete` stay stable; with explicit damping the bound becomes $h^2\omega^2 < 4 - 2hc$, below 2.
+    tr: Boz A, Euler 0,005'ten itibaren ıraksıyor, `implicitfast` ve `discrete` stabil kalıyor; damping explicit integre edilince sınır $h^2\omega^2 < 4 - 2hc$ olur, yani 2'nin altına iner.
+- q:
+    en: Why does the armature matter most for the SO-101's wrist roll and gripper joints?
+    tr: Armature neden en çok SO-101'in wrist roll ve gripper joint'leri için önemli?
+  options:
+    - en: Those joints carry the largest gravity torque.
+      tr: O joint'ler en büyük yerçekimi torkunu taşır.
+    - en: Their links are so light that the armature is almost their whole effective inertia; without it $h\omega$ would be 17.62 and 39.33.
+      tr: Link'leri o kadar hafif ki armature etkin inertia'larının neredeyse tamamı; o olmasa $h\omega$ 17,62 ve 39,33 olurdu.
+    - en: They have the narrowest joint ranges, and armature acts as a soft limit.
+      tr: En dar joint aralıkları onlarda ve armature yumuşak bir limit gibi davranır.
+  answer: 1
+  why:
+    en: In the On the real robot table the link part is 0.00008 and 0.00002 kg·m² against an armature of 0.028; with it every joint stays below $h\omega$ = 1.
+    tr: Gerçek robotta tablosunda link payı 0,00008 ve 0,00002 kg·m², armature ise 0,028; armature ile her joint $h\omega$ = 1'in altında kalıyor.

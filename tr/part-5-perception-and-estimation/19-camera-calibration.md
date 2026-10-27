@@ -93,6 +93,8 @@ Daha derine: [Image Fundamentals — Pixels, Channels, Color Spaces](https://aie
 
 </details>
 
+<!-- figure: 19-pinhole -->
+
 ## Deney
 
 **Kurulum.** 25 mm karelerden oluşan, 9×6 iç köşeli bir checkerboard; box geom'lardan kurulu (tam geometri, texture mapping yok), mocap body (fizik olmadan doğrudan yerleştirilen bir body) olarak rastgele pozlara taşınıyor (x ve y etrafında ±35° tilt, z etrafında ±20°), `fovy = 50` olan 640×480 bir kameranın 0,5–0,65 m önünde. Ground truth: $f_x = f_y = 514{,}68$ px, $c_x = 319{,}5$, $c_y = 239{,}5$. Köşeler `findChessboardCorners` + `cornerSubPix` ile. 60 eğitim görüntüsü, 15 ayrılmış (**held-out**, uydurmada kullanılmayan, bir test kümesi gibi) görüntü. Held-out hata = her held-out board pozunu tahmin edilen $K$ ve distortion ile `solvePnP`'yle bulup yeniden projekte etmek.

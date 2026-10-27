@@ -89,6 +89,8 @@ Go deeper: [World Models & Video Diffusion](https://aiengineeringfromscratch.com
 
 </details>
 
+<!-- figure: 43-rollout-error -->
+
 ### This lesson's system
 
 | term | here |

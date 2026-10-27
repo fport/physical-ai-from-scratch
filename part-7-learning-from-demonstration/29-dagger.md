@@ -81,6 +81,8 @@ Go deeper: [Bias-Variance Tradeoff](https://aiengineeringfromscratch.com/lesson?
 
 </details>
 
+<!-- figure: 29-dagger-drift -->
+
 ### The expert as labeler
 
 DAgger needs $\pi^*(s)$ at states the expert never visited. Our expert is the time-indexed state machine of lesson 16, so the label for a learner state at policy step $k$ is the action the scripted pick commands at step $k$ for the cube where it is now. If the learner has pushed the cube more than 1 cm, the expert re-plans for the new position (plans are cached on a 2 mm grid of cube positions). This labeler is exact on schedule and weaker when the learner runs late or early; a human operator has the same limit in a different form.

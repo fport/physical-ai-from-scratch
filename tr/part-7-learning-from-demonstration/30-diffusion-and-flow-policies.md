@@ -86,6 +86,8 @@ Daha derine (AIEFS): [Diffusion Models — DDPM from Scratch](https://aiengineer
 
 </details>
 
+<!-- figure: 30-mean-vs-flow -->
+
 ### Bir action üretmenin dört yolu
 
 | | neyi tahmin etmeye eğitilir | örnekleme | action başına maliyet |

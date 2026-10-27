@@ -1,0 +1,44 @@
+# Lesson 30 · Multimodal actions: diffusion and flow policies. Every answer is supported by the lesson page or
+# experiments/30-diffusion-and-flow-policies/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: 100 demonstrations pass left of the obstacle and 100 pass right. Why does the MSE policy collide in 200 of 200 trials?
+    tr: 100 gösterim engelin solundan, 100'ü sağından geçiyor. MSE policy neden 200 denemenin 200'ünde çarpıyor?
+  options:
+  - en: MSE learns the conditional mean; the average path passes at $x = +0.030$, inside the obstacle radius of 0.30.
+    tr: MSE koşullu ortalamayı öğrenir; ortalama yol $x = +0{,}030$'dan, 0,30'luk engel yarıçapının içinden geçer.
+  - en: The network is too small to fit 200 demonstrations.
+    tr: Network 200 gösterimi fit edemeyecek kadar küçük.
+  - en: MSE always picks the left mode, and the obstacle sits slightly to the left.
+    tr: MSE her zaman sol mode'u seçer, engel de biraz solda duruyor.
+  answer: 0
+  why:
+    en: 'Part A: the demonstrations pass at −0.55 and +0.55. More data makes it worse: 8% collisions with 10 demos, 100% with 200 and 500 (part B).'
+    tr: 'A bölümü: gösterimler −0,55 ve +0,55''ten geçiyor. Daha çok veri durumu kötüleştiriyor: 10 gösterimle %8, 200 ve 500 ile %100 çarpma (B bölümü).'
+- q:
+    en: The flow policy collides 200/200 with 1 Euler step and 3/200 with 32. Why does one step behave like regression?
+    tr: Flow policy 1 Euler adımıyla 200/200, 32 adımla 3/200 çarpıyor. Tek adım neden regression gibi davranır?
+  options:
+  - en: One step removes the noise, so every sample is the same.
+    tr: Tek adım gürültüyü kaldırır, böylece her örnek aynı olur.
+  - en: At $t = 0$ the input $a_0$ says nothing about the demonstration, so the best velocity is $\mathbb{E}[a_1 \mid o] - a_0$ and one step lands on $\mathbb{E}[a_1 \mid o]$.
+    tr: $t = 0$'da $a_0$ girdisi gösterim hakkında hiçbir şey söylemez; en iyi hız $\mathbb{E}[a_1 \mid o] - a_0$'dır ve tek adım $\mathbb{E}[a_1 \mid o]$'ya iner.
+  - en: The network was trained only for 32-step sampling.
+    tr: Network yalnızca 32 adımlık örnekleme için eğitildi.
+  answer: 1
+  why:
+    en: 'Math details, "One step is regression"; part C: 200/200 at 1 step, 95/200 at 2, 7/200 at 8 and 3/200 at 32, with cost growing linearly in the steps.'
+    tr: 'Matematik ayrıntısı, "Tek adım regression''dır"; C bölümü: 1 adımda 200/200, 2''de 95/200, 8''de 7/200, 32''de 3/200; maliyet adım sayısıyla doğrusal büyüyor.'
+- q:
+    en: Now 80% of the demonstrations pass left. What happens to the MSE policy?
+    tr: Şimdi gösterimlerin %80'i soldan geçiyor. MSE policy'ye ne olur?
+  options:
+  - en: It never collides, because the average now lies on the left.
+    tr: Hiç çarpmaz, çünkü ortalama artık solda.
+  - en: It still collides every time, as at 50/50.
+    tr: 50/50'deki gibi yine her seferinde çarpar.
+  - en: 'It collides in 36.5% of trials: the mean passes at about −0.33, just outside the radius 0.30, and jitter pushes many trials inside.'
+    tr: 'Denemelerin %36,5''inde çarpar: ortalama yaklaşık −0,33''ten, 0,30''luk yarıçapın hemen dışından geçer ve oynama birçok denemeyi içeri iter.'
+  answer: 2
+  why:
+    en: 'Break it table (50%: 100%, 80%: 36.5%, 90%: 0%); the mean offset $0.55\,\lvert 2p_{\text{left}} - 1\rvert$ must clear the radius plus a margin.'
+    tr: 'Boz tablosu (%50: %100, %80: %36,5, %90: %0); ortalama ofset $0{,}55\,\lvert 2p_{\text{left}} - 1\rvert$ yarıçapı bir pay ile aşmalı.'

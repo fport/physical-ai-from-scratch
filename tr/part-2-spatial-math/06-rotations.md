@@ -108,6 +108,8 @@ Daha derine: AIEFS [Linear Algebra Intuition](https://aiengineeringfromscratch.c
 
 MuJoCo quaternion'ı skaler önde yazar: modelleme rehberi axis-angle rotation'ının quaternion'ını kosinüs terimi önde yazar ve sıfır rotation `1 0 0 0`'dır ([MuJoCo modeling: frame orientations](https://mujoco.readthedocs.io/en/stable/modeling.html)). Gösterimler arasında `mju_euler2Quat` (dizi string'i; küçük harf = intrinsic, büyük harf = extrinsic), `mju_axisAngle2Quat`, `mju_quat2Mat`, `mju_mat2Quat`, `mju_mulQuat`, `mju_subQuat` ile dönüşüm yapar ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)). Baştaki bilmecenin cevabı da bu: orientation 4 quaternion sayısı olarak saklanır, ama açısal hız sıradan bir 3-vektördür; bu yüzden `nq` ile `nv` farklıdır.
 
+<!-- figure: 06-gimbal-lock -->
+
 ## Deney
 
 Script: [`experiments/06-rotations/experiment.py`](../../experiments/06-rotations/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), sabit seed'ler, 10 s'nin altında.

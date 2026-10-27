@@ -103,6 +103,8 @@ Daha derine: [ders 04 · Friction](../part-1-simulation/04-friction.md); Lynch &
 
 </details>
 
+<!-- figure: 16-grasp-cone -->
+
 ## Deney
 
 Pick, Bölüm 7'nin demonstration kaydetmek için import edebileceği tek bir fonksiyon:

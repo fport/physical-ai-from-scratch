@@ -1,0 +1,44 @@
+# Lesson 39 · Domain randomization. Every answer is supported by the lesson page or
+# experiments/39-domain-randomization/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: The controller tuned on the nominal plant only has the best nominal error (0.165°) and the worst transfer (5/32). Why?
+    tr: Yalnızca nominal plant'te ayarlanan controller en iyi nominal hataya (0,165°) ve en kötü aktarıma (5/32) sahip. Neden?
+  options:
+    - en: It chose Kp = 117 with little damping, a loop that relies on the delay being 5 ms; the real plants have 15.5–28.8 ms.
+      tr: Az damping'le Kp = 117 seçti; bu, gecikmenin 5 ms olmasına güvenen bir döngü. Gerçek plant'lerde gecikme 15,5–28,8 ms.
+    - en: CEM did not converge on the nominal plant.
+      tr: CEM nominal plant'te yakınsamadı.
+    - en: The nominal plant has no friction, so the controller never learned to push.
+      tr: Nominal plant'te friction yok, bu yüzden controller hiç itmeyi öğrenmedi.
+  answer: 0
+  why:
+    en: 'Width table, row $w = 0$: Kp 117.36, Kd 0.914, real mean 3.526°. Randomized rows choose Kd between 1.916 and 4.484 for phase margin (lesson 37).'
+    tr: 'Genişlik tablosu, $w = 0$ satırı: Kp 117,36, Kd 0,914, gerçek ortalama 3,526°. Randomize satırlar phase margin için 1,916 ile 4,484 arası Kd seçiyor (ders 37).'
+- q:
+    en: At $w = 2$ the training delays reach 85 ms and the tuned controller succeeds on only 13/32 real plants. Why is it worse than a narrower range?
+    tr: $w = 2$'de training gecikmeleri 85 ms'ye çıkıyor ve ayarlanan controller gerçek plant'lerin yalnızca 13/32'sinde başarılı. Neden daha dar bir aralıktan kötü?
+  options:
+    - en: CEM samples too few plants at large widths to find any controller.
+      tr: CEM geniş aralıklarda herhangi bir controller bulmak için çok az plant örnekler.
+    - en: The average is dominated by hard plants that do not exist, so the optimizer settles on a soft controller (Kp 19.59) that tracks badly everywhere.
+      tr: Ortalamaya var olmayan zor plant'ler hâkim olur; optimizer her yerde kötü takip eden yumuşak bir controller'da (Kp 19,59) karar kılar.
+    - en: Wide randomization makes the controller unstable on the nominal plant.
+      tr: Geniş randomization controller'ı nominal plant'te kararsız yapar.
+  answer: 1
+  why:
+    en: Break it table, nominal error 2.201° (13 times the nominal-only controller). Width is set by identification and measured latency, not "as wide as possible".
+    tr: Boz tablosu, nominal hata 2,201° (yalnız nominal controller'ın 13 katı). Genişlik "olabildiğince geniş" değil, identification ve ölçülen gecikmeyle belirlenir.
+- q:
+    en: In every row the worst real plant stays above 3°. Why can no width fix that?
+    tr: Her satırda en kötü gerçek plant 3°'nin üzerinde kalıyor. Neden hiçbir genişlik bunu düzeltemiyor?
+  options:
+    - en: The real plants are measured with a biased sensor.
+      tr: Gerçek plant'ler sapmalı bir sensörle ölçülüyor.
+    - en: CEM was run with too few iterations for the wide rows.
+      tr: CEM geniş satırlar için çok az iterasyonla çalıştırıldı.
+    - en: Some real plants have friction ×2.48, outside even the $w = 1$ range (up to ×2.00), and a fixed-gain controller has limits.
+      tr: Bazı gerçek plant'lerde friction ×2,48; bu, $w = 1$ aralığının (×2,00'a kadar) bile dışında ve sabit gain'li bir controller'ın sınırları var.
+  answer: 2
+  why:
+    en: Observe 4 in the experiment. Coverage matters (Math details), but no single compromise of three gains absorbs every plant.
+    tr: Gözlem 4. Kapsama önemli (Math details), ama üç gain'in tek bir uzlaşması her plant'i karşılayamaz.

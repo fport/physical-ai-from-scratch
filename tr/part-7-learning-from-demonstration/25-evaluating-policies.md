@@ -92,6 +92,8 @@ Daha derine: [Statistics for Machine Learning](https://aiengineeringfromscratch.
 
 </details>
 
+<!-- figure: 25-wilson -->
+
 ### Aralığın kapsamadıkları
 
 **Varyansın birden fazla kaynağı var.** Binom aralığı yalnız evaluation gürültüsünü kapsar. Öğrenilmiş bir policy training seed'leri (başlangıç ağırlıklarını ve batch sırasını belirleyen rastgele sayı) ve veri alt kümeleri arasında da değişir; bir *yöntem* hakkındaki iddia, her biri aynı test konumlarında evaluate edilen birkaç training koşusu ister. Ders 28 seed başına ve birleşik sonuçları raporluyor.

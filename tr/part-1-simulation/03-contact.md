@@ -92,6 +92,8 @@ Daha derine: [Numerical Stability](https://aiengineeringfromscratch.com/lesson?p
 
 Kaynaklar: [Reference (solref)](https://mujoco.readthedocs.io/en/stable/modeling.html#csolverreference), [Impedance (solimp)](https://mujoco.readthedocs.io/en/stable/modeling.html#csolverimpedance), [geom/condim](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom-condim), [margin and gap](https://mujoco.readthedocs.io/en/stable/computation/index.html#comargingap). `condim`, bir contact'ın kullanabileceği kuvvet yönlerinin sayısıdır: 1 normal boyunca saf itme, 3 iki yönde kayma sürtünmesi ekler, 4 ve 6 burulma ve yuvarlanma direncini ekler.
 
+<!-- figure: 03-contact-spring -->
+
 ## Deney
 
 Bir düzlem üstünde 10 cm, 1 kg'lık bir küp (ve tek contact'lı kontrol olarak 5 cm yarıçaplı, 1 kg'lık bir küre), `dt` = 2 ms, iki geom'da da aynı `solref`:

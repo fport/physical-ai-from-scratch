@@ -1,0 +1,44 @@
+# Lesson 13 · Trajectory generation. Every answer is supported by the lesson page or
+# experiments/13-trajectory-generation/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: You do the same quintic move in half the time. What happens to the reference's peak acceleration and peak jerk?
+    tr: Aynı quintic hareketi yarı sürede yapıyorsun. Referansın tepe ivmesine ve tepe jerk'üne ne olur?
+  options:
+    - en: Both double, because everything happens twice as fast.
+      tr: İkisi de iki katına çıkar, çünkü her şey iki kat hızlı olur.
+    - en: Acceleration ×4, jerk ×8.
+      tr: İvme ×4, jerk ×8.
+    - en: Neither changes; the shape alone fixes them.
+      tr: İkisi de değişmez; onları yalnızca şekil belirler.
+  answer: 1
+  why:
+    en: By the chain rule $\ddot q \propto 1/T^2$ and $\dddot q \propto 1/T^3$. Part B, quintic from 1 s to 0.5 s - acceleration 3.46 → 13.86 rad/s², jerk 35.8 → 284.6 rad/s³.
+    tr: Zincir kuralıyla $\ddot q \propto 1/T^2$ ve $\dddot q \propto 1/T^3$. B bölümü, quintic 1 s'den 0,5 s'ye - ivme 3,46 → 13,86 rad/s², jerk 35,8 → 284,6 rad/s³.
+- q:
+    en: The trapezoid has the lowest reference peak acceleration (2.70 rad/s²) at T = 1 s. Why does the Panda still see far more jerk with it than with the quintic?
+    tr: T = 1 s'de en düşük referans tepe ivmesi trapezoid'de (2,70 rad/s²). Panda neden yine de onunla quintic'e göre çok daha fazla jerk görüyor?
+  options:
+    - en: Its acceleration jumps at the corners; only the quintic starts and ends with zero acceleration.
+      tr: İvmesi köşelerde sıçrıyor; sıfır ivmeyle başlayıp biten yalnızca quintic.
+    - en: Its cruise phase is too fast for the PD gains.
+      tr: Sabit hız fazı PD gain'leri için fazla hızlı.
+    - en: It saturates the joint torques, like the step.
+      tr: Step gibi joint torque'larını saturation'a sokuyor.
+  answer: 0
+  why:
+    en: Jerk follows continuity of acceleration - part A measures 1003 rad/s³ robot jerk for the trapezoid vs 35 for the quintic, with 0.0% saturated steps for both.
+    tr: Jerk ivmenin sürekliliğini izler - A bölümünde robot jerk'ü trapezoid için 1003 rad/s³, quintic için 35; ikisinde de saturation'daki adımlar %0,0.
+- q:
+    en: All smooth shapes track with about 1° of error at T = 1 s. What brought the quintic's error down to 0.01°?
+    tr: T = 1 s'de bütün yumuşak şekiller yaklaşık 1° hatayla takip ediyor. Quintic'in hatasını 0,01°'ye ne indirdi?
+  options:
+    - en: Switching from the cubic to the quintic.
+      tr: Cubic'ten quintic'e geçmek.
+    - en: Making the move twice as long.
+      tr: Hareketi iki kat uzatmak.
+    - en: Adding the model feedforward $M\ddot q_r$ and cancelling `qfrc_passive`.
+      tr: Model feedforward'ı $M\ddot q_r$'yi eklemek ve `qfrc_passive`'i iptal etmek.
+  answer: 2
+  why:
+    en: The shape decides jerk, the model decides tracking error. Part A - quintic 1.32°, quintic + feedforward 0.01°; doubling T only reaches 0.65° (part B).
+    tr: Jerk'ü şekil, takip hatasını model belirler. A bölümü - quintic 1,32°, quintic + feedforward 0,01°; T'yi iki katına çıkarmak yalnızca 0,65°'ye indiriyor (B bölümü).

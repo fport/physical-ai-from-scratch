@@ -1,0 +1,44 @@
+# Lesson 11 · Rigid-body dynamics. Every answer is supported by the lesson page or
+# experiments/11-rigid-body-dynamics/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: The Panda stands still in `home` (`qvel = 0`). What does `qfrc_bias` contain?
+    tr: Panda `home`'da hareketsiz duruyor (`qvel = 0`). `qfrc_bias` neyi içerir?
+  options:
+    - en: Nothing, it is zero because the arm does not move.
+      tr: Hiçbir şey; kol hareket etmediği için sıfırdır.
+    - en: Only the Coriolis/centrifugal forces.
+      tr: Yalnızca Coriolis/merkezcil kuvvetleri.
+    - en: The gravity torques, i.e. the torque that holds the arm still.
+      tr: Gravity torque'ları, yani kolu yerinde tutan torque.
+  answer: 2
+  why:
+    en: The Coriolis term is quadratic in $\dot q$ and vanishes at rest, so $c = g(q)$. Result 3 reads −29.36 N·m on joint 2 and 22.05 N·m on joint 4.
+    tr: Coriolis terimi $\dot q$'da ikinci derecedendir ve dururken sıfırlanır, yani $c = g(q)$. Sonuç 3'te joint 2'de −29,36 N·m, joint 4'te 22,05 N·m okunuyor.
+- q:
+    en: A frictionless double pendulum swings for 10 s at the default 2 ms step with semi-implicit `Euler`. What happens to its energy?
+    tr: Sürtünmesiz bir çift sarkaç varsayılan 2 ms adımda semi-implicit `Euler` ile 10 s salınıyor. Enerjisine ne olur?
+  options:
+    - en: It grows by about 14%, with no warning from the simulator.
+      tr: Simülatör hiçbir uyarı vermeden yaklaşık %14 artar.
+    - en: It stays constant, because semi-implicit Euler is symplectic.
+      tr: Sabit kalır, çünkü semi-implicit Euler symplectic'tir.
+    - en: It drops by about 11%, because the integrator adds numerical damping.
+      tr: Yaklaşık %11 düşer, çünkü integrator sayısal damping ekler.
+  answer: 0
+  why:
+    en: Result 2 shows +14.357% for `Euler` at 2 ms. Symplecticity needs a constant $M$ and no velocity-dependent forces, which this pendulum breaks; the −11.352% belongs to `implicit`.
+    tr: Sonuç 2'de 2 ms'de `Euler` için +%14,357 var. Symplectic olmak sabit $M$ ve hıza bağlı kuvvet olmamasını gerektirir, bu sarkaç ikisini de bozuyor; −%11,352 `implicit`'e ait.
+- q:
+    en: Why is `implicitfast` identical to `Euler` in every cell of the energy table?
+    tr: Enerji tablosunun her hücresinde `implicitfast` neden `Euler` ile aynı?
+  options:
+    - en: MuJoCo silently falls back to `Euler` when the model is small.
+      tr: Model küçük olunca MuJoCo sessizce `Euler`'e geri döner.
+    - en: The model has no joint damping; the only velocity-dependent force is Coriolis, which `implicitfast` drops and `Euler` never had.
+      tr: Modelde joint damping yok; hıza bağlı tek kuvvet Coriolis ve `implicitfast` onu düşürüyor, `Euler`'de zaten hiç yoktu.
+    - en: Both integrators evaluate the forces four times per step.
+      tr: İki integrator de kuvvetleri adım başına dört kez hesaplar.
+  answer: 1
+  why:
+    en: With nothing left to linearise, the two updates become the same. Four force evaluations per step is RK4, which stays at 0.000% up to 5 ms (Result 2).
+    tr: Doğrusallaştırılacak bir şey kalmayınca iki güncelleme aynı hale geliyor. Adım başına dört kuvvet hesabı RK4'ün işi; o da 5 ms'ye kadar %0,000'da kalıyor (Sonuç 2).

@@ -1,0 +1,44 @@
+# Lesson 08 · Forward kinematics, degrees of freedom and workspace. Every answer is supported by the
+# lesson page or experiments/08-forward-kinematics/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: The SO-101 reaches the point (0.22, 0, 0.08) m exactly, yet most random gripper orientations there fail. Why?
+    tr: SO-101 (0,22, 0, 0,08) m noktasına tam olarak ulaşıyor, ama oradaki rastgele gripper orientation'larının çoğu başarısız. Neden?
+  options:
+    - en: Its joint limits are too narrow for that point.
+      tr: Joint limitleri o nokta için fazla dar.
+    - en: The gripper servo is too weak to hold the orientation.
+      tr: Gripper servo'su orientation'ı tutmaya yetmeyecek kadar zayıf.
+    - en: Only 5 joints move the gripper; fixing the position uses 3, which leaves a 2-D family of orientations out of 3-D.
+      tr: Gripper'ı yalnızca 5 joint hareket ettiriyor; konumu sabitlemek 3'ünü kullanır, geriye 3 boyutlu orientation'lardan 2 boyutlu bir aile kalır.
+  answer: 2
+  why:
+    en: The three pitch axes are parallel, so the approach axis stays in the arm plane. Only 2 of 200 random orientations were reached within 1°, against 181 of 200 for the 7-joint Panda.
+    tr: Üç pitch ekseni paralel, yani yaklaşma ekseni kol düzleminde kalıyor. 200 rastgele orientation'ın yalnızca 2'sine 1° içinde ulaşıldı; 7 joint'li Panda'da 200'de 181.
+- q:
+    en: With uniform joint sampling, max reach settles at 0.473 m after 10,000 samples, but the 1 cm voxel volume still grows at one million. Why?
+    tr: Düzgün joint örneklemesiyle en büyük erişim 10 000 örnekten sonra 0,473 m'de oturuyor, ama 1 cm voxel hacmi bir milyonda hâlâ büyüyor. Neden?
+  options:
+    - en: Uniform in joint space is not uniform in space; rarely visited regions keep adding new voxels.
+      tr: Joint uzayında düzgün olmak uzayda düzgün olmak değildir; az ziyaret edilen bölgeler yeni voxel eklemeyi sürdürür.
+    - en: Random joint vectors start to exceed the joint limits at large sample counts.
+      tr: Çok sayıda örnekte rastgele joint vektörleri joint limitlerini aşmaya başlar.
+    - en: The convex hull underestimates the volume, and voxels inherit that error.
+      tr: Convex hull hacmi eksik tahmin eder ve voxel'ler bu hatayı devralır.
+  answer: 0
+  why:
+    en: Step 3 table, 1 cm voxels give 230.4 L at one million samples, 2 cm voxels 282.9 L; quote both sample count and voxel size.
+    tr: Adım 3 tablosu, bir milyon örnekte 1 cm voxel 230,4 L, 2 cm voxel 282,9 L veriyor; örnek sayısını da voxel boyunu da belirt.
+- q:
+    en: The required approach direction is tilted β out of the arm plane. What does the solver return as β grows?
+    tr: İstenen yaklaşma yönü kol düzleminden β kadar dışarı eğiliyor. β büyüdükçe çözücü ne döndürür?
+  options:
+    - en: It fails to reach the position once β exceeds 10°.
+      tr: β 10°'yi aşınca konuma ulaşamaz.
+    - en: It always reaches the position, and the orientation error grows almost one-for-one with β.
+      tr: Konuma her zaman ulaşır, orientation hatası ise β ile neredeyse bire bir büyür.
+    - en: It reaches both position and orientation, given enough seeds.
+      tr: Yeterince seed verilirse hem konuma hem orientation'a ulaşır.
+  answer: 1
+  why:
+    en: Break it table, position error 0.000 mm for every β, approach error 43.058° at 45° and 87.682° at 90°; the 12 mm site offset keeps it slightly below β.
+    tr: Boz tablosu, her β için konum hatası 0,000 mm; yaklaşma hatası 45°'de 43,058°, 90°'de 87,682°. 12 mm'lik site ofseti onu β'nın biraz altında tutuyor.

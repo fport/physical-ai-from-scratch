@@ -1,0 +1,44 @@
+# Lesson 31 · Action chunking (ACT). Every answer is supported by the lesson page or
+# experiments/31-act/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: Why does the $k = 1$ policy stay on the target instead of leaving late?
+    tr: $k = 1$ policy'si neden geç ayrılmak yerine hedefte kalıyor?
+  options:
+  - en: Its network is too small to represent the departure.
+    tr: Network'ü ayrılışı temsil edemeyecek kadar küçük.
+  - en: The torque disturbance keeps pushing the arm back onto the target.
+    tr: Torque bozucusu kolu sürekli hedefe geri itiyor.
+  - en: At rest on the goal, "hold" is the demonstrated next action at every pause step but the last, so the L1-optimal output, the median, is hold.
+    tr: Hedefin üstünde dururken gösterilen bir sonraki action, sonuncusu hariç her bekleme adımında "bekle"dir; L1-optimal çıktı olan medyan da "bekle"dir.
+  answer: 2
+  why:
+    en: 'Experiment table: 543 of 600 episodes stuck at $k = 1$; the observation $(q, \dot q, q_{goal})$ has no timer and no phase.'
+    tr: 'Deney tablosu: $k = 1$''de 600 episode''un 543''ü takılı; $(q, \dot q, q_{goal})$ observation''ında zamanlayıcı da faz da yok.'
+- q:
+    en: A chunk predicted at rest on the goal departs at a median index of about 8–9. What follows for $k \le 8$?
+    tr: Hedefin üstünde dururken tahmin edilen bir chunk, medyan olarak 8–9 civarındaki indekste ayrılıyor. Bu $k \le 8$ için ne demek?
+  options:
+  - en: Their chunks are all "hold", so they are stuck in 534–545 of 600 episodes under either scheme.
+    tr: Chunk'larının hepsi "bekle"; bu yüzden iki şemada da 600 episode'un 534–545'inde takılı kalıyorlar.
+  - en: They leave at once, because each chunk is executed open-loop.
+    tr: Hemen ayrılıyorlar, çünkü her chunk open-loop uygulanıyor.
+  - en: Temporal ensembling lets them leave anyway.
+    tr: Temporal ensembling yine de ayrılmalarını sağlıyor.
+  answer: 0
+  why:
+    en: 'Departure table: 0/200 chunks contain a departure at $k = 1$ and 4, 8/200 at $k = 8$, 200/200 at $k = 16$ and 32.'
+    tr: 'Ayrılış tablosu: $k = 1$ ve 4''te chunk''ların 0/200''ü, $k = 8$''de 8/200''ü, $k = 16$ ve 32''de 200/200''ü bir ayrılış içeriyor.'
+- q:
+    en: At $k = 32$, open-loop succeeds in 49.5% of episodes and temporal ensembling in 92.0%. What explains the gap?
+    tr: $k = 32$'de open-loop episode'ların %49,5'inde, temporal ensembling %92,0'ında başarılı. Farkı ne açıklar?
+  options:
+  - en: Open-loop gets stuck on the target more often.
+    tr: Open-loop hedefte daha sık takılıyor.
+  - en: Open-loop plays 0.64 s of blind commands and cannot correct the disturbance, so it misses the target in 200 of 600 episodes; ensembling queries every step.
+    tr: Open-loop 0,64 s boyunca kör komut oynatıyor ve bozucuyu düzeltemiyor, bu yüzden 600 episode'un 200'ünde hedefi ıskalıyor; ensembling her adımda sorguluyor.
+  - en: Ensembling uses a larger network.
+    tr: Ensembling daha büyük bir network kullanıyor.
+  answer: 1
+  why:
+    en: 'Experiment table, $k = 32$: open-loop 200 misses and 0 stuck, ensembled 39 misses and 0 stuck; ensembling also lowers jerk from 3875 to 433.'
+    tr: 'Deney tablosu, $k = 32$: open-loop 200 ıska ve 0 takılı, ensembled 39 ıska ve 0 takılı; ensembling jerk''ü de 3875''ten 433''e düşürüyor.'

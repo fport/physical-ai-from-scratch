@@ -108,6 +108,8 @@ Go deeper: AIEFS [Linear Algebra Intuition](https://aiengineeringfromscratch.com
 
 MuJoCo writes quaternions scalar first: its modeling guide writes the quaternion for an axis-angle rotation with the cosine term first, and the null rotation is `1 0 0 0` ([MuJoCo modeling: frame orientations](https://mujoco.readthedocs.io/en/stable/modeling.html)). It converts between representations with `mju_euler2Quat` (sequence string; lowercase = intrinsic, uppercase = extrinsic), `mju_axisAngle2Quat`, `mju_quat2Mat`, `mju_mat2Quat`, `mju_mulQuat`, `mju_subQuat` ([API reference](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html)). This answers the opening puzzle: orientation is stored as 4 quaternion numbers, but an angular velocity is a plain 3-vector, so `nq` and `nv` differ.
 
+<!-- figure: 06-gimbal-lock -->
+
 ## Experiment
 
 Script: [`experiments/06-rotations/experiment.py`](../experiments/06-rotations/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), deterministic seeds, under 10 s.

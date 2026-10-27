@@ -86,6 +86,8 @@ Go deeper (AIEFS): [Diffusion Models — DDPM from Scratch](https://aiengineerin
 
 </details>
 
+<!-- figure: 30-mean-vs-flow -->
+
 ### Four ways to produce an action
 
 | | trained to predict | sampling | cost per action |

@@ -1,0 +1,44 @@
+# Lesson 35 · Reward design. Every answer is supported by the lesson page or
+# experiments/35-reward-design/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: The reward is the positive closeness $1 - \tanh(d/5\,\text{cm})$ and the episode ends the moment $d < 2$ cm. What did the trained arm learn?
+    tr: Reward pozitif yakınlık terimi $1 - \tanh(d/5\,\text{cm})$ ve episode $d < 2$ cm olduğu anda bitiyor. Eğitilen kol ne öğrendi?
+  options:
+    - en: To reach every target as fast as possible.
+      tr: Her hedefe olabildiğince hızlı ulaşmayı.
+    - en: To park about 3 cm from the target and keep collecting reward, because entering the ball ends all future payments.
+      tr: Hedeften yaklaşık 3 cm uzakta park edip reward toplamaya devam etmeyi, çünkü topa girmek gelecekteki tüm ödemeleri bitirir.
+    - en: To oscillate around the target so that the shaping term pays twice.
+      tr: Shaping terimi iki kez ödesin diye hedefin etrafında salınmayı.
+  answer: 1
+  why:
+    en: 'Part B: 95/300 success, and run without termination the same policy ends at a median 30.8 mm away. Its written return (22.67) beats the scripted IK that reaches every target (2.28).'
+    tr: 'B bölümü: 95/300 başarı; termination olmadan çalıştırılınca aynı policy medyan 30,8 mm uzakta bitiyor. Yazılı return''ü (22,67), her hedefe ulaşan scripted IK''yı (2,28) geçiyor.'
+- q:
+    en: The sparse reward gave 8/300; adding $0.95\,\Phi(s') - \Phi(s)$ with $\Phi = -20d$ gave 295/300. Why does this term not change what the optimal policy is?
+    tr: Sparse reward 8/300 verdi; $\Phi = -20d$ ile $0{,}95\,\Phi(s') - \Phi(s)$ eklemek 295/300 verdi. Bu terim optimal policy'yi neden değiştirmez?
+  options:
+    - en: It pays the same bonus at every step regardless of the state.
+      tr: Duruma bakmadan her adımda aynı bonusu öder.
+    - en: It replaces the success condition with a distance condition.
+      tr: Başarı koşulunu bir mesafe koşuluyla değiştirir.
+    - en: Summed along any trajectory it telescopes to $\gamma^T\Phi(s_T) - \Phi(s_0)$, which depends only on where the trajectory starts and ends.
+      tr: Herhangi bir trajectory boyunca toplandığında $\gamma^T\Phi(s_T) - \Phi(s_0)$'a teleskoplanır; bu da yalnızca trajectory'nin nerede başlayıp bittiğine bağlıdır.
+  answer: 2
+  why:
+    en: Ng, Harada and Russell (Math details). Shaping changes how fast you learn, not what is optimal; part A shows the speed-up.
+    tr: Ng, Harada ve Russell (Math details). Shaping ne kadar hızlı öğrendiğinizi değiştirir, neyin optimal olduğunu değil; A bölümü hızlanmayı gösteriyor.
+- q:
+    en: An action-rate penalty of weight $w = 0.3$ gave 144/300 (seeds 41 / 9 / 94) while the torque rate only fell from 1002 to 850 N·m/s. What is the takeaway?
+    tr: $w = 0{,}3$ ağırlıklı bir action-rate cezası 144/300 verdi (seed'ler 41 / 9 / 94), torque rate ise yalnızca 1002'den 850 N·m/s'ye düştü. Çıkarılacak ders ne?
+  options:
+    - en: Set the weight relative to the task term's scale, and with a stiff servo change the interface or gains if smooth torque is the goal.
+      tr: Ağırlığı görev teriminin ölçeğine göre seçin; servo sertse ve amaç yumuşak torque ise arayüzü ya da gain'leri değiştirin.
+    - en: Penalties always smooth the torque in proportion to their weight, so raise $w$ further.
+      tr: Cezalar torque'u her zaman ağırlıklarıyla orantılı olarak yumuşatır, $w$'yi daha da artırın.
+    - en: The seeds disagree, so the penalty has no effect at all.
+      tr: Seed'ler anlaşamıyor, demek ki cezanın hiçbir etkisi yok.
+  answer: 0
+  why:
+    en: 'Break it table: up to $w = 0.1$ success falls to 263/300 with little smoothing (901 N·m/s); from 0.3 on it collapses. Smoothing the targets of a stiff servo barely smooths its torque.'
+    tr: 'Boz tablosu: $w = 0{,}1$''e kadar başarı 263/300''e düşüyor, yumuşama az (901 N·m/s); 0,3''ten sonra çöküyor. Sert bir servonun hedeflerini yumuşatmak torque''unu pek yumuşatmaz.'

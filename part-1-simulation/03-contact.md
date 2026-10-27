@@ -92,6 +92,8 @@ Go deeper: [Numerical Stability](https://aiengineeringfromscratch.com/lesson?pat
 
 Sources: [Reference (solref)](https://mujoco.readthedocs.io/en/stable/modeling.html#csolverreference), [Impedance (solimp)](https://mujoco.readthedocs.io/en/stable/modeling.html#csolverimpedance), [geom/condim](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom-condim), [margin and gap](https://mujoco.readthedocs.io/en/stable/computation/index.html#comargingap). `condim` is the number of force directions a contact can use: 1 is a pure push along the normal, 3 adds sliding friction in two directions, 4 and 6 add twisting and rolling resistance.
 
+<!-- figure: 03-contact-spring -->
+
 ## Experiment
 
 A 10 cm, 1 kg cube (and, as a single-contact check, a 5 cm radius, 1 kg sphere) on a plane, `dt` = 2 ms, the same `solref` on both geoms:

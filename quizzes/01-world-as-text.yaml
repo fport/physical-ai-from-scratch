@@ -1,0 +1,44 @@
+# Lesson 01 · The world as text. Every answer is supported by the lesson page or
+# experiments/01-world-as-text/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: In vacuum, a 1 kg cube and a 100 g cube are released 40 cm above the tabletop. Which one lands first?
+    tr: Boşlukta 1 kg'lık ve 100 g'lık iki küp tablanın 40 cm üstünden bırakılıyor. Hangisi önce iner?
+  options:
+    - en: The 1 kg cube, because gravity pulls it ten times harder.
+      tr: 1 kg'lık küp, çünkü yerçekimi onu on kat daha güçlü çeker.
+    - en: Both land at the same step, because the force grows with mass and so does the inertia.
+      tr: İkisi aynı adımda iner, çünkü kuvvet kütleyle büyüyor, eylemsizlik de öyle.
+    - en: The 100 g cube, because it has less inertia to overcome.
+      tr: 100 g'lık küp, çünkü yenmesi gereken eylemsizlik daha az.
+  answer: 1
+  why:
+    en: $a = F/m = g$, so mass cancels. In Part A both cubes reach the tabletop at step 143 (analytic 0.2856 s).
+    tr: $a = F/m = g$, yani kütle sadeleşir. A bölümünde iki küp de tablaya 143. adımda varıyor (analitik 0,2856 s).
+- q:
+    en: With `density="1.2"` (air), how does the light cube's landing delay depend on its mass?
+    tr: '`density="1.2"` (hava) ile hafif küpün iniş gecikmesi kütlesine nasıl bağlı?'
+  options:
+    - en: It does not; air slows every cube by the same amount.
+      tr: Bağlı değil; hava her küpü aynı miktarda yavaşlatır.
+    - en: It grows with mass, because a heavier cube pushes more air aside.
+      tr: Kütleyle büyür, çünkü daha ağır küp daha çok havayı iter.
+    - en: Roughly as $1/m$, because the drag deceleration $k v^2/m$ is divided by the mass.
+      tr: Kabaca $1/m$ ile, çünkü drag yavaşlaması $k v^2/m$ kütleye bölünür.
+  answer: 2
+  why:
+    en: The delay table in Part A falls from 93.44 ms at 5 g to 0.45 ms at 500 g and follows the $1/m$ guide line.
+    tr: A bölümündeki gecikme tablosu 5 g'da 93,44 ms'den 500 g'da 0,45 ms'ye düşüyor ve $1/m$ kılavuz çizgisini izliyor.
+- q:
+    en: The SO-101 file is compiled with `inertiafromgeom="true"`. What happens?
+    tr: SO-101 dosyası `inertiafromgeom="true"` ile compile ediliyor. Ne olur?
+  options:
+    - en: It compiles and simulates without any error, but the total mass becomes 2.3565 kg instead of 0.6454 kg.
+      tr: Hiç hata vermeden compile edilir ve simüle edilir, ama toplam kütle 0,6454 kg yerine 2,3565 kg olur.
+    - en: The compiler stops, because the explicit `<inertial>` elements conflict with the setting.
+      tr: Compiler durur, çünkü açık `<inertial>` elemanları bu ayarla çelişir.
+    - en: Nothing changes, because geoms carry no mass of their own.
+      tr: Hiçbir şey değişmez, çünkü geom'ların kendi kütlesi yoktur.
+  answer: 0
+  why:
+    en: In Break it, inference treats every geom, visual meshes included, as a solid at 1000 kg/m³, so the mass grows ×3.65 with no warning. Always print `sum(m.body_mass)`.
+    tr: Boz bölümünde inference, visual mesh'ler dahil her geom'u 1000 kg/m³ yoğunlukta dolu bir cisim sayar; kütle uyarısız ×3,65 büyür. `sum(m.body_mass)`'i her zaman yazdır.

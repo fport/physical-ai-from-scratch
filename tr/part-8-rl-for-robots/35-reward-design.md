@@ -76,6 +76,8 @@ Daha derine: [MDPs, States, Actions & Rewards](https://aiengineeringfromscratch.
 
 </details>
 
+<!-- figure: 35-termination-hack -->
+
 ## Deney
 
 [`experiment.py`](../../experiments/35-reward-design/experiment.py) ders 33'teki her şeyi sabit tutar (mutlak joint hedefleri, 50 Hz, PPO referans config'i, 300k adım, 3 seed × 100 evaluation episode'u) ve env'e verilen reward fonksiyonunu değiştirir:

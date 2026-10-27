@@ -77,6 +77,8 @@ Daha derine: [Sim-to-Real Transfer](https://aiengineeringfromscratch.com/lesson?
 
 </details>
 
+<!-- figure: 39-randomization-width -->
+
 ### Ödünleşim ve neyi randomize etmeli
 
 | Genişlik | Nominal sim | Gerçek robot |

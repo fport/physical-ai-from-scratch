@@ -103,6 +103,8 @@ Go deeper: [lesson 04 · Friction](../part-1-simulation/04-friction.md); Lynch &
 
 </details>
 
+<!-- figure: 16-grasp-cone -->
+
 ## Experiment
 
 The pick is one function that Part 7 can import to record demonstrations:

@@ -1,0 +1,44 @@
+# Lesson 34 · Observation and action design. Every answer is supported by the lesson page or
+# experiments/34-observation-action-design/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: Absolute joint targets learned best (298/300) but had a torque rate of 1002 N·m/s against 70 N·m/s for raw torques. Where does the jerkiness come from?
+    tr: Mutlak joint hedefleri en iyi öğrendi (298/300), ama torque rate'leri ham torque'un 70 N·m/s'sine karşı 1002 N·m/s idi. Sarsıntı nereden geliyor?
+  options:
+    - en: The target policy explores with more noise than the torque policy.
+      tr: Hedef policy'si torque policy'sinden daha fazla gürültüyle keşfeder.
+    - en: The simulated servo is very stiff, so every new 50 Hz target produces a near bang-bang torque step.
+      tr: Simüle edilen servo çok sert; bu yüzden her yeni 50 Hz hedefi neredeyse bang-bang bir torque adımı üretir.
+    - en: The physics timestep of 5 ms is too large for a PD loop.
+      tr: 5 ms'lik physics timestep'i bir PD döngüsü için fazla büyük.
+  answer: 1
+  why:
+    en: 'Section A: with `kp = 998.22` and a 2.94 N·m cap, a position error of 3 mrad already saturates the actuator. A PD interface is only as gentle as its gains.'
+    tr: 'A bölümü: `kp = 998.22` ve 2,94 N·m sınırla 3 mrad''lık bir konum hatası bile actuator''ı doyuma ulaştırır. Bir PD arayüzü ancak gain''leri kadar yumuşaktır.'
+- q:
+    en: Giving the policy the absolute target position instead of target − gripper took success from 298/300 to 101/300. Why?
+    tr: Policy'ye hedef − gripper yerine mutlak hedef konumunu vermek başarıyı 298/300'den 101/300'e düşürdü. Neden?
+  options:
+    - en: To know which way to move, the policy now has to learn forward kinematics itself.
+      tr: Hangi yöne gideceğini bilmek için policy artık forward kinematics'i kendisi öğrenmek zorunda.
+    - en: The absolute position is a longer vector, so the network is too small.
+      tr: Mutlak konum daha uzun bir vektör, bu yüzden ağ fazla küçük kalıyor.
+    - en: The absolute position is measured with more noise.
+      tr: Mutlak konum daha fazla gürültüyle ölçülür.
+  answer: 0
+  why:
+    en: Section C, observation table. The relative goal is the single most important input; the Go2 observation is built the same way, in the frame the policy acts in.
+    tr: C bölümü, observation tablosu. Göreli hedef tek başına en önemli girdi; Go2 observation'ı da aynı şekilde, policy'nin hareket ettiği frame'de kurulur.
+- q:
+    en: With the Go2's action scale of 0.25 rad, PPO reached 21/300 targets. What does the scripted IK through the same interface (27/100) show?
+    tr: Go2'nin 0,25 rad'lık action scale'i ile PPO hedeflerin 21/300'üne ulaştı. Aynı arayüzden geçen scripted IK'nın sonucu (27/100) neyi gösteriyor?
+  options:
+    - en: PPO needed more training steps at the smaller scale.
+      tr: PPO'nun küçük scale'de daha fazla training adımına ihtiyacı vardı.
+    - en: Smaller scales always give smoother and better policies.
+      tr: Küçük scale'ler her zaman daha yumuşak ve daha iyi policy'ler verir.
+    - en: The failure is not PPO's; most targets lie outside $q_0 \pm 0.25$ rad, the most the policy can command.
+      tr: Başarısızlık PPO'nun değil; hedeflerin çoğu policy'nin komut verebileceği en uzak nokta olan $q_0 \pm 0{,}25$ rad'ın dışında.
+  answer: 2
+  why:
+    en: Break it. Targets are sampled up to 0.6–1.0 rad from $q_0$; at scale 1.0 the same scripted IK reaches 100/100. Size the scale to the motion the task needs.
+    tr: Boz bölümü. Hedefler $q_0$'dan 0,6–1,0 rad'a kadar örneklenir; scale 1,0'da aynı scripted IK 100/100'e ulaşır. Scale'i görevin gerektirdiği harekete göre seçin.

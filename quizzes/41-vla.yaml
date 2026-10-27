@@ -1,0 +1,44 @@
+# Lesson 41 · Vision-language-action models. Every answer is supported by the lesson page or
+# experiments/41-vla/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: With 256 bins the replayed pick has a mean tip error of 0.26 mm. What, then, is the real price of an OpenVLA-style token head?
+    tr: 256 bin ile tekrar oynatılan pick'in ortalama uç hatası 0,26 mm. O hâlde OpenVLA tarzı bir token head'in asıl bedeli ne?
+  options:
+    - en: Resolution; 256 bins are too coarse for a robot arm.
+      tr: Çözünürlük; 256 bin bir robot kolu için fazla kaba.
+    - en: One decoder pass per action dimension for every action, and a clipping range frozen from the training data.
+      tr: Her action için action boyutu başına bir decoder geçişi ve training verisinden dondurulmuş bir clipping aralığı.
+    - en: Tokens cannot represent negative joint angles.
+      tr: Token'lar negatif joint açılarını temsil edemez.
+  answer: 1
+  why:
+    en: 'Part B: the price of tokens is not resolution. OpenVLA returns 7 tokens per action, so 7 decoder passes per control step (part A).'
+    tr: 'B bölümü: token''ların bedeli çözünürlük değil. OpenVLA action başına 7 token döndürür, yani kontrol adımı başına 7 decoder geçişi (A bölümü).'
+- q:
+    en: From 16 to 8 to 4 bins the RMS arm-joint error goes 0.745° → 1.566° → 3.161°, and at 4 bins the cube is not lifted. Why?
+    tr: 16'dan 8'e ve 4 bin'e inince RMS kol joint hatası 0,745° → 1,566° → 3,161° oluyor ve 4 bin'de küp kaldırılamıyor. Neden?
+  options:
+    - en: Each bit removed doubles the bin width and with it the error; at 4 bins the worst tip error (40.36 mm) exceeds the 30 mm cube.
+      tr: Çıkarılan her bit bin genişliğini ve onunla birlikte hatayı ikiye katlar; 4 bin'de en kötü uç hatası (40,36 mm) 30 mm'lik küpü aşar.
+    - en: Fewer bins push more actions outside the clipping range.
+      tr: Daha az bin, daha fazla action'ı clipping aralığının dışına iter.
+    - en: The decoder needs more passes when there are fewer bins.
+      tr: Bin sayısı azalınca decoder daha fazla geçişe ihtiyaç duyar.
+  answer: 0
+  why:
+    en: Break it and the bins table. Uniform quantization leaves at most $\Delta/2$ (RMS $\Delta/\sqrt{12}$ for evenly spread values), and $\Delta$ scales with $1/B$.
+    tr: Boz bölümü ve bin tablosu. Uniform quantization en fazla $\Delta/2$ hata bırakır (düzgün dağılmış değerler için RMS $\Delta/\sqrt{12}$) ve $\Delta$, $1/B$ ile ölçeklenir.
+- q:
+    en: π0 reports 73 ms per chunk on an RTX 4090. How can such a model drive a 30–50 Hz servo loop?
+    tr: π0, RTX 4090'da chunk başına 73 ms raporluyor. Böyle bir model 30–50 Hz'lik bir servo döngüsünü nasıl sürebilir?
+  options:
+    - en: It cannot; the servo loop has to slow down to the model's rate.
+      tr: Süremez; servo döngüsü modelin hızına yavaşlamak zorunda.
+    - en: Its tokens are decoded in parallel, one per joint.
+      tr: Token'ları paralel olarak, joint başına bir tane decode edilir.
+    - en: One call returns a chunk of 50 future actions, so the slow model does not have to run every control step.
+      tr: Tek bir çağrı 50 gelecek action'lık bir chunk döndürür, yani yavaş modelin her kontrol adımında çalışması gerekmez.
+  answer: 2
+  why:
+    en: On the real robot, latency budget. π0 and SmolVLA output chunks of 50 continuous actions after 10 flow steps; SmolVLA also computes the next chunk while the current one executes.
+    tr: Gerçek robotta, latency bütçesi. π0 ve SmolVLA 10 flow adımından sonra 50 sürekli action'lık chunk'lar üretir; SmolVLA ayrıca mevcut chunk çalışırken bir sonrakini hesaplar.

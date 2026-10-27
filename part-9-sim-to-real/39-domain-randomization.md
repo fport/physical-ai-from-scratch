@@ -77,6 +77,8 @@ Go deeper: [Sim-to-Real Transfer](https://aiengineeringfromscratch.com/lesson?pa
 
 </details>
 
+<!-- figure: 39-randomization-width -->
+
 ### The trade-off, and what to randomize
 
 | Width | Nominal sim | Real robot |

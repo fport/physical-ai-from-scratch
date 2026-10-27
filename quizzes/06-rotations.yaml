@@ -1,0 +1,44 @@
+# Lesson 06 · Rotations. Every answer is supported by the lesson page or
+# experiments/06-rotations/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: One free body in MuJoCo has `nq = 7` position numbers but only `nv = 6` velocity numbers. Why?
+    tr: MuJoCo'da tek bir serbest body'nin `nq = 7` konum sayısı ama yalnızca `nv = 6` hız sayısı var. Neden?
+  options:
+    - en: The seventh position number stores the simulation time.
+      tr: Yedinci konum sayısı simülasyon zamanını saklar.
+    - en: Orientation is stored as a 4-number unit quaternion, while an angular velocity is a plain 3-vector.
+      tr: Orientation 4 sayılık bir birim quaternion olarak saklanır, açısal hız ise düz bir 3-vektördür.
+    - en: The quaternion's fourth number stores the body's scale.
+      tr: Quaternion'ın dördüncü sayısı body'nin ölçeğini saklar.
+  answer: 1
+  why:
+    en: Position 3 + quaternion 4 = 7, linear 3 + angular 3 = 6 (Part A of the output, default quaternion `[1, 0, 0, 0]`).
+    tr: Konum 3 + quaternion 4 = 7, doğrusal 3 + açısal 3 = 6 (çıktının A bölümü, default quaternion `[1, 0, 0, 0]`).
+- q:
+    en: Gimbal lock happens at pitch ±90°. Is a pitch of 80° safe for a controller that commands Euler-angle rates?
+    tr: Gimbal lock pitch ±90°'de olur. Euler açısı hızlarını komut eden bir controller için 80° pitch güvenli mi?
+  options:
+    - en: Yes; the rate map is only singular at exactly 90°, everything before it is fine.
+      tr: Evet; hız haritası yalnızca tam 90°'de singular, öncesi sorunsuz.
+    - en: Yes, as long as the body itself can still rotate in every direction.
+      tr: Evet, body'nin kendisi her yöne dönebildiği sürece.
+    - en: No; $\det E = \cos\theta$, so the trouble grows over a whole neighbourhood, cond(E) is already 11.43 at 80°.
+      tr: Hayır; $\det E = \cos\theta$, yani sorun bütün bir komşulukta büyür, cond(E) 80°'de zaten 11,43.
+  answer: 2
+  why:
+    en: Step 2 table; the Euler rate needed for a 1 rad/s body rotation is 16.2 rad/s at 85° and 81.0 rad/s at 89° (Break it).
+    tr: Adım 2 tablosu; 1 rad/s'lik gövde rotation'ı için gereken Euler hızı 85°'de 16,2 rad/s, 89°'de 81,0 rad/s (Boz).
+- q:
+    en: Slerp between two orientations 60° apart travels 300.0° in the worst case when the sign check is removed. Why?
+    tr: İşaret kontrolü kaldırılınca, 60° aralıklı iki orientation arasındaki slerp en kötü durumda 300,0° yol alıyor. Neden?
+  options:
+    - en: $q$ and $-q$ are the same rotation; without flipping $q_1$ when $q_0\cdot q_1 < 0$, the arc goes the long way, 360° − 60°.
+      tr: $q$ ile $-q$ aynı rotation; $q_0\cdot q_1 < 0$ iken $q_1$ çevrilmezse yay uzun yoldan gider, 360° − 60°.
+    - en: Slerp is inaccurate for angles above 45° and needs smaller steps.
+      tr: Slerp 45°'nin üstündeki açılarda hatalıdır, daha küçük adımlar ister.
+    - en: The quaternions were not normalized before blending.
+      tr: Quaternion'lar karıştırılmadan önce normalize edilmemişti.
+  answer: 0
+  why:
+    en: Break it, 156 of 300 pairs had $q_0\cdot q_1 < 0$; with the check every path travels 60.0°.
+    tr: Boz bölümünde 300 çiftin 156'sında $q_0\cdot q_1 < 0$ çıktı; kontrolle her yol 60,0° katediyor.

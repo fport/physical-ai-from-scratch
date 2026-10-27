@@ -1,0 +1,44 @@
+# Lesson 32 · A MuJoCo RL environment. Every answer is supported by the lesson page or
+# experiments/32-rl-environment/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: An episode hits the 1.6 s time limit while the arm is in an ordinary pose. What value target should the last step get?
+    tr: Bir episode, kol sıradan bir pozdayken 1,6 s'lik zaman sınırına ulaşıyor. Son adım hangi value hedefini almalı?
+  options:
+    - en: $y = r$, because the episode is over and nothing comes after it.
+      tr: $y = r$, çünkü episode bitti ve ardından hiçbir şey gelmiyor.
+    - en: $y = r + \gamma V(s')$, because `truncated` only means the clock stopped; the future continues.
+      tr: $y = r + \gamma V(s')$, çünkü `truncated` yalnızca saatin durduğunu söyler; gelecek devam eder.
+    - en: $y = 0$, so that time-outs are discouraged.
+      tr: $y = 0$, böylece time-out'lar caydırılır.
+  answer: 1
+  why:
+    en: Only `terminated` removes the future. The clock is not in the 15-number observation, so cutting the target at the time limit would give the same pose two different targets (Math details).
+    tr: Geleceği yalnızca `terminated` siler. Saat 15 sayılık observation'da yok; zaman sınırında hedefi kesmek aynı poza iki farklı hedef verirdi (Math details).
+- q:
+    en: In Break it, the scripted IK controller reaches only 81/200 targets with a 0.24 s time limit. A learner trained with that limit scores low. What is the right reading?
+    tr: Boz bölümünde scripted IK controller, 0,24 s'lik zaman sınırıyla hedeflerin yalnızca 81/200'üne ulaşıyor. Bu sınırla eğitilen bir learner düşük skor alıyor. Doğru yorum hangisi?
+  options:
+    - en: PPO is broken; switch algorithms.
+      tr: PPO bozuk; algoritma değiştirin.
+    - en: The success radius of 2 cm is too strict for any controller.
+      tr: 2 cm'lik başarı yarıçapı her controller için fazla katı.
+    - en: The time limit defines what is achievable; even the model-based controller mostly fails at 0.24 s, so measure such a baseline before tuning the learner.
+      tr: Zaman sınırı neyin başarılabileceğini belirler; model tabanlı controller bile 0,24 s'de çoğunlukla başarısız, bu yüzden learner'ı ayarlamadan önce böyle bir baseline ölçün.
+  answer: 2
+  why:
+    en: The scripted IK needs between 0.32 and 0.48 s for almost every reach (160/200 at 0.32 s, 199/200 at 0.48 s); at 1.6 s it reaches 200/200 (Break it table).
+    tr: Scripted IK neredeyse her uzanma için 0,32 ile 0,48 s arası zamana ihtiyaç duyuyor (0,32 s'de 160/200, 0,48 s'de 199/200); 1,6 s'de 200/200 (Boz tablosu).
+- q:
+    en: From frame_skip 1 to 4, env steps per CPU second fall (22595 → 14809) while simulated seconds per CPU second rise (113.0 → 296.2). Why?
+    tr: frame_skip 1'den 4'e çıkınca CPU saniyesi başına env adımı düşüyor (22595 → 14809), CPU saniyesi başına simüle edilen saniye ise artıyor (113,0 → 296,2). Neden?
+  options:
+    - en: Each `env.step()` has a fixed Python cost of about four physics steps, so packing more physics into each call spends less of the time in Python.
+      tr: Her `env.step()`'in yaklaşık dört physics adımı kadar sabit bir Python maliyeti var; her çağrıya daha fazla physics koymak, zamanın daha azını Python'da harcatır.
+    - en: MuJoCo uses a larger timestep when frame_skip grows.
+      tr: frame_skip büyüyünce MuJoCo daha büyük bir timestep kullanır.
+    - en: The policy network is skipped on most steps.
+      tr: Policy ağı çoğu adımda atlanır.
+  answer: 0
+  why:
+    en: 'The linear fit in section C: 31.0 µs + 8.3 µs × frame_skip of CPU time per `env.step()`; one physics step costs about 8 µs.'
+    tr: 'C bölümündeki doğrusal fit: `env.step()` başına 31,0 µs + 8,3 µs × frame_skip CPU zamanı; bir physics adımı yaklaşık 8 µs.'

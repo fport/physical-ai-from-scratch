@@ -1,0 +1,44 @@
+# Lesson 24 · LQR and MPC. Every answer is supported by the lesson page or
+# experiments/24-lqr-and-mpc/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: 'Part B: with F = 5 N the LQR fails from 20° as "fell"; with F = 10 N the failures at 35–40° are "track end". What explains the two modes?'
+    tr: 'Bölüm B: F = 5 N''de LQR 20°''den itibaren "düştü" ile başarısız; F = 10 N''de 35–40°''deki başarısızlıklar "ray sonu". İki modu ne açıklar?'
+  options:
+  - en: Both come from a bad linearization at the upright.
+    tr: İkisi de dik konumdaki kötü bir doğrusallaştırmadan gelir.
+  - en: At 5 N the command saturates and the pole falls; at 10 N the pole is caught, but LQR only penalizes cart position through $Q$ and does not know the track ends.
+    tr: 5 N'de komut doyuma ulaşır ve çubuk düşer; 10 N'de çubuk yakalanır, ama LQR araba pozisyonunu yalnızca $Q$ üzerinden cezalandırır ve rayın bittiğini bilmez.
+  - en: At 10 N the controller is too aggressive and overshoots; lowering every entry of $Q$ fixes both.
+    tr: 10 N'de controller fazla agresif ve aşıyor; $Q$'nun her elemanını düşürmek ikisini de düzeltir.
+  answer: 1
+  why:
+    en: 'Part B table and text: the constraint $\lvert x\rvert \le 1.5$ m is not in the LQR. Even at 50 N the region ends between 50° and 55°.'
+    tr: 'Bölüm B tablosu ve metni: $\lvert x\rvert \le 1{,}5$ m kısıtı LQR''da yok. 50 N''de bile bölge 50° ile 55° arasında bitiyor.'
+- q:
+    en: Why does LQR started from hanging down (180°) fail at every force limit?
+    tr: Aşağı sarkarken (180°) başlatılan LQR neden her kuvvet limitinde başarısız?
+  options:
+  - en: The force limits are too small; with enough force it would swing up.
+    tr: Kuvvet limitleri fazla küçük; yeterli kuvvetle yukarı çıkardı.
+  - en: The Riccati equation has no solution at 180°.
+    tr: Riccati denkleminin 180°'de çözümü yok.
+  - en: The linear model holds only near $\theta = 0$; near $\theta = \pi$ the coupling from cart force to pole acceleration ($\propto \cos\theta$) flips sign, and a fixed linear law cannot pump energy into a swing.
+    tr: Doğrusal model yalnızca $\theta = 0$ yakınında geçerli; $\theta = \pi$ yakınında araba kuvvetinden çubuk ivmesine giden bağ ($\propto \cos\theta$) işaret değiştirir ve sabit bir doğrusal yasa salınıma enerji pompalayamaz.
+  answer: 2
+  why:
+    en: 'Part B table: "not up" at all four forces (5, 10, 20 and 50 N); the gains are computed once, at the upright.'
+    tr: 'Bölüm B tablosu: dört kuvvetin hepsinde (5, 10, 20 ve 50 N) "çıkmadı"; gain''ler bir kez, dik konumda hesaplanıyor.'
+- q:
+    en: MPPI alone with a 0.2 s horizon passes upright 8/8 but holds 0/8. What does that show, and what worked best?
+    tr: Tek başına MPPI 0,2 s horizon ile 8/8 dikten geçiyor ama 0/8 tutuyor. Bu neyi gösterir ve en iyi ne çalıştı?
+  options:
+  - en: The horizon is too short to see far enough ahead to brake; MPPI for the swing-up plus an LQR hand-off below 20° held 8/8 at 1.0 and 1.5 s.
+    tr: Horizon, fren yapacak kadar ileriyi göremeyecek kadar kısa; swing-up için MPPI artı 20°'nin altında LQR'a devir 1,0 ve 1,5 s'de 8/8 tuttu.
+  - en: The horizon is too long, so the samples cover it too thinly; 0.1 s would hold.
+    tr: Horizon fazla uzun, örnekler onu çok seyrek kapsıyor; 0,1 s tutardı.
+  - en: 64 samples are too many; fewer samples would average less noise into the plan.
+    tr: 64 örnek fazla; daha az örnek plana daha az gürültü katardı.
+  answer: 0
+  why:
+    en: 'Part C: worst angle in the last second 178.2° at 0.2 s, held 8/8 at 0.5–0.7 s; with the hand-off the worst angle was 0.0° at 1.0 s and 0.1° at 1.5 s.'
+    tr: 'Bölüm C: son saniyedeki en kötü açı 0,2 s''de 178,2°, 0,5–0,7 s''de 8/8 tuttu; devirle en kötü açı 1,0 s''de 0,0°, 1,5 s''de 0,1°.'

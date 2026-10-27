@@ -102,6 +102,8 @@ Go deeper: [Stochastic Processes](https://aiengineeringfromscratch.com/lesson?pa
 
 </details>
 
+<!-- figure: 37-latency -->
+
 ### Three mitigations
 
 1. **Lower the loop gain**: slower, but more margin.

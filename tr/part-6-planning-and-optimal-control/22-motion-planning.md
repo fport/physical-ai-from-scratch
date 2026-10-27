@@ -109,6 +109,8 @@ Daha derine: [Probability and Distributions](https://aiengineeringfromscratch.co
 
 </details>
 
+<!-- figure: 22-rrt -->
+
 ## Deney
 
 **Tahmin.** Daha kaba bir edge-check çözünürlüğü daha az collision check ister ve daha hızlı plan yapar. Ama bazı edge'lerin kutunun köşesinin üstünden atlamasına da izin vermeli.

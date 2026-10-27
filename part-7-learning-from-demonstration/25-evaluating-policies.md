@@ -92,6 +92,8 @@ Go deeper: [Statistics for Machine Learning](https://aiengineeringfromscratch.co
 
 </details>
 
+<!-- figure: 25-wilson -->
+
 ### What the interval does not cover
 
 **Variance has more than one source.** The binomial interval covers evaluation noise only. A learned policy also varies across training seeds (the random number that sets initial weights and batch order) and data subsets; a claim about a *method* needs several training runs, each evaluated on the same set of test positions. Lesson 28 reports per-seed and pooled results.

@@ -90,6 +90,8 @@ Daha derine: [Vectors, Matrices & Operations](https://aiengineeringfromscratch.c
 
 *Satır*, constraint solver'ın o contact için bulması gereken tek bir skaler bilinmeyendir.
 
+<!-- figure: 04-friction-slope -->
+
 ## Deney
 
 80 × 30 × 2 cm'lik bir rampaya hizalı ve durgun yerleştirilmiş 8 cm'lik bir küp; iki geom da aynı μ'yü alıyor.

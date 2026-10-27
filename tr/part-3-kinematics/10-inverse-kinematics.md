@@ -89,6 +89,8 @@ Daha derine: AIEFS [Singular Value Decomposition](https://aiengineeringfromscrat
 
 </details>
 
+<!-- figure: 10-ik-dls -->
+
 ## Deney
 
 Script: [`experiments/10-inverse-kinematics/experiment.py`](../../experiments/10-inverse-kinematics/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), deterministik, yaklaşık 6 s CPU süresi.

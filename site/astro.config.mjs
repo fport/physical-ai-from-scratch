@@ -40,6 +40,7 @@ export default defineConfig({
       components: {
         ThemeProvider: './src/components/ThemeProvider.astro',
         Sidebar: './src/components/Sidebar.astro',
+        MarkdownContent: './src/components/MarkdownContent.astro',
       },
       expressiveCode: {
         themes: ['github-dark', 'github-light'],

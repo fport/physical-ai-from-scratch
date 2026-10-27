@@ -89,6 +89,8 @@ Go deeper: AIEFS [Singular Value Decomposition](https://aiengineeringfromscratch
 
 </details>
 
+<!-- figure: 10-ik-dls -->
+
 ## Experiment
 
 Script: [`experiments/10-inverse-kinematics/experiment.py`](../experiments/10-inverse-kinematics/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), deterministic, about 6 s of CPU time.

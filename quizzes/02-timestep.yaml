@@ -1,0 +1,44 @@
+# Lesson 02 · Time integration and the timestep. Every answer is supported by the lesson page or
+# experiments/02-timestep/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: At `dt` = 10 ms the cube falls through the 1 cm tabletop even with the stiff `solref="0.005 1"`. Why can stiffness not help?
+    tr: '`dt` = 10 ms''de küp, sert `solref="0.005 1"` ile bile 1 cm''lik tabladan geçiyor. Stiffness neden işe yaramıyor?'
+  options:
+    - en: No contact is ever generated at this timestep.
+      tr: Bu timestep'te hiç contact üretilmiyor.
+    - en: The first overlapping step already has the centre below the slab's mid-plane, so the contact normal points down from the start.
+      tr: İlk çakışan adımda merkez zaten tablanın orta düzleminin altında, yani contact normal'i en baştan aşağı bakıyor.
+    - en: The Euler integrator loses energy at large steps and the cube sinks.
+      tr: Euler integrator'ı büyük adımlarda enerji kaybediyor ve küp batıyor.
+  answer: 1
+  why:
+    en: In the sweep table the centre at first overlap is 28.47 cm, below the 29.5 cm mid-plane; the first contact has normal z = −1.00 at t = 0.460 s.
+    tr: Sweep tablosunda ilk çakışmadaki merkez 28,47 cm, yani 29,5 cm'lik orta düzlemin altında; ilk contact'ın normal'i t = 0,460 s'de z = −1,00.
+- q:
+    en: At `dt` = 1 ms with the default contact the cube also goes through. Which change makes it stay?
+    tr: '`dt` = 1 ms''de default contact ile küp yine geçiyor. Hangi değişiklik onu tablada tutar?'
+  options:
+    - en: Halving the timestep to 0.5 ms.
+      tr: Timestep'i yarıya, 0,5 ms'ye indirmek.
+    - en: Switching the integrator to RK4.
+      tr: Integrator'ı RK4'e çevirmek.
+    - en: A stiffer contact, `solref="0.005 1"`.
+      tr: Daha sert bir contact, `solref="0.005 1"`.
+  answer: 2
+  why:
+    en: This is the too-soft case; the first contact is on the right side, but the cube sinks to 29.49 cm and the normal flips. With `solref 0.005 1` it stays; 0.5 ms and RK4 both still go through.
+    tr: Bu fazla yumuşak contact durumu; ilk contact doğru tarafta, ama küp 29,49 cm'ye batıyor ve normal dönüyor. `solref 0.005 1` ile kalıyor; 0,5 ms'de de RK4'te de küp yine geçiyor.
+- q:
+    en: From `dt` = 25 ms on, the "contact seen" column says no. What does that mean?
+    tr: '`dt` = 25 ms''den itibaren "contact görüldü" sütunu hayır diyor. Bu ne anlama geliyor?'
+  options:
+    - en: One step (10.93 cm or more) jumps over the whole overlap zone, and collisions are only checked at the step instants.
+      tr: Tek bir adım (10,93 cm ya da daha fazla) bütün çakışma bölgesinin üstünden atlıyor ve çarpışmalar yalnızca adım anlarında kontrol ediliyor.
+    - en: The solver discards contacts that arrive faster than a speed limit.
+      tr: Solver, belli bir hız sınırından hızlı gelen contact'ları atıyor.
+    - en: The integration error pushes the cube sideways past the tabletop.
+      tr: Integration hatası küpü yana doğru tablanın dışına itiyor.
+  answer: 0
+  why:
+    en: Missed contact, failure mode 1 under Observe; the step column reads 10.93–21.87 cm for 25–50 ms, and contact detection never runs along the path.
+    tr: Gözlemle altındaki 1. hata türü, kaçırılan contact; 25–50 ms için adım sütunu 10,93–21,87 cm ve collision detection yol boyunca hiç çalışmıyor.

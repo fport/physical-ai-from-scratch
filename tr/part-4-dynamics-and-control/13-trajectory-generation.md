@@ -94,6 +94,8 @@ Daha derine: [Calculus for Machine Learning](https://aiengineeringfromscratch.co
 
 </details>
 
+<!-- figure: 13-time-scaling -->
+
 ## Deney
 
 **Kurulum.** Panda (Menagerie), `home` keyframe'inden başlıyor, joint hareketi $\Delta q$ = (0,6, 0,4, −0,4, 0,5, 0,5, −0,4, 0,6) rad. Modelin yerleşik position actuator'ları kapatıldı (`actuator_gainprm` ve `actuator_biasprm` 0 yapıldı); torque'lar `qfrc_applied`'a yazılıyor ve modelin sınırlarında kırpılıyor (joint 1–4 için 87 N·m, joint 5–7 için 12 N·m). Controller ve fizik 2 ms'de çalışıyor:

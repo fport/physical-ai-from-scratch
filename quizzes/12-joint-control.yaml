@@ -1,0 +1,44 @@
+# Lesson 12 · Joint control. Every answer is supported by the lesson page or
+# experiments/12-joint-control/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: A PD joint holds a link out against gravity. Why does it settle below the target?
+    tr: Bir PD eklem, bir link'i yerçekimine karşı tutuyor. Neden hedefin altında oturur?
+  options:
+    - en: The derivative term slowly drains the motor's energy.
+      tr: Derivative terimi motorun enerjisini yavaşça tüketir.
+    - en: The spring term only produces torque from an error, so some error must remain to hold the weight.
+      tr: Spring terimi torque'u yalnızca hatadan üretir; ağırlığı tutmak için bir miktar hata kalmak zorunda.
+    - en: The simulator's timestep is too large.
+      tr: Simülatörün timestep'i fazla büyük.
+  answer: 1
+  why:
+    en: At rest $K_p e = mgl\cos e$. In part B, Kp 20 leaves 8.342° and Kp 80 still 2.106°; the sag shrinks with Kp but never reaches zero.
+    tr: Dururken $K_p e = mgl\cos e$. B bölümünde Kp 20 8,342° bırakıyor, Kp 80 bile 2,106°; sarkma Kp ile küçülüyor ama sıfıra inmiyor.
+- q:
+    en: Which fix removes the 8.342° sag fastest and with the least overshoot in part B?
+    tr: B bölümünde 8,342°'lik sarkmayı en hızlı ve en az overshoot ile hangisi kaldırıyor?
+  options:
+    - en: PID with Ki = 160
+      tr: Ki = 160 olan PID
+    - en: PID with Ki = 10
+      tr: Ki = 10 olan PID
+    - en: PD plus gravity feedforward (`qfrc_bias`)
+      tr: PD artı gravity feedforward (`qfrc_bias`)
+  answer: 2
+  why:
+    en: Feedforward reaches ±0.5° in 0.463 s with 3.994° overshoot. Ki = 160 overshoots by 46.016°, and Ki = 10 has not settled within 4 s.
+    tr: Feedforward ±0,5°'ye 0,463 s'de, 3,994° overshoot ile giriyor. Ki = 160 46,016° aşıyor, Ki = 10 ise 4 s içinde oturmuyor.
+- q:
+    en: On the Go2, Kp goes from 20 to 80 while Kd stays at 0.5. What happens?
+    tr: Go2'de Kd 0,5'te kalırken Kp 20'den 80'e çıkıyor. Ne olur?
+  options:
+    - en: The body stands up faster and stops exactly at the target height.
+      tr: Gövde daha hızlı kalkar ve tam hedef yükseklikte durur.
+    - en: The damping ratio halves; the body overshoots to 50.8 cm with all four feet off the floor.
+      tr: Damping ratio yarıya iner; gövde 50,8 cm'ye fırlar ve dört ayağı da yerden kesilir.
+    - en: Nothing changes, because Kp only matters for the steady state.
+      tr: Hiçbir şey değişmez, çünkü Kp yalnızca kalıcı durumda önemlidir.
+  answer: 1
+  why:
+    en: $\zeta = K_d / (2\sqrt{K_p I})$, so quadrupling Kp at fixed Kd halves ζ. Raising Kd together with Kp (60 / 5) gives 0.2% overshoot.
+    tr: $\zeta = K_d / (2\sqrt{K_p I})$; Kd sabitken Kp'yi dört katına çıkarmak ζ'yi yarıya indirir. Kd'yi Kp ile birlikte artırmak (60 / 5) %0,2 overshoot verir.

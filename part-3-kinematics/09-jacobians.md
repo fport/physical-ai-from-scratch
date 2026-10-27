@@ -88,6 +88,8 @@ Go deeper: AIEFS [Calculus for Machine Learning](https://aiengineeringfromscratc
 
 </details>
 
+<!-- figure: 09-velocity-ellipse -->
+
 ## Experiment
 
 Script: [`experiments/09-jacobians/experiment.py`](../experiments/09-jacobians/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Apple Silicon Mac (Apple M5), deterministic, a few seconds.

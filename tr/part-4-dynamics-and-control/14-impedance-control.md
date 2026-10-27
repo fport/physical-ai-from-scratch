@@ -85,6 +85,8 @@ Daha derine: [Calculus for Machine Learning](https://aiengineeringfromscratch.co
 
 </details>
 
+<!-- figure: 14-impedance-wall -->
+
 ## Deney
 
 Tam script: [`experiments/14-impedance-control/experiment.py`](../../experiments/14-impedance-control/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministik, ~3 s. Başlangıç pozu: `home`'dan TCP (50, 0, 30) cm'ye IK, el aşağı bakıyor (q = 0,0, −0,11, −0,0, −2,273, −0,0, 2,163, −0,785).

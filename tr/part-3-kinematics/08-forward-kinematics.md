@@ -88,6 +88,8 @@ Daha derine: AIEFS [Matrix Transformations](https://aiengineeringfromscratch.com
 
 </details>
 
+<!-- figure: 08-arm-plane-workspace -->
+
 ## Deney
 
 Script: [`experiments/08-forward-kinematics/experiment.py`](../../experiments/08-forward-kinematics/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, SciPy, Apple Silicon Mac (Apple M5), sabit seed'ler, yaklaşık 80 s CPU süresi.

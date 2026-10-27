@@ -1,0 +1,44 @@
+# Lesson 17 · Sensors, noise and filtering. Every answer is supported by the lesson page or
+# experiments/17-sensors-noise-filtering/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: A 17-sample moving average leaves only $\sigma/\sqrt{17}$ of the noise. Why is its position error (10.22 mrad) worse than the raw reading (9.95 mrad)?
+    tr: 17 örneklik bir moving average noise'un yalnızca $\sigma/\sqrt{17}$'sini bırakıyor. Konum hatası (10,22 mrad) neden ham okumadan (9,95 mrad) kötü?
+  options:
+    - en: Averaging quantized readings adds extra quantization error.
+      tr: Quantize edilmiş okumaları ortalamak ek quantization hatası ekler.
+    - en: Its 16 ms delay makes it lag by about speed × delay, more than the noise it removes.
+      tr: 16 ms'lik delay'i onu yaklaşık hız × delay kadar geride bırakıyor; bu, kaldırdığı noise'dan fazla.
+    - en: The noise is correlated, so averaging does not reduce it.
+      tr: Noise korelasyonlu, bu yüzden ortalamak onu azaltmaz.
+  answer: 1
+  why:
+    en: Lag error ≈ 0.61 rad/s × 16 ms ≈ 9.8 mrad (Break it). The sum of noise and lag is lowest at about 4 ms of delay, MA n=5 with 5.17 mrad.
+    tr: Lag hatası ≈ 0,61 rad/s × 16 ms ≈ 9,8 mrad (Boz). Noise ile lag'in toplamı yaklaşık 4 ms delay'de en düşük; MA n=5, 5,17 mrad.
+- q:
+    en: The best window for velocity (n = 65) is much longer than for position (n = 5). Why?
+    tr: Hız için en iyi pencere (n = 65), konum içinkinden (n = 5) çok daha uzun. Neden?
+  options:
+    - en: Velocity changes more slowly than position, so lag does not matter for it.
+      tr: Hız konumdan daha yavaş değişir, bu yüzden onun için lag önemli değildir.
+    - en: Velocity is measured by a separate, noisier sensor.
+      tr: Hız ayrı ve daha gürültülü bir sensor ile ölçülür.
+    - en: Differentiating divides the remaining noise by a small Δt, so the noise term is far larger and its minimum moves to a longer delay.
+      tr: Türev almak kalan noise'u küçük bir Δt'ye böler; noise terimi çok büyür ve minimumu daha uzun bir delay'e kayar.
+  answer: 2
+  why:
+    en: Raw velocity noise is 3.50 rad/s against a true velocity RMS of 0.63 rad/s. The SO-101 model has no velocity sensor; velocity comes from differences of readings.
+    tr: Ham hız noise'u 3,50 rad/s, gerçek hızın RMS'i ise 0,63 rad/s. SO-101 modelinde hız sensor'ü yok; hız okumaların farkından geliyor.
+- q:
+    en: You tuned an MA n=17 on a slow test move. The real task moves 4 times faster. What happens to the position error?
+    tr: MA n=17'yi yavaş bir test hareketinde ayarladın. Gerçek görev 4 kat hızlı. Konum hatasına ne olur?
+  options:
+    - en: It grows to about 40 mrad, four times the raw reading's error.
+      tr: Yaklaşık 40 mrad'a çıkar; ham okumanın hatasının dört katı.
+    - en: It stays the same, because the noise does not depend on speed.
+      tr: Aynı kalır, çünkü noise hıza bağlı değildir.
+    - en: It halves, because faster motion averages out the noise.
+      tr: Yarıya iner, çünkü hızlı hareket noise'u ortalar.
+  answer: 0
+  why:
+    en: Break it, k = 4 - MA17 gives 40.00 mrad while the raw error stays at 9.95 mrad. Tune filters on the fastest motion the robot will actually perform.
+    tr: Boz, k = 4 - MA17 40,00 mrad veriyor, ham hata ise 9,95 mrad'da kalıyor. Filtreyi robotun gerçekten yapacağı en hızlı hareket üzerinde ayarla.

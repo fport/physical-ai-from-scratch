@@ -85,6 +85,8 @@ Go deeper (AIEFS): [The Full Transformer — Encoder + Decoder](https://aiengine
 
 </details>
 
+<!-- figure: 31-action-chunks -->
+
 ### Two ways to execute a chunk
 
 | | open-loop chunks | temporal ensembling |

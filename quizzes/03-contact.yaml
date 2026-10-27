@@ -1,0 +1,44 @@
+# Lesson 03 · Contact: soft constraints, solref and solimp. Every answer is supported by the lesson page or
+# experiments/03-contact/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: You double the `solref` timeconst of a resting contact. How much deeper does the body sink?
+    tr: Duran bir contact'ın `solref` timeconst'unu iki katına çıkarıyorsun. Cisim ne kadar daha derine batar?
+  options:
+    - en: Twice as deep, because the spring is twice as soft.
+      tr: İki kat derine, çünkü yay iki kat yumuşak.
+    - en: About four times as deep, because the resting penetration grows with timeconst².
+      tr: Yaklaşık dört kat derine, çünkü durağan penetration timeconst² ile büyür.
+    - en: Not at all; timeconst only changes how fast it settles.
+      tr: Hiç; timeconst yalnızca ne kadar hızlı oturduğunu değiştirir.
+  answer: 1
+  why:
+    en: $r = (1-d)\,a_u\,(d_w/d)^2\,\text{timeconst}^2\,\text{dampratio}^2$. In Sweep 1 the sphere goes from 1.2262 mm at 0.05 s to 4.9050 mm at 0.1 s, both at $d$ = 0.95.
+    tr: $r = (1-d)\,a_u\,(d_w/d)^2\,\text{timeconst}^2\,\text{dampratio}^2$. Sweep 1'de sphere 0,05 s'de 1,2262 mm'den 0,1 s'de 4,9050 mm'ye çıkıyor, ikisi de $d$ = 0,95'te.
+- q:
+    en: A dropped cube bounces and you want it to stop bouncing. Which number do you change?
+    tr: Bırakılan bir küp sekiyor ve sekmesini durdurmak istiyorsun. Hangi sayıyı değiştirirsin?
+  options:
+    - en: Raise dampratio to 1 or more.
+      tr: dampratio'yu 1'e ya da üstüne çıkar.
+    - en: Lower timeconst well below 2·dt.
+      tr: timeconst'u 2·dt'nin epey altına indir.
+    - en: Raise the `solimp` width.
+      tr: '`solimp` width''ini büyüt.'
+  answer: 0
+  why:
+    en: dampratio is MuJoCo's restitution knob. In Sweep 3 the rebound falls from 56.504 mm at 0.1 to 0.000 mm at 1.0; a timeconst below 2·dt is replaced by `refsafe` anyway.
+    tr: dampratio MuJoCo'nun restitution düğmesi. Sweep 3'te sekme 0,1'de 56,504 mm'den 1,0'da 0,000 mm'ye iniyor; 2·dt'nin altındaki bir timeconst'u zaten `refsafe` değiştiriyor.
+- q:
+    en: With `refsafe` on, timeconst 0.02 and dampratio 0.05, a 10 cm drop launches the cube to 3.147 m. Why did the guard not stop it?
+    tr: '`refsafe` açık, timeconst 0,02 ve dampratio 0,05 iken 10 cm''den bırakılan küp 3,147 m''ye fırlıyor. Koruma bunu neden durdurmadı?'
+  options:
+    - en: A small dampratio means more damping, and damping adds energy.
+      tr: Küçük dampratio daha fazla damping demektir ve damping enerji ekler.
+    - en: timeconst 0.02 is already below 2·dt, so the spring itself is too stiff.
+      tr: timeconst 0,02 zaten 2·dt'nin altında, yani yayın kendisi fazla sert.
+    - en: "`refsafe` clamps only timeconst, but the spring frequency is $\\omega = 1/(\\text{timeconst}\\cdot\\text{dampratio})$, so $h\\omega$ reaches 2.00."
+      tr: "`refsafe` yalnızca timeconst'u kırpar; oysa yayın frekansı $\\omega = 1/(\\text{timeconst}\\cdot\\text{dampratio})$, yani $h\\omega$ 2,00'ye ulaşır."
+  answer: 2
+  why:
+    en: Break it 2, the gap in the guard; outside `discrete`, keep timeconst·dampratio well above `dt`.
+    tr: Boz 2, korumadaki boşluk; `discrete` dışında timeconst·dampratio çarpımını `dt`'nin rahatça üstünde tut.

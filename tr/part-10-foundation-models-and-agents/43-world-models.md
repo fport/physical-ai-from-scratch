@@ -89,6 +89,8 @@ Daha derine: [World Models & Video Diffusion](https://aiengineeringfromscratch.c
 
 </details>
 
+<!-- figure: 43-rollout-error -->
+
 ### Bu dersin sistemi
 
 | terim | burada |

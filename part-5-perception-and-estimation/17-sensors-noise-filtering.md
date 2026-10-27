@@ -91,6 +91,8 @@ where $g$ decreases with $t_d$ (for the moving average, $g = 1/n$ with $t_d = \f
 Go deeper (random variables, variance, noise processes): [Probability and Distributions](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/06-probability-and-distributions), [Stochastic Processes](https://aiengineeringfromscratch.com/lesson?path=phases/01-math-foundations/22-stochastic-processes).
 </details>
 
+<!-- figure: 17-moving-average -->
+
 ### Sensors in brief
 
 | Sensor | Reports | Typical error |

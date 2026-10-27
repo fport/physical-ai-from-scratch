@@ -1,0 +1,44 @@
+# Lesson 19 · Camera model, calibration and hand-eye calibration. Every answer is supported by the
+# lesson page or experiments/19-camera-calibration/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: From 3 to 40 board views the training reprojection RMS stays at 0.088–0.093 px. What does that tell you about the focal length?
+    tr: 3'ten 40 board görüntüsüne eğitim reprojection RMS'i 0,088–0,093 px'te kalıyor. Bu sana focal length hakkında ne söyler?
+  options:
+    - en: Nothing on its own - the focal error drops about 14-fold over the same range.
+      tr: Tek başına hiçbir şey - aynı aralıkta focal hatası yaklaşık 14 kat düşüyor.
+    - en: It is already correct with 3 views, since the error does not improve.
+      tr: 3 görüntüyle zaten doğru, çünkü hata iyileşmiyor.
+    - en: It is wrong by about 0.09 px.
+      tr: Yaklaşık 0,09 px hatalı.
+  answer: 0
+  why:
+    en: The reprojection error measures how well the model fits these corners, not whether $K$ is right - $f_x$ error 0.292% with 3 views, 0.021% with 40. Ground truth is the only honest check.
+    tr: Reprojection error, modelin bu köşelere ne kadar iyi oturduğunu ölçer, $K$'nın doğru olup olmadığını değil - $f_x$ hatası 3 görüntüyle %0,292, 40 ile %0,021. Tek dürüst kontrol ground truth.
+- q:
+    en: With boards held parallel to the image (0° tilt), the training RMS is 0.088 px but the focal length is off by 1193%. Why?
+    tr: Görüntüye paralel tutulan board'larla (0° tilt) eğitim RMS'i 0,088 px ama focal length %1193 hatalı. Neden?
+  options:
+    - en: Corner detection fails on flat boards.
+      tr: Düz board'larda köşe tespiti başarısız olur.
+    - en: For a plane parallel to the image only $f_x/Z$ is constrained, so a longer lens and a farther board explain the same corners.
+      tr: Görüntüye paralel bir düzlem için yalnızca $f_x/Z$ kısıtlanır; daha uzun bir lens ve daha uzaktaki bir board aynı köşeleri açıklar.
+    - en: Lens distortion is strongest at 0° tilt.
+      tr: Lens distortion 0° tilt'te en güçlüdür.
+  answer: 1
+  why:
+    en: Tilt makes the depth vary across the board, and the foreshortening separates $f$ from $Z$ - 5° of tilt already brings the error down to 1.93%, 35° to 0.02% (Break it).
+    tr: Tilt derinliği board boyunca değiştirir ve perspektif kısalması $f$'yi $Z$'den ayırır - 5° tilt hatayı %1,93'e, 35° %0,02'ye indiriyor (Boz).
+- q:
+    en: For hand-eye calibration the wrist barely rotates between poses (median 3.6°). Why does the camera offset come out 27.18 mm wrong?
+    tr: Hand-eye calibration için bilek pozlar arasında neredeyse hiç dönmüyor (medyan 3,6°). Kamera ofseti neden 27,18 mm hatalı çıkıyor?
+  options:
+    - en: Small rotations make forward kinematics inaccurate.
+      tr: Küçük rotation'lar forward kinematics'i hatalı yapar.
+    - en: The board leaves the camera's field of view.
+      tr: Board kameranın görüş alanından çıkar.
+    - en: Translation enters through $(R_A - I)\,t_X$; with $R_A - I \approx 0$ the noise is divided by a near-zero matrix.
+      tr: Translation $(R_A - I)\,t_X$ üzerinden girer; $R_A - I \approx 0$ olunca noise sıfıra yakın bir matrise bölünür.
+  answer: 2
+  why:
+    en: It is the hand-eye version of the flat board - the data do not constrain the unknown. With a median 116.4° between poses the error is 1.33 mm.
+    tr: Bu, düz board'un hand-eye karşılığı - veri bilinmeyeni kısıtlamıyor. Pozlar arasında medyan 116,4° ile hata 1,33 mm.

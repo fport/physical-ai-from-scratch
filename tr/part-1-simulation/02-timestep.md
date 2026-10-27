@@ -98,6 +98,8 @@ Hızlı bir cisim ve ince bir engel için üç şey ters gidebilir:
 
 Kaynak: [Computation · Integrators](https://mujoco.readthedocs.io/en/stable/computation/index.html#geintegrators), [option/integrator](https://mujoco.readthedocs.io/en/stable/XMLreference.html#option-integrator). Seçimin düşen küp için önemli olup olmadığı aşağıda ölçülüyor.
 
+<!-- figure: 02-timestep-tunnel -->
+
 ## Deney
 
 Sahne: zemin, üst yüzü 30 cm'de olan 24 × 24 × 1 cm'lik bir tabla (orta düzlem 29,5 cm) ve alt yüzü tablanın 97,5 cm üstünden başlayan 5 cm, 100 g'lık bir küp.

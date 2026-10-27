@@ -90,6 +90,8 @@ Go deeper: [Vectors, Matrices & Operations](https://aiengineeringfromscratch.com
 
 A *row* is one scalar unknown the constraint solver has to find for that contact.
 
+<!-- figure: 04-friction-slope -->
+
 ## Experiment
 
 An 8 cm cube placed at rest on an 80 × 30 × 2 cm ramp, aligned with it; both geoms get the same μ.

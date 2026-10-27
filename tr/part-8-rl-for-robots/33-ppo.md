@@ -83,6 +83,8 @@ Daha derine: [Policy Gradient — REINFORCE from Scratch](https://aiengineeringf
 
 </details>
 
+<!-- figure: 33-discount-horizon -->
+
 ### Ayarlarımız ve gerçek bir robot config'i
 
 | | Bu ders | Go2 training config'i (`unitree_rl_gym`) |

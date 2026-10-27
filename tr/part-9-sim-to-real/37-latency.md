@@ -102,6 +102,8 @@ Daha derine: [Stochastic Processes](https://aiengineeringfromscratch.com/lesson?
 
 </details>
 
+<!-- figure: 37-latency -->
+
 ### Üç çare
 
 1. **Döngü kazancını düşür**: daha yavaş ama daha çok margin.

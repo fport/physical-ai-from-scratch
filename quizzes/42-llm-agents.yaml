@@ -1,0 +1,44 @@
+# Lesson 42 · LLM agents with robot tools. Every answer is supported by the lesson page or
+# experiments/42-llm-agents/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: Without validation, `qwen2.5:7b` reported success in 14 of 14 episodes, 8 of them false. Read as a sensor for "done", what is that report worth?
+    tr: Validation olmadan `qwen2.5:7b` 14 episode'un 14'ünde başarı raporladı, 8'i yanlış. "Yapıldı" için bir sensör olarak okunursa bu rapor ne değerde?
+  options:
+    - en: Nothing; its precision is 6/14, exactly the share of episodes that were done at all, because it fires every time.
+      tr: Hiçbir şey; precision'ı 6/14, yani tam olarak yapılmış episode'ların payı, çünkü her seferinde tetikleniyor.
+    - en: It is right most of the time, so it can replace the harness for the feasible commands.
+      tr: Çoğu zaman doğru, bu yüzden uygulanabilir komutlar için harness'in yerini tutabilir.
+    - en: It is wrong 8 times, so inverting it gives a good sensor.
+      tr: 8 kez yanlış, bu yüzden tersine çevirmek iyi bir sensör verir.
+  answer: 0
+  why:
+    en: Math details, "A claim is a noisy sensor". With validation the same model claimed 8 times with 2 false claims, $6/8$, better but still not a measurement.
+    tr: Math details, "İddia, noisy bir sensördür". Validation ile aynı model 8 kez iddia etti, 2'si yanlış, $6/8$; daha iyi ama yine de bir ölçüm değil.
+- q:
+    en: With validation ON, peak table force was 0.00 N in every episode. Which failure still got through?
+    tr: Validation AÇIK iken masaya uygulanan en yüksek kuvvet her episode'da 0,00 N idi. Hangi başarısızlık yine de geçti?
+  options:
+    - en: Commands in metres instead of centimetres.
+      tr: Santimetre yerine metre cinsinden komutlar.
+    - en: Goal substitution; told there is no blue cube, both models picked the red one with a perfectly valid call.
+      tr: Hedef ikamesi; mavi küp olmadığı söylenince iki model de kırmızı olanı tamamen geçerli bir çağrıyla aldı.
+    - en: Targets below the table, which the IK check cannot see.
+      tr: IK kontrolünün göremediği, masanın altındaki hedefler.
+  answer: 1
+  why:
+    en: Break it. Validation checks the call, not the intent; the red cube moved 7.19 cm and `qwen2.5:7b` reported success 2/2. Only the harness, judging against the original request, catches it.
+    tr: Boz bölümü. Validation çağrıyı kontrol eder, niyeti değil; kırmızı küp 7,19 cm hareket etti ve `qwen2.5:7b` 2/2 başarı raporladı. Bunu yalnızca orijinal isteğe göre değerlendiren harness yakalar.
+- q:
+    en: At temperature 0 both repeats of every (model, command, mode) were identical. What does that mean for a row of 14 episodes?
+    tr: Temperature 0'da her (model, komut, mod) için iki tekrar birebir aynıydı. Bu, 14 episode'luk bir satır için ne anlama gelir?
+  options:
+    - en: The counts are twice as reliable as with random sampling.
+      tr: Sayılar rastgele örneklemeye göre iki kat daha güvenilirdir.
+    - en: Every LLM is deterministic, so a single run is enough on any machine.
+      tr: Her LLM deterministiktir, bu yüzden her makinede tek bir run yeterlidir.
+    - en: The row holds 7 distinct outcomes, not 14 independent trials; the counts describe these 7 commands and do not give a rate to extrapolate.
+      tr: Satırda 14 bağımsız deneme değil 7 farklı sonuç var; sayılar bu 7 komutu betimler, genellenebilecek bir oran vermez.
+  answer: 2
+  why:
+    en: Determinism paragraph and Math details. It holds for this Ollama version, these weights and this hardware; an interval computed as if the episodes were independent would be too narrow.
+    tr: Determinizm paragrafı ve Math details. Bu, bu Ollama sürümü, bu ağırlıklar ve bu donanım için geçerli; episode'lar bağımsızmış gibi hesaplanan bir aralık fazla dar olurdu.

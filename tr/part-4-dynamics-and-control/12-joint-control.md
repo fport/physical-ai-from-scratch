@@ -96,6 +96,8 @@ Daha derine: [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=p
 
 </details>
 
+<!-- figure: 12-pd-step -->
+
 ## Deney
 
 Tam script: [`experiments/12-joint-control/experiment.py`](../../experiments/12-joint-control/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministik, ~2 s. Dört bölüm, her biri bir sweep.

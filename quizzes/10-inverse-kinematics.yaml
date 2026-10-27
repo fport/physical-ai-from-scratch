@@ -1,0 +1,44 @@
+# Lesson 10 · Inverse kinematics and singularities. Every answer is supported by the lesson page or
+# experiments/10-inverse-kinematics/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: From $q_0 = 0$, pure Newton (λ = 0) solves only 73.2% of 500 reachable targets. How do most of its failures end?
+    tr: $q_0 = 0$'dan başlayan saf Newton (λ = 0), 500 erişilebilir hedefin yalnızca %73,2'sini çözüyor. Başarısızlıklarının çoğu nasıl bitiyor?
+  options:
+    - en: Out of iterations, creeping slowly toward the target.
+      tr: Hedefe yavaşça yaklaşırken iterasyon bütçesi bitiyor.
+    - en: Pinned at a joint limit, after steps of several radians that the clamp cuts off.
+      tr: Kırpmanın kestiği birkaç radyanlık adımlardan sonra bir joint limitine çivilenmiş olarak.
+    - en: With NaN joint angles, because $J^{+}$ does not exist near a singularity.
+      tr: NaN joint açılarıyla, çünkü singularity yakınında $J^{+}$ yoktur.
+  answer: 1
+  why:
+    en: Step 1 table, median max ‖Δq‖ 4.901 rad and 132 of 134 failures end at a limit.
+    tr: Adım 1 tablosu, medyan en büyük ‖Δq‖ 4,901 rad ve 134 başarısızlığın 132'si bir limitte bitiyor.
+- q:
+    en: DLS with λ = 0.3 succeeds less often (74.6%) than with λ = 0.1 (88.6%). Why?
+    tr: λ = 0,3'lük DLS, λ = 0,1'e (%88,6) göre daha az başarılı (%74,6). Neden?
+  options:
+    - en: The steps are so short that many solves run out of iterations before reaching 0.5 mm.
+      tr: Adımlar o kadar kısa ki birçok çözüm 0,5 mm'ye inmeden iterasyon bütçesini bitiriyor.
+    - en: Larger damping pushes the solver into singularities.
+      tr: Daha büyük damping çözücüyü singularity'lere iter.
+    - en: λ = 0.3 makes the steps larger and they overshoot the target.
+      tr: λ = 0,3 adımları büyütür, adımlar da hedefi aşar.
+  answer: 0
+  why:
+    en: Step 1 table, median iterations 64 against 15, and 77 of 127 failures do not end at a limit. Too little damping explodes, too much is slow.
+    tr: Adım 1 tablosu, medyan iterasyon 15'e karşı 64 ve 127 başarısızlığın 77'si limitte bitmiyor. Az damping patlar, fazlası yavaştır.
+- q:
+    en: At the stretched pose you request 5 cm/s along the weakest direction $u_3$. What do the pseudo-inverse and DLS (λ = 0.03) do?
+    tr: Gergin pozda en zayıf yön $u_3$ boyunca 5 cm/s istiyorsun. Pseudo-inverse ve DLS (λ = 0,03) ne yapar?
+  options:
+    - en: Both refuse to move, because the Jacobian has lost rank.
+      tr: İkisi de hareket etmeyi reddeder, çünkü Jacobian rank kaybetmiştir.
+    - en: DLS delivers the full 5 cm/s with smaller joint speeds than the pseudo-inverse.
+      tr: DLS tam 5 cm/s'yi pseudo-inverse'ten daha küçük joint hızlarıyla sağlar.
+    - en: The pseudo-inverse asks for 478.33 rad/s; DLS keeps the joints near 0.006 rad/s and simply does not move in that direction.
+      tr: Pseudo-inverse 478,33 rad/s istiyor; DLS joint'leri 0,006 rad/s civarında tutuyor ve o yönde basitçe hareket etmiyor.
+  answer: 2
+  why:
+    en: Break it table at s = 1.000, DLS achieved / requested is 0.000. λ trades tracking accuracy for bounded commands near a singularity.
+    tr: Boz tablosu, s = 1,000'de DLS gerçekleşen / istenen oranı 0,000. λ, singularity yakınında takip doğruluğunu sınırlı komutlarla takas eder.

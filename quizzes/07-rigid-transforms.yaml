@@ -1,0 +1,44 @@
+# Lesson 07 · Rigid transforms and frame trees. Every answer is supported by the lesson page or
+# experiments/07-rigid-transforms/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: The cube does not move. You rotate `shoulder_pan` ±30°. In which frames do the cube's coordinates change?
+    tr: Küp hareket etmiyor. `shoulder_pan`'i ±30° döndürüyorsun. Küpün koordinatları hangi frame'lerde değişir?
+  options:
+    - en: In every frame, because the robot moved.
+      tr: Her frame'de, çünkü robot hareket etti.
+    - en: Only in the base frame, because the pan joint sits on the base.
+      tr: Yalnızca base frame'inde, çünkü pan joint'i base'in üstünde.
+    - en: Only in the gripper and camera frames, and by the same distance in both.
+      tr: Yalnızca gripper ve kamera frame'lerinde, ikisinde de aynı mesafe kadar.
+  answer: 2
+  why:
+    en: A joint changes coordinates only in frames downstream of it. Part C, 0.00 mm in W and B, 93.77 mm in G and C; $T_{GC}$ is constant.
+    tr: Bir joint koordinatları yalnızca ağaçta kendisinden sonraki frame'lerde değiştirir. C bölümü, W ve B'de 0,00 mm, G ve C'de 93,77 mm; $T_{GC}$ sabit.
+- q:
+    en: To get the cube in the gripper frame, someone writes $R\,(p - t)$ instead of $R^\top (p - t)$. What happens?
+    tr: Küpü gripper frame'inde bulmak için biri $R^\top (p - t)$ yerine $R\,(p - t)$ yazıyor. Ne olur?
+  options:
+    - en: No error is raised, and the result is 101.0 mm off.
+      tr: Hiçbir hata çıkmaz ve sonuç 101,0 mm sapar.
+    - en: NumPy raises a shape error.
+      tr: NumPy bir shape hatası fırlatır.
+    - en: Nothing, because a rotation matrix is orthogonal and $R = R^\top$.
+      tr: Hiçbir şey, çünkü rotation matrix ortogonaldir ve $R = R^\top$.
+  answer: 0
+  why:
+    en: Orthogonal means $R^{-1} = R^\top$, not $R = R^\top$. In the Break it table this active/passive mix-up is 101.0 mm off, and none of the mistakes throws an exception.
+    tr: Ortogonal, $R = R^\top$ değil $R^{-1} = R^\top$ demektir. Boz tablosunda bu active/passive karışıklığı 101,0 mm sapıyor ve hataların hiçbiri exception fırlatmıyor.
+- q:
+    en: A `framepos` sensor with `reftype="body"` reads a point 295.5 mm away from its true base-frame value. Why?
+    tr: '`reftype="body"` olan bir `framepos` sensor''ü bir noktayı gerçek base frame değerinden 295,5 mm uzakta okuyor. Neden?'
+  options:
+    - en: The sensor reports the position in the world frame instead of the base frame.
+      tr: Sensor konumu base frame yerine world frame'inde verir.
+    - en: '`"body"` means the body''s inertial frame, with its origin at the centre of mass and the principal axes of inertia; `"xbody"` is the regular frame.'
+      tr: '`"body"` body''nin inertial frame''i demektir, orijini kütle merkezinde ve eksenleri asal atalet eksenleri; normal frame `"xbody"`.'
+    - en: Sensors are only updated every second step.
+      tr: Sensor'ler yalnızca iki adımda bir güncellenir.
+  answer: 1
+  why:
+    en: Frame trees in MuJoCo and Break it; the trap gives no warning, so check the `reftype` of every frame sensor.
+    tr: MuJoCo'da frame tree'ler ve Boz bölümü; bu tuzak uyarı vermez, her frame sensor'ünün `reftype`'ını kontrol et.

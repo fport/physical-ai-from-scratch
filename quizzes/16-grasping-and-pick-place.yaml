@@ -1,0 +1,44 @@
+# Lesson 16 · Grasping and scripted pick-and-place. Every answer is supported by the lesson page
+# or experiments/16-grasping-and-pick-place/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: A stalled jaw servo presses the moving jaw on the cube with about $\tau_{\max}/r_j$. What is the total squeeze $N_1 + N_2$?
+    tr: Takılan çene servo'su hareketli çeneyi küpe yaklaşık $\tau_{\max}/r_j$ ile bastırıyor. Toplam sıkma $N_1 + N_2$ ne olur?
+  options:
+    - en: About $\tau_{\max}/r_j$, split between the two jaws.
+      tr: Yaklaşık $\tau_{\max}/r_j$; iki çene arasında bölünür.
+    - en: About $2\tau_{\max}/r_j$, because the fixed jaw pushes back with the same force.
+      tr: Yaklaşık $2\tau_{\max}/r_j$, çünkü sabit çene de aynı kuvvetle karşılık verir.
+    - en: It depends on μ, since friction adds to the normal force.
+      tr: μ'ye bağlıdır, çünkü sürtünme normal kuvvete eklenir.
+  answer: 1
+  why:
+    en: Each contact carries about $\tau_{\max}/r_j$; the force is not split (Math details). That is why part B's squeeze grows roughly with the cap - 7.04 → 12.74 → 27.23 N for 0.3 → 0.5 → 1.0 N·m.
+    tr: Her contact yaklaşık $\tau_{\max}/r_j$ taşır; kuvvet bölünmez (Matematik ayrıntısı). B bölümünde sıkmanın cap'le kabaca büyümesi bundan - 0,3 → 0,5 → 1,0 N·m için 7,04 → 12,74 → 27,23 N.
+- q:
+    en: In part C a 0.45 kg cube has a friction-cone ratio of 1.12, above 1, yet all 10 lifts drop it. Why?
+    tr: C bölümünde 0,45 kg'lık bir küpün friction-cone oranı 1,12, yani 1'in üstünde; ama 10 kaldırmanın hepsinde düşüyor. Neden?
+  options:
+    - en: Lifting accelerates the cube upward, which needs $\mu(N_1+N_2) \ge m(g + a)$, a bit more than the static test.
+      tr: Kaldırma küpü yukarı ivmelendirir; bu, $\mu(N_1+N_2) \ge m(g + a)$ ister, yani statik testten biraz fazlasını.
+    - en: The jaw never closes on a heavy cube.
+      tr: Çene ağır bir küpün üzerine hiç kapanmaz.
+    - en: The ratio is computed with the wrong μ, because the jaw pads have priority.
+      tr: Oran yanlış μ ile hesaplanıyor, çünkü çene pedlerinin priority'si var.
+  answer: 0
+  why:
+    en: Every mass with ratio ≥ 1.24 held, every mass with ratio ≤ 1.12 dropped during the lift (part C). The cube was given priority 2, so its μ is the one that counts.
+    tr: Oranı ≥ 1,24 olan her kütle tuttu, ≤ 1,12 olan her kütle kaldırma sırasında düştü (C bölümü). Küpe priority 2 verildi, yani geçerli olan onun μ'sü.
+- q:
+    en: At μ ≤ 0.03 (30 g, cap 0.5 N·m) almost every grasp fails. When does it fail?
+    tr: μ ≤ 0,03'te (30 g, cap 0,5 N·m) neredeyse her grasp başarısız. Ne zaman başarısız oluyor?
+  options:
+    - en: After the lift, when the cube slides down between the jaws.
+      tr: Kaldırmadan sonra, küp çenelerin arasından aşağı kayınca.
+    - en: During the `down` state, when the open jaws knock the cube over.
+      tr: "`down` state'inde, açık çeneler küpü devirince."
+    - en: While the jaws are closing; the cube leaves them before the grip forms.
+      tr: Çeneler kapanırken; küp, kavrama oluşmadan onları terk ediyor.
+  answer: 2
+  why:
+    en: In 47 of the 48 failed trials at μ ≤ 0.03 the jaw never settled on the cube (part A). A cone check on the final grasp is necessary but not sufficient.
+    tr: μ ≤ 0,03'teki 48 başarısız denemenin 47'sinde çene küpe hiç oturmadı (A bölümü). Son grasp üzerindeki cone kontrolü gerekli ama yeterli değil.

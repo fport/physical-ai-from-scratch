@@ -117,6 +117,8 @@ Go deeper: [Probability and Distributions](https://aiengineeringfromscratch.com/
 
 </details>
 
+<!-- figure: 18-kalman -->
+
 ## Experiment
 
 **Setup.** The same signal as lesson 17: SO-101 `shoulder_pan` in MuJoCo, 2 ms timestep, the same trajectory, a 12-bit encoder model plus 10 mrad white noise, same seed, so the noise sequence is identical. $R = 1.002\times10^{-4}$ rad² (σ 10.01 mrad). We sweep $q_c$ over six decades and measure position and velocity RMS error, delay, and **2σ coverage**: the fraction of samples where the true position lies within $\pm2\sqrt{P_{00}}$. For a Gaussian error that matches its claimed $P$, coverage is about 95 %.

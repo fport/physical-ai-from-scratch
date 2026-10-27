@@ -94,6 +94,8 @@ Daha derine: [Optimization](https://aiengineeringfromscratch.com/lesson?path=pha
 
 </details>
 
+<!-- figure: 24-lqr-cartpole -->
+
 ## Deney
 
 Tam script: [`experiments/24-lqr-and-mpc/experiment.py`](../../experiments/24-lqr-and-mpc/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, SciPy 1.18.1, Apple Silicon Mac (Apple M5), sabit seed'ler.

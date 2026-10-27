@@ -411,3 +411,47 @@ starlight-toc a[aria-current='true'] {
 .main-frame:has(.fa-landing) .sl-container {
 	max-width: 76rem;
 }
+
+/* ---------- interactive lesson figures (src/figures/*.ts, frame() in _kit.ts) ---------- */
+.fa-fig { margin: 2rem 0; border: 1px solid var(--fa-line); background: var(--fa-panel); padding: 1.1rem 1.2rem 1rem; min-height: 8rem; }
+.fa-fig-tag, .fa-quiz-tag { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; letter-spacing: 0.14em; color: var(--fa-accent); margin: 0; text-transform: uppercase; }
+.fa-fig-title { font-family: 'VT323', monospace; text-transform: uppercase; font-size: 1.9rem; line-height: 1; margin: 0.35rem 0 0.4rem; color: var(--fa-text); }
+.fa-fig-caption { font-family: 'Source Serif 4 Variable', Georgia, serif; font-size: 1rem; line-height: 1.55; color: var(--sl-color-gray-1); margin: 0 0 0.8rem; }
+.fa-fig-stage canvas { width: 100%; height: auto; display: block; background: var(--fa-bg); border: 1px solid var(--fa-line); touch-action: none; }
+.fa-fig-controls { display: flex; flex-wrap: wrap; gap: 0.7rem 1.3rem; align-items: center; margin-top: 0.8rem; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--fa-muted); }
+.fa-fig-controls label { display: flex; flex-direction: column; gap: 0.25rem; min-width: 10.5rem; flex: 1 1 10.5rem; max-width: 16rem; }
+.fa-fig-controls label.fa-check { flex-direction: row; align-items: center; gap: 0.4rem; min-width: 0; flex: 0 0 auto; }
+.fa-fig-controls output { color: var(--fa-text); }
+.fa-fig-controls input, .fa-fig-controls select { accent-color: var(--fa-accent); }
+.fa-fig-controls select { font: inherit; color: var(--fa-text); background: var(--fa-bg); border: 1px solid var(--fa-line); padding: 0.25rem; }
+.fa-fig-controls button, .fa-quiz-score button {
+	font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; letter-spacing: 0.06em; text-transform: uppercase;
+	background: transparent; color: var(--fa-accent); border: 1px solid var(--fa-accent); padding: 0.45rem 0.8rem; cursor: pointer;
+}
+.fa-fig-controls button:hover, .fa-quiz-score button:hover { background: var(--fa-accent-soft); }
+.fa-fig-readout { display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; margin-top: 0.7rem; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--fa-muted); }
+.fa-fig-readout b { color: var(--fa-text); font-weight: 600; }
+.fa-fig-note { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--fa-text); margin: 0.5rem 0 0; }
+.fa-fig-toy { font-size: 0.8rem; font-style: italic; color: var(--fa-muted); margin: 0.6rem 0 0; }
+
+/* ---------- clickable quizzes (quizzes/*.yaml → sync.mjs) ---------- */
+.sl-markdown-content .fa-quiz { border: 1px solid var(--fa-line); border-left: 3px solid var(--fa-accent); background: var(--fa-panel); padding: 1rem 1.2rem; margin: 1rem 0 2rem; }
+.sl-markdown-content .fa-q { margin-top: 1.1rem; }
+.sl-markdown-content .fa-q > p:first-child { margin-bottom: 0.5rem; }
+.sl-markdown-content .fa-q > ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.4rem; }
+.sl-markdown-content .fa-q > ul > li {
+	margin: 0; padding: 0.5rem 0.75rem; border: 1px solid var(--fa-line); background: var(--fa-bg); cursor: pointer; line-height: 1.45;
+}
+.sl-markdown-content .fa-q > ul > li:hover, .sl-markdown-content .fa-q > ul > li:focus-visible { border-color: var(--fa-accent); outline: none; }
+.sl-markdown-content .fa-q[data-state] > ul > li { cursor: default; opacity: 0.7; }
+.sl-markdown-content .fa-q > ul > li[data-pick='right'] { opacity: 1; border-color: #15803d; background: color-mix(in srgb, #16a34a 12%, var(--fa-bg)); }
+.sl-markdown-content .fa-q > ul > li[data-pick='wrong'] { opacity: 1; border-color: #b91c1c; background: color-mix(in srgb, #dc2626 12%, var(--fa-bg)); }
+.sl-markdown-content .fa-q-why { display: none; font-size: 0.95em; color: var(--sl-color-gray-1); }
+.sl-markdown-content .fa-q[data-state] .fa-q-why { display: block; }
+.sl-markdown-content .fa-q-verdict { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; margin: 0.5rem 0 0; }
+.sl-markdown-content .fa-q[data-state='right'] .fa-q-verdict { color: #15803d; }
+.sl-markdown-content .fa-q[data-state='wrong'] .fa-q-verdict { color: #b91c1c; }
+:root[data-theme='dark'] .sl-markdown-content .fa-q[data-state='right'] .fa-q-verdict { color: #4ade80; }
+:root[data-theme='dark'] .sl-markdown-content .fa-q[data-state='wrong'] .fa-q-verdict { color: #f87171; }
+.sl-markdown-content .fa-quiz-score { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; margin: 1rem 0 0; display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
+.sl-markdown-content .fa-quiz-score:empty { display: none; }

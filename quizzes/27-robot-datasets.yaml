@@ -1,0 +1,44 @@
+# Lesson 27 · Robot datasets. Every answer is supported by the lesson page or
+# experiments/27-robot-datasets/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: With 10 episodes the frame split reports a validation RMSE of 0.252°, but the error on 20 unseen test episodes is 1.595°. Why?
+    tr: 10 episode'la frame bölmesi 0,252° validation RMSE raporluyor, ama görülmemiş 20 test episode'undaki hata 1,595°. Neden?
+  options:
+  - en: The test episodes come from a different robot model.
+    tr: Test episode'ları farklı bir robot modelinden geliyor.
+  - en: Frames 40 ms apart are near-duplicates, so a frame split puts neighbours on both sides and validation measures interpolation between frames already seen.
+    tr: 40 ms arayla gelen frame'ler neredeyse aynı; frame bölmesi komşuları iki tarafa da koyar ve validation, zaten görülmüş frame'ler arasındaki interpolation'ı ölçer.
+  - en: The model underfits, and validation error is always lower than test error anyway.
+    tr: Model underfit ediyor; validation hatası zaten her zaman test hatasından düşüktür.
+  answer: 1
+  why:
+    en: 'Part C: test/val is 6.33 for the frame split and 2.82 for the episode split at 10 episodes; the frame-level validation error stays at 0.25–0.28° for every dataset size.'
+    tr: 'C kısmı: 10 episode''da test/val frame bölmesinde 6,33, episode bölmesinde 2,82; frame düzeyindeki validation hatası her dataset boyunda 0,25–0,28°''de kalıyor.'
+- q:
+    en: Someone logs the cube in millimetres instead of metres. What does part B measure?
+    tr: Biri küpü metre yerine milimetre ile log'luyor. B kısmı ne ölçüyor?
+  options:
+  - en: Nothing changes; an MLP learns the scale on its own.
+    tr: Hiçbir şey değişmiyor; bir MLP ölçeği kendi öğrenir.
+  - en: Both the normalized and the unnormalized model get about 15 times worse.
+    tr: Hem normalize edilen hem edilmeyen model yaklaşık 15 kat kötüleşiyor.
+  - en: Without normalization the error rises from 0.306° to 4.649°; with MEAN_STD it stays at 0.265°.
+    tr: Normalizasyon olmadan hata 0,306°'den 4,649°'ye çıkıyor; MEAN_STD ile 0,265°'de kalıyor.
+  answer: 2
+  why:
+    en: 'Part B table: statistics from the training episodes make the model independent of the units chosen when logging.'
+    tr: 'B kısmı tablosu: training episode''larından hesaplanan istatistikler modeli log''larken seçilen birimlerden bağımsız kılıyor.'
+- q:
+    en: When does a frame-level split do the most damage?
+    tr: Frame düzeyinde bölme en çok ne zaman zarar verir?
+  options:
+  - en: 'With few episodes: test/val is 6.33 at 10 episodes but 1.03 at 90.'
+    tr: 'Az episode''la: test/val 10 episode''da 6,33, 90''da ise 1,03.'
+  - en: With many episodes, because there are more near-duplicate frames.
+    tr: Çok episode'la, çünkü neredeyse aynı frame sayısı artar.
+  - en: Only when the inputs are normalized with MIN_MAX.
+    tr: Yalnızca girdiler MIN_MAX ile normalize edildiğinde.
+  answer: 0
+  why:
+    en: 'Break it: with 90 episodes the training data already covers the cube area densely, so new episodes have close neighbours anyway; robot datasets are usually small.'
+    tr: 'Boz: 90 episode''la training verisi küp alanını zaten yoğun kapsıyor, yeni episode''ların da yakın komşuları oluyor; robot dataset''leri ise genellikle küçük.'

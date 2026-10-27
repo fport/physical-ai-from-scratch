@@ -76,6 +76,8 @@ Go deeper: [MDPs, States, Actions & Rewards](https://aiengineeringfromscratch.co
 
 </details>
 
+<!-- figure: 35-termination-hack -->
+
 ## Experiment
 
 [`experiment.py`](../experiments/35-reward-design/experiment.py) keeps everything from lesson 33 fixed (absolute joint targets, 50 Hz, PPO reference config, 300k steps, 3 seeds × 100 evaluation episodes) and swaps the reward function passed to the env:

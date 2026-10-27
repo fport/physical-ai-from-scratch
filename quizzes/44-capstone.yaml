@@ -1,0 +1,44 @@
+# Lesson 44 · Capstone. Every answer is supported by the lesson page or
+# experiments/44-capstone/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: Perception, grasp and place each passed 30/30 for `qwen2.5:7b`. Why does that not show they are good enough for a 0.90 system of 5 layers?
+    tr: '`qwen2.5:7b` için perception, grasp ve bırakma 30/30 geçti. Bu neden 5 katmanlı 0,90''lık bir sistem için yeterince iyi olduklarını göstermez?'
+  options:
+    - en: Because 30/30 has a Wilson lower bound of only 0.886, below the 0.979 per layer an even budget asks for.
+      tr: Çünkü 30/30'un Wilson alt sınırı yalnızca 0,886; bu, eşit bir bütçenin katman başına istediği 0,979'un altında.
+    - en: Because a layer that never fails is suspicious and must be broken.
+      tr: Çünkü hiç başarısız olmayan bir katman şüphelidir ve bozuk olmalıdır.
+    - en: Because the end-to-end rate is the sum, not the product, of the layer rates.
+      tr: Çünkü uçtan uca oran, katman oranlarının çarpımı değil toplamıdır.
+  answer: 0
+  why:
+    en: Math details, $n/(n + z^2) = 30/(30 + 1.96^2) \approx 0.886$ and $0.90^{1/5} = 0.979$. The 30 episodes are not even independent draws, so the intervals are if anything too narrow.
+    tr: Math details, $n/(n + z^2) = 30/(30 + 1{,}96^2) \approx 0{,}886$ ve $0{,}90^{1/5} = 0{,}979$. 30 episode bağımsız çekilişler bile değil, bu yüzden aralıklar olsa olsa fazla dar.
+- q:
+    en: At 2° of unmodelled camera tilt, the visible symptom is the gripper reporting "closed on nothing". Which layer does the harness blame, and why?
+    tr: 2°'lik modellenmemiş kamera eğiminde görünen belirti, gripper'ın "closed on nothing" raporlaması. Harness hangi katmanı suçlar ve neden?
+  options:
+    - en: Grasp, because that is where the failure became visible.
+      tr: Grasp, çünkü başarısızlık orada görünür oldu.
+    - en: Perception, because its contract (estimate within 8 mm of the truth) is the first one broken in pipeline order.
+      tr: Perception, çünkü pipeline sırasında ilk bozulan sözleşme onunki (tahmin gerçeğe 8 mm içinde).
+    - en: Language, because the agent kept retrying.
+      tr: Dil, çünkü agent yeniden denemeye devam etti.
+  answer: 1
+  why:
+    en: Break it table, median estimate error 19.8 mm at 2° and 12 of the failures charged to perception. The first contract broken is upstream of the first failure seen.
+    tr: Boz tablosu, 2°'de medyan tahmin hatası 19,8 mm ve başarısızlıkların 12'si perception'a yazılıyor. Bozulan ilk sözleşme, görülen ilk başarısızlığın yukarısındadır.
+- q:
+    en: At 2° the agent retried, up to three picks per episode, and success still fell to 3/15. Why did the retries not help?
+    tr: 2°'de agent episode başına üç pick'e kadar yeniden denedi, başarı yine de 3/15'e düştü. Yeniden denemeler neden işe yaramadı?
+  options:
+    - en: The agent ran out of model turns before the second pick.
+      tr: Agent ikinci pick'ten önce model turlarını tüketti.
+    - en: Validation rejected every retry as out of reach.
+      tr: Validation her yeniden denemeyi erişim dışı diye reddetti.
+    - en: The error is systematic; each retry aimed at the same biased estimate. Retries fix random errors, not systematic ones.
+      tr: Hata sistematik; her deneme aynı sapmalı tahmine nişanlandı. Yeniden denemek rastgele hataları düzeltir, sistematik olanları değil.
+  answer: 2
+  why:
+    en: Break it. On hardware there is no ground truth, so the remedy is a calibration check before each session, for example a fiducial whose estimate must land within the 8 mm contract.
+    tr: Boz bölümü. Donanımda ground truth yok; çare her oturumdan önce bir calibration kontrolü, örneğin tahmini 8 mm sözleşmesinin içine düşmesi gereken bir fiducial.

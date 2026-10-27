@@ -1,0 +1,44 @@
+# Lesson 25 · Evaluating policies. Every answer is supported by the lesson page or
+# experiments/25-evaluating-policies/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: A policy scores 9/10. What does its Wilson 95% interval, [0.596, 0.982], tell you?
+    tr: Bir policy 9/10 yapıyor. Wilson %95 aralığı [0,596, 0,982] sana ne söyler?
+  options:
+  - en: Its long-run rate is about 0.90, give or take two points.
+    tr: Uzun vadeli oranı aşağı yukarı iki puan oynamayla yaklaşık 0,90.
+  - en: It is certainly better than a 0.74 policy, because 0.74 is near the bottom of the interval.
+    tr: 0,74'lük bir policy'den kesinlikle iyi, çünkü 0,74 aralığın altına yakın.
+  - en: A 9/10 fits a mediocre policy as well as an excellent one; a policy with p = 0.737 scores at least 9/10 in about one evaluation of five.
+    tr: 9/10 vasat bir policy'ye de mükemmel bir policy'ye de uyar; p = 0,737 olan bir policy yaklaşık beş evaluation'dan birinde en az 9/10 yapar.
+  answer: 2
+  why:
+    en: 'Part C: Wilson for 9/10 is [0.596, 0.982]; for policy A (p = 0.737), P(≥ 9/10) = 0.215 (binomial).'
+    tr: 'C kısmı: 9/10 için Wilson [0,596, 0,982]; policy A (p = 0,737) için P(≥ 9/10) = 0,215 (binom).'
+- q:
+    en: Why does the Wald interval break at 10/10?
+    tr: Wald aralığı 10/10'da neden bozulur?
+  options:
+  - en: It plugs $\hat p$ into the variance, which is exactly zero at $\hat p = 1$, so it reports [1.000, 1.000].
+    tr: Varyansa $\hat p$'yi koyar; varyans $\hat p = 1$'de tam sıfırdır ve aralık [1,000, 1,000] çıkar.
+  - en: It becomes too wide near the edges and covers far more than 95%.
+    tr: Kenarlara yakın fazla genişler ve %95'ten çok daha fazlasını kapsar.
+  - en: It needs at least 30 trials before it can be computed at all.
+    tr: Hesaplanabilmesi için en az 30 deneme gerekir.
+  answer: 0
+  why:
+    en: 'Break it: Wald gives [1.000, 1.000] for 10/10, Wilson [0.722, 1.000]; at n = 5 Wald covers p in 0.764 of evaluations instead of about 0.95 (Part B).'
+    tr: 'Boz: 10/10 için Wald [1,000, 1,000], Wilson [0,722, 1,000] veriyor; n = 5''te Wald p''yi evaluation''ların 0,95 yerine 0,764''ünde kapsıyor (B kısmı).'
+- q:
+    en: Policies A (p = 0.737) and B (p = 0.877) get 20 trials each. What does part E show?
+    tr: Policy A (p = 0,737) ve B (p = 0,877) her biri 20 deneme alıyor. E kısmı ne gösteriyor?
+  options:
+  - en: Fisher's test detects the 14-point gap almost every time.
+    tr: Fisher testi 14 puanlık farkı neredeyse her seferinde yakalıyor.
+  - en: B scores the same or worse 17% of the time, and Fisher's test calls the gap significant only 11% of the time.
+    tr: B zamanın %17'sinde aynı ya da daha kötü skor yapıyor ve Fisher testi farkı yalnızca %11 oranında anlamlı buluyor.
+  - en: Disjoint Wilson intervals are the most sensitive way to compare them.
+    tr: Ayrık Wilson aralıkları onları karşılaştırmanın en hassas yolu.
+  answer: 1
+  why:
+    en: 'Part E, n = 20: Fisher p < 0.05 in 0.113, disjoint Wilson intervals in 0.025, B ≤ A in 0.170; even with 100 trials each Fisher detects the gap in 0.673.'
+    tr: 'E kısmı, n = 20: Fisher p < 0,05 oranı 0,113, ayrık Wilson aralıkları 0,025, B ≤ A 0,170; her biri 100 denemeyle bile Fisher farkı 0,673 oranında yakalıyor.'

@@ -1,0 +1,46 @@
+# Lesson 22 · Configuration space and sampling-based planning. Every answer is supported by the lesson page or
+# experiments/22-motion-planning/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: At res 1.0 rad, RRT-Connect reports success in 100 of 100 runs. What does the dense re-check at 0.005 rad show?
+    tr: res 1,0 rad'da RRT-Connect 100 koşunun 100'ünde başarı raporluyor. 0,005 rad'daki yoğun yeniden kontrol ne gösteriyor?
+  options:
+  - en: All 100 paths are free, because every edge was approved by the collision checker.
+    tr: 100 path'in hepsi boş, çünkü her edge collision checker'dan geçti.
+  - en: 80 of the 100 paths go through the box, the worst one 156.4 mm deep.
+    tr: 100 path'in 80'i kutunun içinden geçiyor, en kötüsü 156,4 mm derinde.
+  - en: The planner fails more often, because coarse edges keep hitting the box.
+    tr: Planner daha sık başarısız oluyor, çünkü kaba edge'ler sürekli kutuya çarpıyor.
+  - en: The paths get longer, because coarse checks force detours around the box.
+    tr: Path'ler uzuyor, çünkü kaba kontroller kutunun etrafından dolanmaya zorluyor.
+  answer: 1
+  why:
+    en: 'Part A table: success is 100/100 in every row; at 1.0 rad 80/100 paths collide, worst penetration 156.4 mm, deeper than the straight line (139.0 mm).'
+    tr: 'A kısmının tablosu: her satırda başarı 100/100; 1,0 rad''da 80/100 path çarpışıyor, en kötü penetrasyon 156,4 mm, düz çizgiden (139,0 mm) bile derin.'
+- q:
+    en: From res 0.01 to 1.0 rad the shortcut path gets shorter (3.61 → 3.00 rad). Why?
+    tr: res 0,01'den 1,0 rad'a giderken shortcut'lı path kısalıyor (3,61 → 3,00 rad). Neden?
+  options:
+  - en: Fewer iterations (33 → 25) grow a straighter tree.
+    tr: Daha az iterasyon (33 → 25) daha düz bir ağaç büyütür.
+  - en: Shortcutting works better when it has fewer collision checks to run.
+    tr: Shortcutting, yapacak daha az collision check olunca daha iyi çalışır.
+  - en: Coarse checks let the shortcuts cut straight through the obstacle.
+    tr: Kaba kontroller shortcut'ların engelin içinden düz geçmesine izin verir.
+  answer: 2
+  why:
+    en: 'What the data says, point 2: checks fall from 2070 to 48 while paths in collision rise from 0/100 to 80/100; the shorter path is partly a path through the box.'
+    tr: 'Verinin söyledikleri, 2. madde: check sayısı 2070''ten 48''e düşerken çarpışan path''ler 0/100''den 80/100''e çıkıyor; daha kısa path kısmen kutunun içinden geçen bir path.'
+- q:
+    en: In Break it the slot shrinks from 0.40 m to 0.20 m and the median iteration count rises from 9 to 1487. Why?
+    tr: Boz bölümünde yarık 0,40 m'den 0,20 m'ye daralıyor ve medyan iterasyon 9'dan 1487'ye çıkıyor. Neden?
+  options:
+  - en: A uniform dart hits a region with probability proportional to its volume, and the free tube through the slot shrinks in several joint directions at once.
+    tr: Düzgün bir dart bir bölgeye hacmiyle orantılı olasılıkla düşer; yarıktan geçen boş tüp aynı anda birkaç joint yönünde daralır.
+  - en: At 0.20 m no free path exists any more, so the planner searches in vain.
+    tr: 0,20 m'de artık boş bir path yok, planner boşuna arıyor.
+  - en: The 0.05 rad edge check rejects every edge that comes near the wall.
+    tr: 0,05 rad'lık edge kontrolü duvara yaklaşan her edge'i reddediyor.
+  answer: 0
+  why:
+    en: 'Break it: start and goal are free and the 25 successful paths at 0.20 m pass the dense re-check, so the 5 failures of 30 are the budget running out (the narrow-passage problem).'
+    tr: 'Boz: başlangıç ve hedef boş, 0,20 m''deki 25 başarılı path yoğun yeniden kontrolden geçiyor; yani 30''daki 5 başarısızlık bütçenin bitmesi (narrow-passage problemi).'

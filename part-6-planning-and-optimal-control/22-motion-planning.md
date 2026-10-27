@@ -109,6 +109,8 @@ Go deeper: [Probability and Distributions](https://aiengineeringfromscratch.com/
 
 </details>
 
+<!-- figure: 22-rrt -->
+
 ## Experiment
 
 **Prediction.** A coarser edge-check resolution needs fewer collision checks and plans faster. It should also let some edges jump across the corner of the box.

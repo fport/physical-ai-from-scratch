@@ -1,0 +1,44 @@
+# Lesson 28 · Behavior cloning. Every answer is supported by the lesson page or
+# experiments/28-behavior-cloning/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: From 20 to 100 demonstrations the open-loop RMSE falls from 0.945° to 0.360°. What does closed-loop success do?
+    tr: 20'den 100 demonstration'a open-loop RMSE 0,945°'den 0,360°'ye düşüyor. Closed-loop başarı ne yapıyor?
+  options:
+  - en: It rises steadily and reaches its best value at 100 demos.
+    tr: Düzenli artıyor ve en iyi değerine 100 demoda ulaşıyor.
+  - en: 'It is 60/60 at 20 and 50 demos and 55/60 at 100: a lower loss did not mean more picks.'
+    tr: '20 ve 50 demoda 60/60, 100''de 55/60: daha düşük loss daha çok pick demek olmadı.'
+  - en: It falls to 0/60, because the network overfits.
+    tr: Network overfit ettiği için 0/60'a düşüyor.
+  answer: 1
+  why:
+    en: Part A table; a Fisher test on 60/60 vs 55/60 gives p = 0.057, so the drop is not statistically established, but success clearly stopped following the loss.
+    tr: A kısmı tablosu; 60/60'a karşı 55/60 için Fisher testi p = 0,057 veriyor, yani düşüş istatistiksel olarak kanıtlanmış değil, ama başarı açıkça loss'u izlemeyi bırakmış.
+- q:
+    en: Trained without input noise on 50 demonstrations, the policy scores 0/20. What is the lesson's reading?
+    tr: 50 demonstration üzerinde girdi gürültüsü olmadan eğitilen policy 0/20 yapıyor. Dersin yorumu ne?
+  options:
+  - en: The learner leaves the narrow tube of demonstrated states, its output there is extrapolated, and the errors compound step after step.
+    tr: Öğrenen gösterilmiş state'lerin dar tüpünden çıkar, oradaki çıktısı extrapolation'dır ve hatalar adım adım birikir.
+  - en: Noise-free data is too easy, so the network cannot fit it.
+    tr: Gürültüsüz veri fazla kolay, network onu fit edemiyor.
+  - en: Without noise the network ignores the clock input.
+    tr: Gürültü olmadan network saat girdisini yok sayıyor.
+  answer: 0
+  why:
+    en: 'Break it table: 0/20 at 0 and 0.005 rad, 7/20 at 0.01 rad, 20/20 at 0.02 and 0.04 rad; lesson 29 measures the drift directly.'
+    tr: 'Boz tablosu: 0 ve 0,005 rad''da 0/20, 0,01 rad''da 7/20, 0,02 ve 0,04 rad''da 20/20; ders 29 kaymayı doğrudan ölçüyor.'
+- q:
+    en: Remove the clock input and the policy scores 4/20, with 16 episodes in which the jaws never close. Why?
+    tr: 'Saat girdisini kaldır: policy 4/20 yapıyor ve 16 episode''da çeneler hiç kapanmıyor. Neden?'
+  options:
+  - en: Without the clock the network cannot tell where the cube is.
+    tr: Saat olmadan network küpün nerede olduğunu bilemez.
+  - en: The clock was the only input that was normalized.
+    tr: Saat normalize edilen tek girdiydi.
+  - en: The state "arm at the cube, jaws open" is followed by "keep open" in most frames and by "start closing" in only a few, so a state-only MSE regression averages toward "keep open".
+    tr: '"Kol küpte, çeneler açık" state''ini çoğu frame''de "açık tut", yalnızca birkaçında "kapatmaya başla" izliyor; yalnız state''e bakan bir MSE regression''ı "açık tut"a doğru ortalar.'
+  answer: 2
+  why:
+    en: 'Break it, last row (0.02 rad, no clock): 4/20, never closed 16. Math details: for a fixed input, MSE learns the mean of the actions seen with it.'
+    tr: 'Boz, son satır (0,02 rad, saat yok): 4/20, 16''sında hiç kapanmadı. Matematik ayrıntısı: sabit bir girdi için MSE, onunla görülen action''ların ortalamasını öğrenir.'

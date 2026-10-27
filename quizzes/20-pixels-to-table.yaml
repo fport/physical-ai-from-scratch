@@ -1,0 +1,44 @@
+# Lesson 20 · From pixels to the table. Every answer is supported by the lesson page or
+# experiments/20-pixels-to-table/output.txt. answer = index of the correct option (0-based).
+- q:
+    en: You treat the metres returned by MuJoCo's depth `Renderer` as the distance along each pixel's ray. What happens?
+    tr: MuJoCo'nun depth `Renderer`'ının döndürdüğü metreleri her pixel'in ışını boyunca mesafe gibi kullanıyorsun. Ne olur?
+  options:
+    - en: Nothing; the two are the same for a pinhole camera.
+      tr: Hiçbir şey; pinhole kamerada ikisi aynıdır.
+    - en: Points come out wrong by up to 138.0 mm, most at the image corners, because the values are depth along the optical axis.
+      tr: Noktalar 138,0 mm'ye kadar hatalı çıkar, en çok görüntü köşelerinde; çünkü değerler optik eksen boyunca depth.
+    - en: Every point is off by the near-clip distance, 5.0 mm.
+      tr: Her nokta near-clip mesafesi kadar, 5,0 mm kayar.
+  answer: 1
+  why:
+    en: The rendered depth matches z-depth to 0.008 mm (max). Used as $Z$, back-projection is off by at most 0.009 mm; misused as ray length, median 45.8 mm and max 138.0 mm.
+    tr: Render edilen depth z-depth ile en fazla 0,008 mm farklı. $Z$ olarak kullanınca back-projection en fazla 0,009 mm hatalı; ışın uzunluğu sanınca medyan 45,8 mm, en fazla 138,0 mm.
+- q:
+    en: A homography fitted on the table maps the top of a 50 mm box 36.7 mm away from its true position. Why?
+    tr: Masada uydurulan bir homography, 50 mm'lik bir kutunun üstünü gerçek yerinden 36,7 mm uzağa eşliyor. Neden?
+  options:
+    - en: It maps every pixel to where its ray hits $z = 0$, so a raised point slides away from the camera along the ray.
+      tr: Her pixel'i ışınının $z = 0$'a çarptığı yere eşler; yükseltilmiş bir nokta ışın boyunca kameradan uzağa kayar.
+    - en: Four markers are too few to fit $H$.
+      tr: $H$'yi uydurmak için dört marker çok az.
+    - en: The box's top face is darker, so the pixel is detected wrongly.
+      tr: Kutunun üst yüzü daha koyu, bu yüzden pixel yanlış tespit ediliyor.
+  answer: 0
+  why:
+    en: Break it uses no pixel noise - the error comes from the plane assumption alone and grows with height (4.7 mm at 10 mm, 88.5 mm at 100 mm). Depth back-projection stays at 0.00–0.01 mm.
+    tr: Boz bölümünde pixel noise'u yok - hata yalnızca düzlem varsayımından geliyor ve yükseklikle büyüyor (10 mm'de 4,7 mm, 100 mm'de 88,5 mm). Depth back-projection 0,00–0,01 mm'de kalıyor.
+- q:
+    en: With perfect simulated depth and 1 px of pixel noise, raising the camera from 0.3 to 2.0 m grows the back-projection error from 0.88 to 5.72 mm. What drives it?
+    tr: Kusursuz simüle depth ve 1 px pixel noise'u ile kamerayı 0,3'ten 2,0 m'ye çıkarmak back-projection hatasını 0,88'den 5,72 mm'ye büyütüyor. Bunu ne belirliyor?
+  options:
+    - en: The depth buffer loses resolution far from the camera.
+      tr: Depth buffer kameradan uzakta çözünürlük kaybediyor.
+    - en: The homography markers cover fewer pixels.
+      tr: Homography marker'ları daha az pixel kaplıyor.
+    - en: The size of one pixel on the table, which grows from 0.67 to 4.49 mm.
+      tr: Bir pixel'in masadaki izdüşümü; 0,67'den 4,49 mm'ye büyüyor.
+  answer: 2
+  why:
+    en: The depth error is 1.2–1.3 times the pixel footprint at the target - with perfect depth, pixel noise is the whole error budget. The marker patch explains why the homography grows faster (1.13 → 13.92 mm).
+    tr: Depth hatası hedefteki pixel izdüşümünün 1,2–1,3 katı - depth kusursuzken hata bütçesinin tamamı pixel noise'u. Marker bölgesi ise homography'nin neden daha hızlı büyüdüğünü açıklıyor (1,13 → 13,92 mm).
