@@ -21,7 +21,7 @@ python experiments/02-timestep/experiment.py
 
 Her dersin notebook'u `notebooks/` altında. Notebook'un ilk hücresi kendi bağımlılıklarını kurar (`pip install mujoco==3.17.0`). Menagerie modeli gereken notebook'lar (Go2, SO-101) ilgili klasörü kendisi klonlar.
 
-> "Open in Colab" rozetleri, repo herkese açık olunca eklenecek.
+> "Open in Colab" rozetleri yakında eklenecek.
 
 ## Hangi derste ne gerekir?
 

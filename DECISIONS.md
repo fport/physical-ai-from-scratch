@@ -4,7 +4,7 @@ Decisions still to be made for the book. This file is not part of the table of c
 
 ## 1 · Repo name
 
-Decided (2026-10-27): **`fport/physical-ai-from-scratch`**, **private**. The local folder is still named `fiziksel-ai-sifirdan`.
+Decided (2026-10-27): **`fport/physical-ai-from-scratch`**, **public**. The local folder is still named `fiziksel-ai-sifirdan`.
 
 ## 2 · License
 
@@ -15,18 +15,15 @@ There is no LICENSE file yet. A common choice is separate licenses for text and 
 
 Menagerie models keep their own licenses (`robotstudio_so101` Apache-2.0, `unitree_go2` BSD-3-Clause); the notebooks don't vendor the models, they clone them.
 
-## 3 · GitHub Pages and making it public
+## 3 · GitHub Pages
 
-`.github/workflows/pages.yml` builds `site/` and deploys it to https://fport.github.io/physical-ai-from-scratch/ on every push to `main`. GitHub Pages is not available for private repos on the free plan, so Pages is not enabled yet: either make the repo public or upgrade to a paid plan (e.g. GitHub Pro), then set Settings → Pages → Source to "GitHub Actions".
+The repo is public and GitHub Pages is enabled (source: GitHub Actions). `.github/workflows/pages.yml` builds `site/` and deploys it to https://fport.github.io/physical-ai-from-scratch/ on every push to `main`.
 
-The repo is private: https://github.com/fport/physical-ai-from-scratch. When it goes public:
-
-- Add "Open in Colab" badges to the notebooks (the badge URL needs the repo path).
-- Point the video descriptions at the lesson pages.
+Still to do: add "Open in Colab" badges to the notebooks and point the video descriptions at the lesson pages.
 
 ## 4 · Website: Starlight or GitBook?
 
-`site/` holds an Astro Starlight site (dark theme; English at `/`, Turkish at `/tr/`; the markdown sources stay at the repo root and under `tr/`). Locally: `cd site && npm install && npm run dev`. The static output (`npm run build` → `site/dist/`) can be hosted anywhere, e.g. a Cloudflare subdomain under `getporti.com`. Not deployed yet.
+`site/` holds an Astro Starlight site (dark theme; English at `/`, Turkish at `/tr/`; the markdown sources stay at the repo root and under `tr/`). Locally: `cd site && npm install && npm run dev`. The static output (`npm run build` → `site/dist/`) can be hosted anywhere, e.g. a Cloudflare subdomain under `getporti.com`. Deployed with GitHub Pages (see section 3).
 
 `.gitbook.yaml` is still there: the English root can be connected to gitbook.com with GitHub Sync (Turkish would be a second space with root `tr/`). Once one option is chosen the other can be removed.
 

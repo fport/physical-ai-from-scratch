@@ -23,7 +23,7 @@ Each lesson's notebook lives in `notebooks/`. Its first cell installs its own de
 
 > The notebooks were written for the Turkish video series, so their text is Turkish; the code runs the same.
 
-> "Open in Colab" badges will be added once the repo is public.
+> "Open in Colab" badges will be added soon.
 
 ## What each lesson needs
 

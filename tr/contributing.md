@@ -1,6 +1,6 @@
 # Katkı
 
-Bu kitap yazılıyor ve katkıya açık olacak. Repo herkese açık bir adrese konduğunda bu sayfa güncellenecek.
+Bu kitap yazılıyor ve katkıya açık: GitHub'da bir issue ya da pull request aç.
 
 ## Bir dersi tamamlamak
 

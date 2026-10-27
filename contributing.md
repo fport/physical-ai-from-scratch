@@ -1,6 +1,6 @@
 # Contributing
 
-This book is being written and will be open to contributions. This page will be updated once the repo is public.
+This book is being written and is open to contributions: open an issue or a pull request on GitHub.
 
 ## Finishing a lesson
 
