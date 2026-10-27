@@ -1,0 +1,334 @@
+---
+// Landing hero: pixel title, calls to action, terminal install box and an animated plate
+// (canvas) that cycles through three small robot scenes. Text comes in via the `lang` prop.
+interface Props {
+	lang: 'en' | 'tr'
+}
+const { lang } = Astro.props
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/')
+const prefix = lang === 'tr' ? `${base}tr/` : base
+const T = {
+	en: {
+		label: 'EXP_000 · 44 LESSONS · 10 PARTS · 2026',
+		license: 'OPEN SOURCE · MIT + CC BY 4.0',
+		title: ['PHYSICAL AI', 'FROM SCRATCH'],
+		lead: '44 lessons from a physics engine to a robot that picks up what you ask for. Every lesson has a runnable experiment; every number comes from a real run.',
+		sub: 'Simulation, kinematics, control, perception, planning, imitation learning, RL, sim-to-real and robot foundation models. Runs on a laptop.',
+		start: 'Start the course',
+		paths: 'Reading paths',
+		github: 'Code on GitHub',
+		term: 'LEARN IN YOUR TERMINAL',
+		copy: 'COPY',
+		copied: 'COPIED',
+		hint: 'Use start-learning to get a study plan.',
+		termNote: 'Your coding agent becomes your tutor: a short placement quiz, a plan, then one lesson at a time with the experiments run on your machine.',
+		plates: [
+			['FIG_001 · INVERSE KINEMATICS', 'A two-link arm solves IK every frame to reach, grasp and place a cube. Lessons 08–10, 16.'],
+			['FIG_002 · LEGGED LOCOMOTION', 'A trotting quadruped: diagonal legs swing together while the other pair carries the body. Lessons 12, 36.'],
+			['FIG_003 · PD CONTROL', 'Step responses of one joint for three damping ratios: too little, just right, too much. Lesson 12.'],
+		],
+		prev: 'PREVIOUS',
+		next: 'NEXT',
+		sketch: 'browser sketch, not MuJoCo',
+	},
+	tr: {
+		label: 'EXP_000 · 44 DERS · 10 BÖLÜM · 2026',
+		license: 'AÇIK KAYNAK · MIT + CC BY 4.0',
+		title: ['FİZİKSEL AI', 'SIFIRDAN'],
+		lead: "Bir physics engine'den, istediğini alıp getiren bir robota 44 ders. Her dersin koşturulabilir bir deneyi var; her sayı gerçek bir koşudan.",
+		sub: "Simulation, kinematics, control, perception, planning, imitation learning, RL, sim-to-real ve robot foundation model'leri. Dizüstünde çalışır.",
+		start: 'Kursa başla',
+		paths: 'Okuma yolları',
+		github: "Kod GitHub'da",
+		term: 'TERMİNALDE ÖĞREN',
+		copy: 'KOPYALA',
+		copied: 'KOPYALANDI',
+		hint: 'Çalışma planı için start-learning kullan.',
+		termNote: "Kod agent'ın öğretmenin olur: kısa bir yerleştirme quiz'i, bir plan, sonra deneyler senin makinende koşturularak her seferinde bir ders.",
+		plates: [
+			['FIG_001 · INVERSE KINEMATICS', 'İki eklemli bir kol her frame IK çözerek küpe uzanır, tutar ve bırakır. Ders 08–10, 16.'],
+			['FIG_002 · LEGGED LOCOMOTION', 'Tırıs giden dört ayaklı: çapraz bacaklar birlikte sallanır, diğer çift gövdeyi taşır. Ders 12, 36.'],
+			['FIG_003 · PD CONTROL', 'Bir eklemin üç damping ratio için step cevabı: az, tam, fazla. Ders 12.'],
+		],
+		prev: 'ÖNCEKİ',
+		next: 'SONRAKİ',
+		sketch: 'tarayıcı çizimi, MuJoCo değil',
+	},
+}[lang]
+const command = 'npx skills add fport/physical-ai-from-scratch'
+---
+
+<section class="fa-landing not-content" data-copied={T.copied} data-copy={T.copy}>
+	<div class="fa-topline">
+		<span>{T.label}</span>
+		<span class="fa-accent">{T.license}</span>
+	</div>
+	<div class="fa-grid">
+		<div class="fa-left">
+			<h2 class="fa-title" aria-label={T.title.join(' ')}>
+				<span>{T.title[0]}</span>
+				<span>{T.title[1]}</span>
+			</h2>
+			<p class="fa-lead">{T.lead}</p>
+			<p class="fa-sub">{T.sub}</p>
+			<div class="fa-buttons">
+				<a class="fa-btn fa-btn-primary" href={`${prefix}part-1-simulation/01-world-as-text/`}>{T.start}</a>
+				<a class="fa-btn" href={`${prefix}start-here/reading-paths/`}>{T.paths}</a>
+				<a class="fa-btn fa-btn-wide" href="https://github.com/fport/physical-ai-from-scratch">{T.github}</a>
+			</div>
+			<div class="fa-term">
+				<div class="fa-term-head">
+					<span>{T.term}</span>
+					<button type="button" class="fa-copy" data-command={command}>{T.copy}</button>
+				</div>
+				<pre class="fa-term-body"><code>{command}
+<span class="fa-accent">&gt; {T.hint}</span></code></pre>
+				<div class="fa-term-foot">CLAUDE CODE · CODEX · CURSOR · + ANY SKILL.MD AGENT</div>
+			</div>
+			<p class="fa-term-note">{T.termNote}</p>
+		</div>
+		<figure class="fa-plate" data-plates={JSON.stringify(T.plates)}>
+			<div class="fa-plate-frame">
+				<div class="fa-plate-head">
+					<span class="fa-plate-title">{T.plates[0][0]}</span>
+					<span class="fa-accent">{T.sketch}</span>
+				</div>
+				<canvas class="fa-canvas" width="560" height="380" aria-hidden="true"></canvas>
+			</div>
+			<figcaption class="fa-plate-caption">{T.plates[0][1]}</figcaption>
+			<div class="fa-pager">
+				<button type="button" class="fa-btn fa-pager-btn" data-step="-1">{T.prev}</button>
+				<span class="fa-dots"><i class="on"></i><i></i><i></i></span>
+				<button type="button" class="fa-btn fa-pager-btn" data-step="1">{T.next}</button>
+			</div>
+		</figure>
+	</div>
+</section>
+
+<script>
+	type Scene = (ctx: CanvasRenderingContext2D, t: number, w: number, h: number, c: Colors) => void
+	type Colors = { ink: string; muted: string; line: string; accent: string; soft: string; bg: string }
+
+	function colors(): Colors {
+		const s = getComputedStyle(document.documentElement)
+		const v = (n: string) => s.getPropertyValue(n).trim() || '#000'
+		return { ink: v('--fa-text'), muted: v('--fa-muted'), line: v('--fa-line'), accent: v('--fa-accent'), soft: v('--fa-accent-soft'), bg: v('--fa-bg') }
+	}
+
+	// --- scene 1: planar 2-link arm, analytic IK, pick and place ---
+	const L1 = 120, L2 = 100
+	function ik(x: number, y: number) {
+		const d2 = x * x + y * y
+		const c2 = Math.max(-1, Math.min(1, (d2 - L1 * L1 - L2 * L2) / (2 * L1 * L2)))
+		const q2 = -Math.acos(c2)
+		const q1 = Math.atan2(y, x) - Math.atan2(L2 * Math.sin(q2), L1 + L2 * Math.cos(q2))
+		return [q1, q2]
+	}
+	const ease = (u: number) => (u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2)
+	const arm: Scene = (ctx, t, w, h, c) => {
+		const bx = w * 0.3, by = h * 0.78
+		const A = [70, 0], B = [190, 0], up = 90
+		const keys: [number, number, boolean][] = [
+			[A[0], up, false], [A[0], 18, false], [A[0], 18, true], [A[0], up, true],
+			[B[0], up, true], [B[0], 18, true], [B[0], 18, false], [B[0], up, false],
+		]
+		const period = 8, seg = period / keys.length
+		const tt = t % period, k = Math.floor(tt / seg), u = ease((tt - k * seg) / seg)
+		const p0 = keys[k], p1 = keys[(k + 1) % keys.length]
+		const x = p0[0] + (p1[0] - p0[0]) * u, y = p0[1] + (p1[1] - p0[1]) * u
+		const holding = p0[2] && p1[2] || (p0[2] && !p1[2] && u < 0.5) || (!p0[2] && p1[2] && u > 0.5)
+		const [q1, q2] = ik(x, y)
+		const ex = bx + L1 * Math.cos(q1), ey = by - L1 * Math.sin(q1)
+		const hx = ex + L2 * Math.cos(q1 + q2), hy = ey - L2 * Math.sin(q1 + q2)
+		// table, targets
+		ctx.strokeStyle = c.line; ctx.lineWidth = 2
+		ctx.beginPath(); ctx.moveTo(30, by + 8); ctx.lineTo(w - 30, by + 8); ctx.stroke()
+		ctx.setLineDash([4, 4]); ctx.strokeStyle = c.muted
+		ctx.strokeRect(bx + B[0] - 14, by - 6, 28, 14); ctx.setLineDash([])
+		// workspace arc
+		ctx.strokeStyle = c.line; ctx.beginPath(); ctx.arc(bx, by, L1 + L2, Math.PI, 2 * Math.PI); ctx.stroke()
+		// cube
+		const cubeX = holding ? hx : (k >= 5 ? bx + B[0] : bx + A[0])
+		const cubeY = holding ? hy + 12 : by - 6
+		ctx.fillStyle = c.accent; ctx.fillRect(cubeX - 9, cubeY - 9, 18, 18)
+		// links
+		ctx.lineCap = 'round'
+		ctx.strokeStyle = c.ink; ctx.lineWidth = 10
+		ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.lineTo(hx, hy); ctx.stroke()
+		ctx.fillStyle = c.bg; ctx.strokeStyle = c.ink; ctx.lineWidth = 3
+		for (const [px, py] of [[bx, by], [ex, ey]]) { ctx.beginPath(); ctx.arc(px, py, 7, 0, 2 * Math.PI); ctx.fill(); ctx.stroke() }
+		// gripper
+		const open = holding ? 9 : 15
+		ctx.strokeStyle = c.ink; ctx.lineWidth = 4
+		ctx.beginPath(); ctx.moveTo(hx - open, hy); ctx.lineTo(hx - open, hy + 14); ctx.moveTo(hx + open, hy); ctx.lineTo(hx + open, hy + 14); ctx.moveTo(hx - open, hy); ctx.lineTo(hx + open, hy); ctx.stroke()
+		// readout
+		ctx.fillStyle = c.muted; ctx.font = '13px JetBrains Mono, monospace'
+		ctx.fillText(`q1 ${(q1 * 180 / Math.PI).toFixed(1).padStart(6)}°`, 30, 30)
+		ctx.fillText(`q2 ${(q2 * 180 / Math.PI).toFixed(1).padStart(6)}°`, 30, 50)
+		ctx.fillText(holding ? 'grasp: closed' : 'grasp: open', 30, 70)
+	}
+
+	// --- scene 2: trotting quadruped, legs by 2-link IK ---
+	const quad: Scene = (ctx, t, w, h, c) => {
+		const ground = h * 0.8, f = 1.4, stride = 34, lift = 20, l1 = 46, l2 = 46
+		const bodyY = ground - 78 + 3 * Math.sin(4 * Math.PI * f * t)
+		const scroll = (t * 60) % 40
+		ctx.strokeStyle = c.line; ctx.lineWidth = 2
+		ctx.beginPath(); ctx.moveTo(20, ground); ctx.lineTo(w - 20, ground); ctx.stroke()
+		for (let x = -scroll; x < w; x += 40) { ctx.beginPath(); ctx.moveTo(x, ground); ctx.lineTo(x - 10, ground + 10); ctx.stroke() }
+		const hips = [w * 0.33, w * 0.62]
+		const drawLeg = (hx: number, phase: number, back: boolean) => {
+			const ph = (f * t + phase) % 1
+			const swing = ph < 0.5
+			const s = swing ? ph / 0.5 : (ph - 0.5) / 0.5
+			const fx = hx + (swing ? -stride + 2 * stride * ease(s) : stride - 2 * stride * s)
+			const fy = ground - (swing ? lift * Math.sin(Math.PI * s) : 0)
+			const dx = fx - hx, dy = fy - bodyY
+			const d = Math.min(Math.hypot(dx, dy), l1 + l2 - 1)
+			const a = Math.atan2(dy, dx), b = Math.acos((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d))
+			const kx = hx + l1 * Math.cos(a + (back ? -b : b)), ky = bodyY + l1 * Math.sin(a + (back ? -b : b))
+			ctx.strokeStyle = back ? c.muted : c.ink; ctx.lineWidth = back ? 6 : 8; ctx.lineCap = 'round'
+			ctx.beginPath(); ctx.moveTo(hx, bodyY); ctx.lineTo(kx, ky); ctx.lineTo(fx, fy); ctx.stroke()
+			ctx.fillStyle = swing ? c.bg : c.accent
+			ctx.beginPath(); ctx.arc(fx, fy, 5, 0, 2 * Math.PI); ctx.fill(); ctx.strokeStyle = c.accent; ctx.lineWidth = 2; ctx.stroke()
+		}
+		drawLeg(hips[0] - 6, 0.5, true); drawLeg(hips[1] - 6, 0.0, true)
+		ctx.fillStyle = c.ink; ctx.fillRect(hips[0] - 30, bodyY - 16, hips[1] - hips[0] + 60, 26)
+		ctx.fillStyle = c.accent; ctx.fillRect(hips[1] + 30, bodyY - 22, 26, 20)
+		drawLeg(hips[0], 0.0, false); drawLeg(hips[1], 0.5, false)
+		ctx.fillStyle = c.muted; ctx.font = '13px JetBrains Mono, monospace'
+		ctx.fillText('gait: trot · 1.4 Hz', 30, 30)
+		ctx.fillText('filled foot = stance', 30, 50)
+	}
+
+	// --- scene 3: PD step responses for three damping ratios ---
+	const pd: Scene = (ctx, t, w, h, c) => {
+		const x0 = 60, x1 = w - 30, y0 = h - 50, y1 = 50, T = 4
+		const prog = Math.min(1, (t % 7) / 5)
+		const step = (z: number, tau: number) => {
+			const wn = 2 * Math.PI * 1.2
+			if (z < 1) {
+				const wd = wn * Math.sqrt(1 - z * z)
+				return 1 - Math.exp(-z * wn * tau) * (Math.cos(wd * tau) + (z / Math.sqrt(1 - z * z)) * Math.sin(wd * tau))
+			}
+			if (z === 1) return 1 - Math.exp(-wn * tau) * (1 + wn * tau)
+			const r = Math.sqrt(z * z - 1), s1 = -wn * (z - r), s2 = -wn * (z + r)
+			return 1 + (s2 * Math.exp(s1 * tau) - s1 * Math.exp(s2 * tau)) / (s1 - s2)
+		}
+		const X = (tau: number) => x0 + (x1 - x0) * tau / T
+		const Y = (v: number) => y0 - (y0 - y1) * v / 1.6
+		ctx.strokeStyle = c.line; ctx.lineWidth = 1.5
+		ctx.beginPath(); ctx.moveTo(x0, y1 - 10); ctx.lineTo(x0, y0); ctx.lineTo(x1, y0); ctx.stroke()
+		ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.moveTo(x0, Y(1)); ctx.lineTo(x1, Y(1)); ctx.stroke(); ctx.setLineDash([])
+		const curves: [number, string, string][] = [[0.15, c.muted, 'ζ = 0.15'], [0.7, c.accent, 'ζ = 0.7'], [2.5, c.ink, 'ζ = 2.5']]
+		curves.forEach(([z, col, label], i) => {
+			ctx.strokeStyle = col; ctx.lineWidth = z === 0.7 ? 3.5 : 2; ctx.beginPath()
+			const n = Math.floor(200 * prog)
+			for (let j = 0; j <= n; j++) { const tau = (j / 200) * T; const px = X(tau), py = Y(step(z, tau)); j ? ctx.lineTo(px, py) : ctx.moveTo(px, py) }
+			ctx.stroke()
+			ctx.fillStyle = col; ctx.font = '13px JetBrains Mono, monospace'; ctx.fillText(label, x1 - 90, y1 + 18 * i)
+		})
+		ctx.fillStyle = c.muted; ctx.fillText('target', x0 + 6, Y(1) - 6); ctx.fillText('time', x1 - 40, y0 + 22); ctx.fillText('angle', 12, y1 - 16)
+	}
+
+	const scenes = [arm, quad, pd]
+	for (const root of document.querySelectorAll<HTMLElement>('.fa-landing')) {
+		const btn = root.querySelector<HTMLButtonElement>('.fa-copy')
+		btn?.addEventListener('click', async () => {
+			try { await navigator.clipboard.writeText(btn.dataset.command || '') } catch { return }
+			btn.textContent = root.dataset.copied || 'COPIED'
+			setTimeout(() => (btn.textContent = root.dataset.copy || 'COPY'), 1500)
+		})
+		const fig = root.querySelector<HTMLElement>('.fa-plate')
+		const canvas = root.querySelector<HTMLCanvasElement>('.fa-canvas')
+		if (!fig || !canvas) continue
+		const plates: [string, string][] = JSON.parse(fig.dataset.plates || '[]')
+		const ctx = canvas.getContext('2d')
+		if (!ctx) continue
+		const dpr = Math.min(2, window.devicePixelRatio || 1)
+		const W = canvas.width, H = canvas.height
+		canvas.width = W * dpr; canvas.height = H * dpr; ctx.scale(dpr, dpr)
+		let idx = 0, start = performance.now(), last = performance.now()
+		const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+		const show = (i: number) => {
+			idx = (i + scenes.length) % scenes.length; start = performance.now()
+			fig.querySelector('.fa-plate-title')!.textContent = plates[idx][0]
+			fig.querySelector('.fa-plate-caption')!.textContent = plates[idx][1]
+			fig.querySelectorAll('.fa-dots i').forEach((d, j) => d.classList.toggle('on', j === idx))
+		}
+		fig.querySelectorAll<HTMLButtonElement>('.fa-pager-btn').forEach((b) => b.addEventListener('click', () => { show(idx + Number(b.dataset.step)); last = performance.now() }))
+		const frame = (now: number) => {
+			const c = colors()
+			ctx.clearRect(0, 0, W, H)
+			scenes[idx](ctx, reduce ? 2.2 : (now - start) / 1000, W, H, c)
+			if (!reduce && now - last > 12000) { show(idx + 1); last = now }
+			requestAnimationFrame(frame)
+		}
+		requestAnimationFrame(frame)
+	}
+</script>
+
+<style>
+	.fa-landing {
+		--pixel: 'VT323', 'JetBrains Mono', monospace;
+		--mono: 'JetBrains Mono', ui-monospace, monospace;
+		margin-block: 0 2.5rem;
+	}
+	.fa-accent { color: var(--fa-accent); }
+	.fa-topline {
+		display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+		font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.14em; color: var(--fa-muted);
+		margin-bottom: 1.5rem;
+	}
+	.fa-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 2.5rem; align-items: start; }
+	.fa-landing h2.fa-title {
+		font-family: var(--pixel); font-weight: 400; color: var(--fa-accent);
+		font-size: clamp(3.2rem, 8.2vw, 7.4rem); line-height: 0.88; letter-spacing: 0.02em;
+		margin: 0 0 1.5rem; text-transform: uppercase; border: 0;
+	}
+	.fa-landing h2.fa-title span { display: block; }
+	.fa-landing p.fa-lead { font-size: 1.35rem; line-height: 1.45; color: var(--fa-text); margin: 0 0 0.6rem; }
+	.fa-landing p.fa-sub { font-style: italic; color: var(--fa-muted); margin: 0 0 1.5rem; }
+	.fa-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.5rem; }
+	.fa-btn {
+		display: inline-flex; align-items: center; justify-content: center; padding: 0.85rem 1rem;
+		font-family: var(--mono); font-size: 0.9rem; letter-spacing: 0.05em; text-decoration: none;
+		color: var(--fa-text); background: transparent; border: 1.5px solid var(--fa-text); cursor: pointer;
+	}
+	.fa-btn:hover { border-color: var(--fa-accent); color: var(--fa-accent); }
+	.fa-btn-primary { border-color: var(--fa-accent); color: var(--fa-accent); }
+	.fa-btn-primary:hover { background: var(--fa-accent); color: #fff; }
+	.fa-btn-wide { grid-column: 1 / -1; }
+	.fa-term { border: 1px solid var(--fa-line); background: var(--fa-panel); }
+	.fa-term-head, .fa-term-foot {
+		display: flex; justify-content: space-between; align-items: center;
+		font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.14em; color: var(--fa-muted);
+		padding: 0.6rem 1rem;
+	}
+	.fa-term-head { border-bottom: 1px solid var(--fa-line); }
+	.fa-term-foot { border-top: 1px solid var(--fa-line); }
+	.fa-copy {
+		font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.1em; color: var(--fa-accent);
+		background: transparent; border: 1px solid var(--fa-accent); padding: 0.25rem 0.6rem; cursor: pointer;
+	}
+	.fa-term-body { margin: 0; padding: 1rem; background: transparent; border: 0; font-size: 0.95rem; white-space: pre-wrap; }
+	.fa-term-body code { background: transparent; border: 0; padding: 0; color: var(--fa-text); }
+	.fa-term-note { color: var(--fa-muted); font-size: 0.95rem; margin-top: 0.75rem; }
+	.fa-plate { margin: 0; }
+	.fa-plate-frame { border: 1px solid var(--fa-line); border-inline-start: 3px solid var(--fa-accent); background: var(--fa-panel); padding: 0.8rem; }
+	.fa-plate-head {
+		display: flex; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;
+		font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.12em; color: var(--fa-muted); margin-bottom: 0.4rem;
+	}
+	.fa-canvas { width: 100%; height: auto; display: block; border: 0; background: transparent; }
+	.fa-plate-caption { font-family: var(--mono); font-size: 0.8rem; line-height: 1.6; color: var(--fa-muted); text-align: center; margin: 0.9rem 0; min-height: 3.2em; }
+	.fa-pager { display: flex; justify-content: space-between; align-items: center; }
+	.fa-pager-btn { padding: 0.6rem 1rem; font-size: 0.75rem; }
+	.fa-dots { display: inline-flex; gap: 1.2rem; }
+	.fa-dots i { width: 10px; height: 10px; border: 1.5px solid var(--fa-accent); display: inline-block; }
+	.fa-dots i.on { background: var(--fa-accent); }
+	@media (max-width: 56rem) {
+		.fa-grid { grid-template-columns: 1fr; }
+		.fa-plate { max-width: 34rem; margin-inline: auto; width: 100%; }
+	}
+</style>

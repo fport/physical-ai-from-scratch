@@ -55,6 +55,14 @@ Python yazabilen ve robot yazılımını uçtan uca kurmak isteyen mühendisler 
 | 10 | [Foundation model'ler ve agent'lar](part-10-foundation-models-and-agents/README.md) | 41–43 |
 | — | [Bitirme projesi](capstone/README.md) | 44 |
 
+## Kod agent'ınla öğren
+
+```bash
+npx skills add fport/physical-ai-from-scratch
+```
+
+Bu komut [`skills/`](../skills/) altındaki dört skill'i kod agent'ına kurar (Claude Code, Codex, Cursor ya da `SKILL.md` okuyan herhangi bir agent): **start-learning** (kısa bir yerleştirme quiz'i ve `PHYSICAL-AI-LEARNING.md` içinde bir çalışma planı), **learn** (her seferinde bir ders: sezgi, diyagram, kod, bir tahmin, deneyin senin makinende koşması, alıştırmalar), **check-understanding** (bir bölüm ya da ders üzerine quiz) ve **course-guide** (bir konu nerede anlatılıyor, önce ne okunmalı). Claude Code'da `/start-learning` ile başla.
+
 ## Deneyleri koştur
 
 ```bash

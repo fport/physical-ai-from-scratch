@@ -165,21 +165,20 @@ for (const [lang, L] of Object.entries(LANGS)) {
     const range = nums.length > 1 ? `${nums[0]}–${nums[nums.length - 1]}` : nums[0]
     return `  <LinkCard title=${yaml(g.label)} description=${yaml(`${m} · ${L.lessons} ${range}`)} href=${yaml(route(g.items[0].file))} />`
   })
-  const home = convert(`${L.dir}README.md`, L, {
-    template: 'splash',
-    hero: {
-      tagline: L.tagline,
-      actions: [
-        { text: L.start, link: route(`${L.dir}part-1-simulation/01-world-as-text.md`), icon: 'right-arrow' },
-        { text: L.setup, link: route(`${L.dir}start-here/setup.md`), variant: 'minimal' },
-      ],
-    },
-  })
+  const home = convert(`${L.dir}README.md`, L, { template: 'splash', tableOfContents: false })
   const body = home.body
     .replace(new RegExp(`^${escapeRe(L.links)}.*\\n+`, 'm'), '')
     .replace(new RegExp(`^## ${L.map}\\n[\\s\\S]*?(?=\\n## )`, 'm'), [`## ${L.map}`, '', '<CardGrid>', ...cards, '</CardGrid>', ''].join('\n'))
+  const imports = [
+    "import { CardGrid, LinkCard } from '@astrojs/starlight/components'",
+    "import Landing from '../../components/Landing.astro'".replace('../../', lang === 'tr' ? '../../../' : '../../'),
+    "import Sims from '../../components/Sims.astro'".replace('../../', lang === 'tr' ? '../../../' : '../../'),
+  ].join('\n')
   fs.mkdirSync(path.join(OUT, L.dir), { recursive: true })
-  fs.writeFileSync(path.join(OUT, L.dir, 'index.mdx'), home.front + "import { CardGrid, LinkCard } from '@astrojs/starlight/components'\n\n" + body)
+  fs.writeFileSync(
+    path.join(OUT, L.dir, 'index.mdx'),
+    home.front + imports + `\n\n<Landing lang="${lang}" />\n\n<Sims lang="${lang}" />\n\n` + body,
+  )
   count++
 }
 fs.writeFileSync(path.join(SITE, 'src/sidebar.generated.json'), JSON.stringify(sidebar, null, 2))

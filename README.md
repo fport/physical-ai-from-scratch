@@ -55,6 +55,14 @@ Engineers and students who can program in Python and want to build robot softwar
 | 10 | [Foundation models and agents](part-10-foundation-models-and-agents/README.md) | 41–43 |
 | — | [Capstone](capstone/README.md) | 44 |
 
+## Learn with your coding agent
+
+```bash
+npx skills add fport/physical-ai-from-scratch
+```
+
+This installs four skills from [`skills/`](skills/) into your coding agent (Claude Code, Codex, Cursor or any agent that reads `SKILL.md`): **start-learning** (a short placement quiz and a study plan in `PHYSICAL-AI-LEARNING.md`), **learn** (one lesson per session: intuition, diagram, code, a prediction, the experiment run on your machine, exercises), **check-understanding** (a quiz on a part or lesson) and **course-guide** (where is a topic taught, what to read first). In Claude Code start with `/start-learning`.
+
 ## Run the experiments
 
 ```bash

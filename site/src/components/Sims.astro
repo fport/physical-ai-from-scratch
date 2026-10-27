@@ -1,0 +1,298 @@
+---
+// Interactive browser simulations for the landing page. Each section: label, title, short text,
+// a link to the lesson with the measured MuJoCo results, and a live canvas with controls.
+// These are small toy models written in JavaScript, not MuJoCo; the pages say so.
+interface Props {
+	lang: 'en' | 'tr'
+}
+const { lang } = Astro.props
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/')
+const prefix = lang === 'tr' ? `${base}tr/` : base
+const T = {
+	en: {
+		tag: 'INTERACTIVE SIMULATION',
+		toy: 'Browser toy model, not MuJoCo. Measured results are in the lesson.',
+		cta: 'BREAK IT IN THE LESSON →',
+		joint: {
+			label: 'FIG_PD', title: 'Inside a joint controller',
+			text: 'A motor holds an arm against gravity with two numbers: stiffness Kp and damping Kd. Turn them down and the arm sags; remove damping and it rings; switch on gravity feedforward and the sag disappears.',
+			kp: 'Kp (stiffness)', kd: 'Kd (damping)', ff: 'gravity feedforward', kick: 'New target',
+			sag: 'sag', over: 'overshoot', zeta: 'damping ratio',
+		},
+		step: {
+			label: 'FIG_DT', title: 'Inside a simulation step',
+			text: 'A physics engine jumps time forward in steps and only checks for collisions at those instants. Make the step larger and a falling cube can end up on the other side of a thin table.',
+			dt: 'timestep (ms)', drop: 'Drop again', pass: 'went through', stay: 'stayed on the table', jump: 'jump per step',
+		},
+		filter: {
+			label: 'FIG_FLT', title: 'Inside a sensor filter',
+			text: 'Averaging the last n readings calms a noisy sensor but reports where the joint was, not where it is. Find the window where noise and lag cost the same.',
+			n: 'window n (samples)', speed: 'motion speed', noise: 'noise left', lag: 'lag', total: 'total RMS error',
+		},
+	},
+	tr: {
+		tag: 'ETKİLEŞİMLİ SİMÜLASYON',
+		toy: 'Tarayıcıda oyuncak model, MuJoCo değil. Ölçülmüş sonuçlar derste.',
+		cta: 'DERSTE BOZ →',
+		joint: {
+			label: 'FIG_PD', title: 'Bir joint controller’ın içi',
+			text: 'Bir motor, kolu yerçekimine karşı iki sayıyla tutar: stiffness Kp ve damping Kd. Onları kısarsan kol sarkar; damping’i kaldırırsan çınlar; gravity feedforward’u açarsan sarkma kaybolur.',
+			kp: 'Kp (stiffness)', kd: 'Kd (damping)', ff: 'gravity feedforward', kick: 'Yeni hedef',
+			sag: 'sarkma', over: 'overshoot', zeta: 'damping ratio',
+		},
+		step: {
+			label: 'FIG_DT', title: 'Bir simülasyon adımının içi',
+			text: 'Bir physics engine zamanı adım adım ileri atlatır ve collision’a yalnız bu anlarda bakar. Adımı büyüt; düşen küp ince bir masanın öbür tarafına geçebilir.',
+			dt: 'timestep (ms)', drop: 'Yeniden bırak', pass: 'içinden geçti', stay: 'masada kaldı', jump: 'adım başına sıçrama',
+		},
+		filter: {
+			label: 'FIG_FLT', title: 'Bir sensor filtresinin içi',
+			text: 'Son n okumanın ortalaması noisy bir sensor’ü sakinleştirir ama eklemin şu an nerede değil, biraz önce nerede olduğunu söyler. Noise ile gecikmenin aynı bedeli ödediği pencereyi bul.',
+			n: 'pencere n (örnek)', speed: 'hareket hızı', noise: 'kalan noise', lag: 'gecikme', total: 'toplam RMS hata',
+		},
+	},
+}[lang]
+---
+
+<div class="fa-sims not-content">
+	<section class="fa-sim" data-sim="joint">
+		<div class="fa-sim-text">
+			<p class="fa-sim-tag">{T.joint.label} · {T.tag}</p>
+			<h2 class="fa-sim-title">{T.joint.title}</h2>
+			<p>{T.joint.text}</p>
+			<a class="fa-sim-cta" href={`${prefix}part-4-dynamics-and-control/12-joint-control/`}>{T.cta}</a>
+			<p class="fa-sim-toy">{T.toy}</p>
+		</div>
+		<div class="fa-sim-panel">
+			<canvas width="620" height="300"></canvas>
+			<div class="fa-controls">
+				<label>{T.joint.kp} <output data-out="kp"></output><input type="range" name="kp" min="2" max="80" step="1" value="20" /></label>
+				<label>{T.joint.kd} <output data-out="kd"></output><input type="range" name="kd" min="0" max="8" step="0.1" value="1.2" /></label>
+				<label class="fa-check"><input type="checkbox" name="ff" /> {T.joint.ff}</label>
+				<button type="button" name="kick">{T.joint.kick}</button>
+			</div>
+			<div class="fa-readout"><span>{T.joint.sag} <b data-r="sag"></b></span><span>{T.joint.over} <b data-r="over"></b></span><span>{T.joint.zeta} <b data-r="zeta"></b></span></div>
+		</div>
+	</section>
+
+	<section class="fa-sim" data-sim="step">
+		<div class="fa-sim-text">
+			<p class="fa-sim-tag">{T.step.label} · {T.tag}</p>
+			<h2 class="fa-sim-title">{T.step.title}</h2>
+			<p>{T.step.text}</p>
+			<a class="fa-sim-cta" href={`${prefix}part-1-simulation/02-timestep/`}>{T.cta}</a>
+			<p class="fa-sim-toy">{T.toy}</p>
+		</div>
+		<div class="fa-sim-panel">
+			<canvas width="620" height="300"></canvas>
+			<div class="fa-controls">
+				<label>{T.step.dt} <output data-out="dt"></output><input type="range" name="dt" min="1" max="40" step="1" value="2" /></label>
+				<button type="button" name="drop">{T.step.drop}</button>
+			</div>
+			<div class="fa-readout" data-pass={T.step.pass} data-stay={T.step.stay}><span>{T.step.jump} <b data-r="jump"></b></span><span><b data-r="result"></b></span></div>
+		</div>
+	</section>
+
+	<section class="fa-sim" data-sim="filter">
+		<div class="fa-sim-text">
+			<p class="fa-sim-tag">{T.filter.label} · {T.tag}</p>
+			<h2 class="fa-sim-title">{T.filter.title}</h2>
+			<p>{T.filter.text}</p>
+			<a class="fa-sim-cta" href={`${prefix}part-5-perception-and-estimation/17-sensors-noise-filtering/`}>{T.cta}</a>
+			<p class="fa-sim-toy">{T.toy}</p>
+		</div>
+		<div class="fa-sim-panel">
+			<canvas width="620" height="300"></canvas>
+			<div class="fa-controls">
+				<label>{T.filter.n} <output data-out="n"></output><input type="range" name="n" min="1" max="81" step="2" value="5" /></label>
+				<label>{T.filter.speed} <output data-out="speed"></output><input type="range" name="speed" min="0.25" max="4" step="0.25" value="1" /></label>
+			</div>
+			<div class="fa-readout"><span>{T.filter.noise} <b data-r="noise"></b></span><span>{T.filter.lag} <b data-r="lag"></b></span><span>{T.filter.total} <b data-r="total"></b></span></div>
+		</div>
+	</section>
+</div>
+
+<script>
+	type C = { ink: string; muted: string; line: string; accent: string; soft: string; bg: string }
+	const colors = (): C => {
+		const s = getComputedStyle(document.documentElement)
+		const v = (n: string) => s.getPropertyValue(n).trim() || '#000'
+		return { ink: v('--fa-text'), muted: v('--fa-muted'), line: v('--fa-line'), accent: v('--fa-accent'), soft: v('--fa-accent-soft'), bg: v('--fa-bg') }
+	}
+	const setup = (cv: HTMLCanvasElement) => {
+		const ctx = cv.getContext('2d')!
+		const W = cv.width, H = cv.height, dpr = Math.min(2, window.devicePixelRatio || 1)
+		cv.width = W * dpr; cv.height = H * dpr; ctx.scale(dpr, dpr)
+		return { ctx, W, H }
+	}
+	const mono = '13px JetBrains Mono, monospace'
+	const val = (root: HTMLElement, name: string) => root.querySelector<HTMLInputElement>(`[name="${name}"]`)!
+	const bindOutputs = (root: HTMLElement, fmt: Record<string, (x: number) => string>) => {
+		for (const [k, f] of Object.entries(fmt)) {
+			const inp = val(root, k), out = root.querySelector(`[data-out="${k}"]`)!
+			const upd = () => (out.textContent = f(Number(inp.value)))
+			inp.addEventListener('input', upd); upd()
+		}
+	}
+
+	// ---------- 1. joint controller: pendulum link, PD (+ gravity feedforward) ----------
+	function jointSim(root: HTMLElement) {
+		const { ctx, W, H } = setup(root.querySelector('canvas')!)
+		bindOutputs(root, { kp: (x) => x.toFixed(0), kd: (x) => x.toFixed(1) })
+		const I = 0.05, mgl = 2.0, h = 0.002, tau_max = 6
+		let q = 0, dq = 0, target = 0.9, t = 0
+		let hist: number[] = [], peak = 0, start = 0
+		const restart = () => { start = q; peak = q; hist = []; t = 0 }
+		root.querySelector('[name="kick"]')!.addEventListener('click', () => { target = target > 0.5 ? 0.3 : 0.9; restart() })
+		for (const n of ['kp', 'kd', 'ff']) val(root, n).addEventListener('input', () => { target = target > 0.5 ? 0.3 : 0.9; restart() })
+		const r = (k: string) => root.querySelector(`[data-r="${k}"]`)!
+		const loop = () => {
+			const kp = Number(val(root, 'kp').value), kd = Number(val(root, 'kd').value), ff = val(root, 'ff').checked
+			for (let i = 0; i < 8; i++) {
+				const g = mgl * Math.cos(q)
+				let tau = kp * (target - q) - kd * dq + (ff ? g : 0)
+				tau = Math.max(-tau_max, Math.min(tau_max, tau))
+				dq += h * (tau - g - 0.02 * dq) / I; q += h * dq; t += h
+				if (t < 3) peak = target > start ? Math.max(peak, q) : Math.min(peak, q)
+			}
+			hist.push(q); if (hist.length > 300) hist.shift()
+			const c = colors()
+			ctx.clearRect(0, 0, W, H)
+			// link
+			const px = 150, py = 170, L = 110
+			ctx.strokeStyle = c.line; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4])
+			ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + L * Math.cos(target), py - L * Math.sin(target)); ctx.stroke(); ctx.setLineDash([])
+			ctx.strokeStyle = c.ink; ctx.lineWidth = 12; ctx.lineCap = 'round'
+			ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + L * Math.cos(q), py - L * Math.sin(q)); ctx.stroke()
+			ctx.fillStyle = c.accent; ctx.beginPath(); ctx.arc(px + L * Math.cos(q), py - L * Math.sin(q), 11, 0, 7); ctx.fill()
+			ctx.fillStyle = c.bg; ctx.strokeStyle = c.ink; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, py, 9, 0, 7); ctx.fill(); ctx.stroke()
+			ctx.fillStyle = c.muted; ctx.font = mono; ctx.fillText('↓ g', px - 8, py + 60); ctx.fillText('dashed = target', 20, 24)
+			// plot
+			const x0 = 310, x1 = W - 20, y0 = H - 30, y1 = 30, Y = (v: number) => y0 - (y0 - y1) * (v + 0.1) / 1.3
+			ctx.strokeStyle = c.line; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x0, y1); ctx.lineTo(x0, y0); ctx.lineTo(x1, y0); ctx.stroke()
+			ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.moveTo(x0, Y(target)); ctx.lineTo(x1, Y(target)); ctx.stroke(); ctx.setLineDash([])
+			ctx.strokeStyle = c.accent; ctx.lineWidth = 2.5; ctx.beginPath()
+			hist.forEach((v, i) => { const xx = x0 + (x1 - x0) * i / 300; i ? ctx.lineTo(xx, Y(v)) : ctx.moveTo(xx, Y(v)) }); ctx.stroke()
+			ctx.fillStyle = c.muted; ctx.fillText('angle', x0 + 6, y1 + 4); ctx.fillText('time →', x1 - 56, y0 + 20)
+			const zeta = kd / (2 * Math.sqrt(kp * I))
+			const sag = (target - q) * 180 / Math.PI
+			const span = target - start
+			const over = Math.abs(span) > 0.05 ? Math.max(0, (peak - target) * Math.sign(span) / Math.abs(span)) * 100 : 0
+			r('sag').textContent = `${sag.toFixed(1)}°`; r('over').textContent = `${over.toFixed(0)}%`; r('zeta').textContent = zeta.toFixed(2)
+			requestAnimationFrame(loop)
+		}
+		requestAnimationFrame(loop)
+	}
+
+	// ---------- 2. timestep: falling cube, collision checked only at steps ----------
+	function stepSim(root: HTMLElement) {
+		const { ctx, W, H } = setup(root.querySelector('canvas')!)
+		bindOutputs(root, { dt: (x) => x.toFixed(0) })
+		const g = 9.81, half = 0.025, tableTop = 0.30, tableBot = 0.29, scale = 220
+		let z = 1.3, v = 0, trail: number[] = [], landed: null | boolean = null, acc = 0, last = performance.now()
+		const drop = () => { z = 1.3; v = 0; trail = [z]; landed = null }
+		root.querySelector('[name="drop"]')!.addEventListener('click', drop)
+		val(root, 'dt').addEventListener('input', drop)
+		const r = (k: string) => root.querySelector(`[data-r="${k}"]`)!
+		const ro = root.querySelector<HTMLElement>('.fa-readout')!
+		drop()
+		const loop = (now: number) => {
+			const dt = Number(val(root, 'dt').value) / 1000
+			acc += Math.min(0.05, (now - last) / 1000) * 0.35; last = now
+			while (acc >= dt && landed === null) {
+				acc -= dt
+				v -= g * dt; const zn = z + v * dt
+				const overlap = zn - half < tableTop && zn + half > tableBot
+				if (overlap) {
+					// soft contact pushes out along the shortest way; below the mid-plane that is downward
+					if (zn > (tableTop + tableBot) / 2) { z = tableTop + half; v = 0; landed = true } else { z = tableBot - half - 0.001; landed = false }
+				} else z = zn
+				if (z < 0.2) landed = false
+				trail.push(z)
+			}
+			if (landed === false && z > half) { v -= g * 0.004; z = Math.max(half, z + v * 0.004) }
+			const c = colors(), Y = (m: number) => H - 20 - m * scale, cx = 330
+			ctx.clearRect(0, 0, W, H)
+			ctx.fillStyle = c.line; ctx.fillRect(40, H - 20, W - 80, 3)
+			ctx.fillStyle = c.ink; ctx.fillRect(cx - 90, Y(tableTop), 180, Math.max(3, (tableTop - tableBot) * scale))
+			ctx.fillStyle = c.muted; ctx.font = mono; ctx.fillText('1 cm table', cx + 100, Y(tableTop) + 4)
+			trail.forEach((m) => { ctx.strokeStyle = c.accent; ctx.globalAlpha = 0.35; ctx.strokeRect(cx - 160, Y(m) - half * scale, half * 2 * scale, half * 2 * scale) })
+			ctx.globalAlpha = 1
+			trail.slice(-40).forEach((m) => { ctx.fillStyle = c.accent; ctx.beginPath(); ctx.arc(cx - 160 + half * scale, Y(m), 2.5, 0, 7); ctx.fill() })
+			ctx.fillStyle = c.accent; ctx.fillRect(cx - half * scale, Y(z) - half * scale, half * 2 * scale, half * 2 * scale)
+			ctx.fillStyle = c.muted; ctx.fillText('snapshots (one per step)', cx - 245, 24)
+			const vImpact = Math.sqrt(2 * g * (1.3 - half - tableTop))
+			r('jump').textContent = `${(vImpact * dt * 100).toFixed(1)} cm`
+			r('result').textContent = landed === null ? '…' : landed ? (ro.dataset.stay || '') : (ro.dataset.pass || '')
+			requestAnimationFrame(loop)
+		}
+		requestAnimationFrame(loop)
+	}
+
+	// ---------- 3. filter: noisy sine, moving average, error split ----------
+	function filterSim(root: HTMLElement) {
+		const { ctx, W, H } = setup(root.querySelector('canvas')!)
+		bindOutputs(root, { n: (x) => x.toFixed(0), speed: (x) => `${x.toFixed(2)}×` })
+		const N = 600, dt = 0.002, sigma = 0.08
+		let seed = 1
+		const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+		const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd())
+		const noise = Array.from({ length: N + 200 }, gauss)
+		const r = (k: string) => root.querySelector(`[data-r="${k}"]`)!
+		let phase = 0
+		const loop = () => {
+			const n = Number(val(root, 'n').value), sp = Number(val(root, 'speed').value)
+			phase += 0.01
+			const f = (i: number) => Math.sin(2 * Math.PI * 0.6 * sp * (i * dt * 4) + phase)
+			const z = Array.from({ length: N }, (_, i) => f(i) + sigma * noise[(i + Math.floor(phase * 50)) % noise.length])
+			const y = z.map((_, i) => { let s = 0, k = 0; for (let j = Math.max(0, i - n + 1); j <= i; j++) { s += z[j]; k++ } return s / k })
+			let e2 = 0, cnt = 0
+			for (let i = 100; i < N; i++) { e2 += (y[i] - f(i)) ** 2; cnt++ }
+			const total = Math.sqrt(e2 / cnt), noiseLeft = sigma / Math.sqrt(n), lagMs = ((n - 1) / 2) * dt * 4 * 1000
+			const c = colors(), x0 = 30, x1 = W - 20, Y = (v: number) => H / 2 - v * (H / 2 - 30), X = (i: number) => x0 + (x1 - x0) * i / N
+			ctx.clearRect(0, 0, W, H)
+			ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.beginPath(); z.forEach((v, i) => (i ? ctx.lineTo(X(i), Y(v)) : ctx.moveTo(X(i), Y(v)))); ctx.stroke()
+			ctx.strokeStyle = c.muted; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]); ctx.beginPath()
+			for (let i = 0; i < N; i++) (i ? ctx.lineTo(X(i), Y(f(i))) : ctx.moveTo(X(i), Y(f(i)))); ctx.stroke(); ctx.setLineDash([])
+			ctx.strokeStyle = c.accent; ctx.lineWidth = 3; ctx.beginPath(); y.forEach((v, i) => (i ? ctx.lineTo(X(i), Y(v)) : ctx.moveTo(X(i), Y(v)))); ctx.stroke()
+			ctx.fillStyle = c.muted; ctx.font = mono; ctx.fillText('gray = raw · dashed = true · orange = filtered', x0, 22)
+			r('noise').textContent = noiseLeft.toFixed(3); r('lag').textContent = `${lagMs.toFixed(0)} ms`; r('total').textContent = total.toFixed(3)
+			requestAnimationFrame(loop)
+		}
+		requestAnimationFrame(loop)
+	}
+
+	const sims: Record<string, (r: HTMLElement) => void> = { joint: jointSim, step: stepSim, filter: filterSim }
+	document.querySelectorAll<HTMLElement>('.fa-sim').forEach((el) => sims[el.dataset.sim || '']?.(el))
+</script>
+
+<style>
+	.fa-sims { margin-top: 1rem; }
+	.fa-sim {
+		display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr); gap: 2.5rem; align-items: center;
+		padding: 2.5rem 0; border-top: 1px solid var(--fa-line);
+	}
+	.fa-sim-tag { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; letter-spacing: 0.14em; color: var(--fa-accent); margin: 0; }
+	.fa-sims h2.fa-sim-title {
+		font-family: 'VT323', monospace; font-weight: 400; text-transform: uppercase; font-size: clamp(2.2rem, 4vw, 3.3rem);
+		line-height: 1; margin: 0.6rem 0 1rem; color: var(--fa-text); border: 0;
+	}
+	.fa-sim-text p { color: var(--sl-color-gray-1); }
+	.fa-sim-cta { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em; font-size: 0.85rem; color: var(--fa-accent); text-decoration: none; }
+	.fa-sim-toy { font-size: 0.85rem; font-style: italic; color: var(--fa-muted) !important; margin-top: 1rem; }
+	.fa-sim-panel { border: 1px solid var(--fa-line); background: var(--fa-panel); padding: 1rem; }
+	.fa-sim-panel canvas { width: 100%; height: auto; display: block; border: 0; }
+	.fa-controls { display: flex; flex-wrap: wrap; gap: 0.8rem 1.4rem; align-items: center; margin-top: 0.8rem; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--fa-muted); }
+	.fa-controls label { display: flex; flex-direction: column; gap: 0.25rem; min-width: 11rem; }
+	.fa-controls label.fa-check { flex-direction: row; align-items: center; min-width: 0; }
+	.fa-controls output { color: var(--fa-text); }
+	.fa-controls input[type='range'] { accent-color: var(--fa-accent); }
+	.fa-controls input[type='checkbox'] { accent-color: var(--fa-accent); }
+	.fa-controls button {
+		font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase;
+		background: transparent; color: var(--fa-accent); border: 1px solid var(--fa-accent); padding: 0.45rem 0.8rem; cursor: pointer;
+	}
+	.fa-readout { display: flex; flex-wrap: wrap; gap: 1.4rem; margin-top: 0.8rem; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--fa-muted); }
+	.fa-readout b { color: var(--fa-text); font-weight: 600; }
+	@media (max-width: 56rem) { .fa-sim { grid-template-columns: 1fr; } }
+</style>

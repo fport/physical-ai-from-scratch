@@ -173,7 +173,7 @@ h1#_top {
 	color: var(--fa-text);
 	letter-spacing: 0;
 }
-.sl-markdown-content h2 {
+.sl-markdown-content h2:not(.not-content *) {
 	font-family: var(--fa-font-pixel);
 	font-weight: 400;
 	font-size: 1.95rem;
@@ -401,4 +401,13 @@ starlight-toc a[aria-current='true'] {
 	.site-title {
 		font-size: 1.4rem;
 	}
+}
+
+/* landing page: the pixel title lives in the Landing component */
+.main-frame:has(.fa-landing) .content-panel:has(h1#_top) {
+	display: none;
+}
+.main-frame:has(.fa-landing) .sl-markdown-content > h2:first-of-type,
+.main-frame:has(.fa-landing) .sl-container {
+	max-width: 76rem;
 }
