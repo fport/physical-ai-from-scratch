@@ -98,6 +98,240 @@ Daha derine: [Linear Systems](https://aiengineeringfromscratch.com/lesson?path=p
 
 <!-- figure: 12-pd-step -->
 
+## Sıfırdan yaz
+
+Şimdi joint controller'ı yaklaşık 50 satır NumPy ile kendin yazacaksın: yerçekimi torku, simülatör adımı, PD kuralı ve gerçek bir motorun ihtiyaç duyduğu limitlerle bir PID. Her adım aynı eklemi koşturan MuJoCo ile karşılaştırılıyor. Eklem Deney'in A ve B bölümlerindeki eklem: bir hinge'den 30 cm uzakta 1 kg'lık noktasal bir kütle, tork her 1 ms'de uygulanıyor. Kodunun MuJoCo'dan aldığı tek şey XML'den okuyabileceğin sabit sayılar (kütle, mesafe, timestep).
+
+Adımları kopyalamak yerine kendi dosyana yaz (örneğin `scratch/my_joint.py`) ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/control.py`](../../physai/control.py) içinde; `uv run python experiments/12-joint-control/build.py` altı adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/12-joint-control/build_output.txt) dosyasında).
+
+### Adım 1 · Yük: tek bir link'te yerçekimi
+
+$q = 0$ yatay ve $q > 0$ aşağı yönde olduğunda kütle $-l\sin q$ yüksekliğindedir; yerçekimi eklemi $mgl\cos q$ ile döndürür: link yatayken en büyük, dümdüz aşağı sarkarken sıfır. Eksen etrafındaki inertia $ml^2$ artı kütlenin kendi küçük $10^{-4}$ kg·m²'si.
+
+```python
+def gravity_torque(q, m, l, g=9.81):
+    """Torque gravity puts on a hinge with a point mass m at distance l (q = 0 horizontal, q > 0 down)."""
+    return m * g * l * np.cos(q)
+```
+
+MuJoCo aynı büyüklüğe ters işaretle `qfrc_bias` der: yerçekiminin uyguladığı kuvvet değil, eklemin yerinde kalmak için *sağlaması* gereken kuvvettir.
+
+```text
+== Step 1. Gravity torque m g l cos(q) by hand vs MuJoCo ==
+inertia: m l^2 + 1e-4 = 0.0901 kg m^2, MuJoCo mass matrix = 0.0901 kg m^2
+ q (deg)  ours (N m)  -qfrc_bias (N m)
+       0      2.9430            2.9430
+      30      2.5487            2.5487
+      60      1.4715            1.4715
+      90      0.0000            0.0000
+     -45      2.0810            2.0810
+max difference: 4.7e-16 N m
+```
+
+### Adım 2 · Simülatör: tek bir semi-implicit Euler adımı
+
+Bir hinge için Newton $I\ddot q = \tau + \tau_{\text{yük}}$ der. Bunu MuJoCo'nun varsayılan `Euler` integrator'ının sırasıyla integre et: önce ivmeden yeni hız, sonra **yeni** hızdan yeni açı. Bu sıra (semi-implicit ya da symplectic Euler), sönümsüz bir sarkacın yavaş yavaş enerji kazanmasını engeller; ders kitabındaki sıra (açıyı eski hızdan almak) ise enerji ekler.
+
+```python
+def step_joint(q, qd, tau, inertia, dt, load=0.0):
+    """One semi-implicit Euler step: new speed from the torques, then new angle from the new speed."""
+    qdd = (tau + load) / inertia                   # motor torque plus load torque (e.g. gravity)
+    qd = qd + dt * qdd
+    q = q + dt * qd                                # uses the updated speed: this is the "semi"
+    return q, qd
+```
+
+```python
+def simulate_joint(torque_fn, q0, inertia, dt, steps, load_fn=None):
+    """Run a torque controller on one joint from rest at q0; returns the angle after every step."""
+    q, qd, qs = q0, 0.0, []
+    for _ in range(steps):
+        load = load_fn(q) if load_fn else 0.0
+        q, qd = step_joint(q, qd, torque_fn(q, qd), inertia, dt, load)
+        qs.append(q)
+    return np.array(qs)
+```
+
+```text
+== Step 2. Semi-implicit Euler by hand vs mj_step (free swing from horizontal, 1 s) ==
+angle after 1 s: ours 77.423 deg, MuJoCo 77.423 deg
+max |q_ours - q_mujoco| over 1000 steps: 4.4e-16 rad
+```
+
+Serbest salınım 1000 adım boyunca `mj_step` ile tek bir yuvarlama adımı farkla örtüşüyor: integrator MuJoCo'nunkiyle aynı.
+
+### Adım 3 · PD kuralı
+
+Controller tek satır, Ana fikir'deki yay ve sönümleyici:
+
+```python
+def pd_torque(q, qd, q_target, kp, kd):
+    """PD law: a spring toward q_target (stiffness kp) and a damper against the joint speed (kd)."""
+    return kp * (q_target - q) - kd * qd
+```
+
+```python
+I, DT = 1.0 * 0.3 ** 2 + 1e-4, 0.001
+kd = 2 * zeta * np.sqrt(20 * I)                     # Kd for a chosen damping ratio
+q = simulate_joint(lambda q, qd: pd_torque(q, qd, 0.5, 20, kd), 0.0, I, DT, 4000)
+overshoot = (q.max() - 0.5) / 0.5 * 100
+```
+
+MuJoCo tarafında aynı tork bir motor actuator'ünün (gear 1) `d.ctrl[0]`'ına ya da `d.qfrc_applied[0]`'a gider; aşağıda ikisi de deneniyor.
+
+```text
+== Step 3. PD step 0 -> 0.5 rad, Kp = 20, no gravity: overshoot ==
+ zeta     Kd  ours %  MuJoCo %  formula %
+  0.1  0.268   72.91     72.91      72.92
+  0.3  0.805   37.14     37.14      37.23
+  0.5  1.342   16.16     16.16      16.30
+  0.7  1.879    4.45      4.45       4.60
+  1.0  2.685    0.00      0.00       0.00
+max |q_ours - q_mujoco| over all runs: 3.3e-16 rad
+same loop through qfrc_applied instead of the motor: max diff 0.0e+00 rad
+```
+
+Bunlar Deney'in A bölümündeki sayılarla basamak basamak aynı, çünkü Deney tam olarak bu döngüyü koşturuyor. Formül sütunu ideal sürekli sistemden geliyor; simüle edilen overshoot onun 0,01 ile 0,15 puan altında kalıyor.
+
+### Adım 4 · Yerçekimi altında sarkma
+
+Adım 1'deki yükü ekle (`load_fn=lambda q: gravity_torque(q, 1.0, 0.3)`) ve sarkık durumdan (90°) yataya (0°) basamak ver. Dururken ağırlığı yay taşımak zorunda, $K_p e = mgl\cos e$; bunu birkaç satırlık fixed-point iterasyonu çözer:
+
+```python
+def pd_sag(kp, mgl, iters=200):
+    """Steady error e of a PD joint holding a link at horizontal: the fixed point of kp e = mgl cos(e)."""
+    e = 0.0
+    for _ in range(iters):
+        e = mgl * np.cos(e) / kp
+    return e
+```
+
+```text
+== Step 4. PD under gravity, hanging (90 deg) -> horizontal (0 deg), zeta 0.7: sag ==
+  Kp  ours (deg)  MuJoCo (deg)  Kp e = mgl cos e (deg)
+   5      29.385        29.385                  29.385
+  20       8.342         8.342                   8.342
+  80       2.106         2.106                   2.106
+```
+
+Senin simülatörün, MuJoCo ve formül her Kp'de üç ondalığa kadar aynı: Deney'in B bölümündeki sarkma simülatörün değil, PD kuralının bir özelliği.
+
+### Adım 5 · Gravity feedforward
+
+Feedforward, modelin yerçekimi için gerektiğini söylediği torku daha hiç hata oluşmadan ekler: $g$ yerine senin `gravity_torque`'unla $\tau = K_p e - K_d\dot q - g(q)$ (eksi işaret, MuJoCo'daki `+qfrc_bias`).
+
+```python
+KD = 2 * 0.7 * np.sqrt(20 * I)                      # 1.879, zeta = 0.7
+load = lambda q: gravity_torque(q, 1.0, 0.3)
+q = simulate_joint(lambda q, qd: pd_torque(q, qd, 0.0, 20, KD) - load(q), np.pi / 2, I, DT, 4000, load)
+```
+
+```text
+== Step 5. PD + gravity feedforward, Kp = 20, Kd = 1.879 ==
+feedforward                            overshoot (deg)  final err (deg)  t into 0.5 deg (s)
+ours: -g(q) at the current q                     4.009            0.000               0.463
+MuJoCo: qfrc_bias after mj_forward               4.009            0.000               0.463
+MuJoCo: qfrc_bias left by mj_step                3.994            0.000               0.463
+max |q_ours - q_fresh|: 4.2e-17 rad
+```
+
+Son hata Deney'deki gibi yok oluyor. Ama burada overshoot 4,009°, Deney'in tablosunda ise 3,994°. Fark bir zamanlama ayrıntısı: Deney `d.qfrc_bias`'ı `mj_step`'ten hemen sonra okuyor ve o anda bu alan hâlâ adımın *başında*, yani bir milisaniye önceki açı için hesaplanmış değeri tutuyor. Değeri yeniden hesaplarsan (`mj_forward`) ya da $g(q)$'yu kendin hesaplarsan 4,009° çıkar; eski değeri kullanırsan 3,994°. Bir feedforward teriminde 1 ms gecikme burada zararsız, ama gerçek robotta aynı gecikme bus'tan ve sensörden gelir ve büyür.
+
+### Adım 6 · Limitler: anti-windup ve torque cap
+
+Gerçek donanımdaki bir controller'da şu ikisi olmak zorunda: integral için bir limit (yoksa büyük bir hareket sırasında şişer; Deney'deki 46,016°'lik overshoot) ve motorun torque cap'i. İkisi de küçük bir sınıfa giriyor:
+
+```python
+@dataclass
+class PID:
+    """PD + integral + feedforward, with an anti-windup clamp and the motor's torque limit."""
+    kp: float
+    kd: float
+    ki: float = 0.0
+    i_max: float = np.inf      # anti-windup: the integral term may give at most this torque (N m)
+    tau_max: float = np.inf    # motor torque limit (N m)
+    integ: float = 0.0         # running sum of the error (rad s)
+
+    def __call__(self, q, qd, q_target, dt, tau_ff=0.0):
+        self.integ += (q_target - q) * dt
+        if self.ki:                                # clamp the sum, not just the output
+            lim = self.i_max / self.ki
+            self.integ = min(max(self.integ, -lim), lim)
+        tau = pd_torque(q, qd, q_target, self.kp, self.kd) + self.ki * self.integ + tau_ff
+        return min(max(tau, -self.tau_max), self.tau_max)
+```
+
+Clamp yalnızca terimin çıktısını değil *toplamı* sınırlar: büyüyen bir toplamın üstünde kırpılmış bir çıktı, yeniden hareket edebilmek için yine önce boşalmak zorunda kalırdı. 3 N·m, integralin sağlaması gereken en büyük torkun, yani yataydaki yerçekimi torku $mgl$ = 2,943 N·m'nin (Adım 1) hemen üstünde seçildi.
+
+```text
+== Step 6. Limits: integrator clamp (anti-windup) and torque cap ==
+controller                             overshoot (deg)  final err (deg)  t into 0.5 deg (s)
+PID Ki = 160                                    46.016            0.000               1.520   peak |tau| 31.67 N m
+PID Ki = 160, |Ki integ| <= 3 N m                4.646            0.000               0.685   peak |tau| 31.67 N m
+PD + feedforward                                 4.009            0.000               0.463   peak |tau| 31.42 N m
+PD + feedforward, |tau| <= 3.5 N m               2.512            0.000               0.607   peak |tau| 3.50 N m
+PID Ki = 160, ours vs MuJoCo: max diff 7.5e-17 rad
+torque cap, ours (clip in PID) vs MuJoCo (unclipped torque, ctrlrange = +-3.5): max diff 2.2e-16 rad
+```
+
+Clamp, PID overshoot'unu 46,016°'den (Deney'deki Ki = 160 satırı) 4,646°'ye, ±0,5° içine girme süresini 1,520 s'den 0,685 s'ye indiriyor; son hata yine sıfır. Cap olmadan ilk komut 31,42 N·m, yükün on katından fazla: $K_p$ çarpı 90°'lik hata. 3,5 N·m'lik bir cap hareketi yavaşlatıyor (0,607 s) ve burada yumuşatıyor (2,512°). 2,943 N·m'nin altında bir cap link'i hiç tutamazdı; C bölümünde SO-101'in karşılaştığı durum bu.
+
+### Elinde kalan
+
+`physai.control` artık `gravity_torque`, `step_joint`, `simulate_joint`, `pd_torque`, `pd_sag` ve `PID` içeriyor. Bir trajectory (ders 13), aynı controller'a hareket eden bir `q_target` vermekten ibaret; sonraki dersler bunları yeniden türetmek yerine import ediyor. [`tests/test_12_joint_control.py`](../../tests/test_12_joint_control.py) bunları MuJoCo'ya ve ζ ile sarkma formüllerine sabitliyor; bir şey değiştirdikten sonra `uv run pytest tests/test_12_joint_control.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+Pratikte position kontrollü bir joint için tork döngüsünü nadiren kendin yazarsın: MuJoCo'nun `position` actuator'ü aynı PD kuralıdır ve `mj_step` içinde hesaplanır. Torku değil hedefi gönderirsin:
+
+```xml
+<actuator>
+  <position joint="j" kp="20" kv="1.879"/>      <!-- or kp="20" dampratio="0.7" -->
+</actuator>
+```
+
+```python
+d.ctrl[0] = q_target          # position actuator: force = kp (ctrl - q) - kv qdot
+mujoco.mj_step(m, d)
+```
+
+Kendi tork döngünü (PID, feedforward, öğrenilmiş bir policy) istiyorsan bir `motor` actuator'ü (`ctrl` torktur, `gear` ile çarpılır) kullan ya da doğrudan `qfrc_applied`'a yaz; yerçekimi terimi için ya `qfrc_bias`'ı `mj_forward` ile yeniden hesapla ya da gövdeye `gravcomp="1"` vererek yerçekimini MuJoCo'ya iptal ettir:
+
+```python
+mujoco.mj_forward(m, d)                                   # qfrc_bias for the current q
+d.ctrl[0] = kp * (q_target - d.qpos[0]) - kd * d.qvel[0] + d.qfrc_bias[0]
+mujoco.mj_step(m, d)
+```
+
+```text
+== Use it. MuJoCo's own position actuator and gravity compensation ==
+dampratio="0.7" -> kv = 1.879 (2 zeta sqrt(Kp I) = 1.879)
+step 0 -> 0.5 rad: overshoot 4.45 %, max diff to our PD loop 1.1e-16 rad
+under gravity, hanging -> horizontal     overshoot (deg)  final err (deg)  qfrc_passive  qfrc_actuator
+position actuator                                  0.000            8.342         0.000         -2.912
++ body gravcomp="1"                                4.009            0.000        -2.943          0.000
++ joint actuatorgravcomp="true"                    4.009            0.000         0.000         -2.943
+```
+
+`dampratio` senin elle hesapladığın Kd'nin aynısını buluyor, position actuator Adım 3'teki döngünü 1,1e-16 rad farkla tekrarlıyor ve yerçekimi altında Adım 4'teki gibi 8,342° sarkıyor. `gravcomp` sarkmayı Adım 5'teki overshoot'la (4,009°) gideriyor.
+
+Aynı iki gain başka yerlerde başka adlar taşıyor. Birimler de farklı; bir satırdaki sayıyı asla başka bir satıra kopyalama:
+
+| Nerede | P gain | D gain | Not |
+|---|---|---|---|
+| physai | `PID.kp` | `PID.kd` | N·m/rad ve N·m·s/rad; `ki`, `i_max`, `tau_max` Adım 6'daki gibi |
+| MuJoCo `position` actuator | `kp` | `kv` ya da `dampratio` | SO-101 modeli: `kp="998.22" kv="2.731" forcerange="-2.94 2.94"` ([`so101.xml`](https://github.com/google-deepmind/mujoco_menagerie/blob/f3b6013/robotstudio_so101/so101.xml)) |
+| `unitree_rl_gym` config | `stiffness` | `damping` | joint adına göre dict; Go2 için 20 ve 0,5 ([`go2_config.py`](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/go2/go2_config.py)) |
+| `unitree_sdk2` düşük seviye komut | `motor_cmd()[i].kp()` | `motor_cmd()[i].kd()` | her komutta `q`, `dq` ve `tau` ile birlikte set ediliyor; kalkma örneğinde 60 ve 5 ([`go2_stand_example.cpp`](https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/go2/go2_stand_example.cpp)) |
+| Isaac Lab actuator config | `stiffness` ("p-gain") | `damping` ("d-gain") | implicit actuator'ler bunları fizik motoruna verir, explicit olanlar effort'u kendisi hesaplar ([`isaaclab.actuators`](https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.actuators.html)) |
+| LeRobot SO-101 follower (Feetech STS3215) | `P_Coefficient` = 16 | `D_Coefficient` = 32 | servo register değerleri, fiziksel birimi yok; `I_Coefficient` = 0 ([`config_so_follower.py`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/config_so_follower.py)) |
+
+Üç tuzak:
+
+- **Gain, gain değildir.** LeRobot'un 16'lık P katsayısı servonun içindeki bir register değeri; Menagerie modelindeki `kp = 998,22` N·m/rad bu ayar varsayılarak türetildi ve "1-to-1 mapping" değil (`so101.xml`'deki yorum). Araç değiştirince yeniden tune et.
+- **Bayat `qfrc_bias`.** `mj_step`'ten sonra bu alan adımın başındaki değeri tutar (Adım 5: 4,009° yerine 3,994°). Birden çok joint'li, hareket eden bir kolda yerçekiminden fazlasıdır: Coriolis ve merkezkaç torklarını da içerir; yalnız dururken tek başına $g(q)$'dur.
+- **Bedava gravity compensation.** `gravcomp="1"` ile link duruyor ama actuator 0,000 N·m gösteriyor, çünkü MuJoCo 2,943 N·m'yi passive kuvvet olarak kaydediyor. Gerçek bir motor bunu sağlamak zorunda. Joint'te `actuatorgravcomp="true"` onu `qfrc_actuator` altında kaydeder; böylece tork bütçen onu görür.
+
 ## Deney
 
 Tam script: [`experiments/12-joint-control/experiment.py`](../../experiments/12-joint-control/experiment.py). MuJoCo 3.17.0, NumPy 2.5.4, Python 3.14, Apple M5, deterministik, ~2 s. Dört bölüm, her biri bir sweep.
@@ -140,7 +374,7 @@ tau += d.qfrc_bias[0]                       # or: gravity feedforward from the m
 | PID, Ki = 160 | 0,000° | 46,016° | 1,520 s |
 | PD + `qfrc_bias` | −0,000° | 3,994° | 0,463 s |
 
-Integral terimi hatayı gideriyor ama karşılığında zaman ya da overshoot alıyor. Feedforward hatayı hemen gideriyor; kalan overshoot ζ = 0,7 döngüsünün kendisine ait (11. dersin $g(q)$'su işini yapıyor).
+Integral terimi hatayı gideriyor ama karşılığında zaman ya da overshoot alıyor. Feedforward hatayı hemen gideriyor; kalan overshoot ζ = 0,7 döngüsünün kendisine ait (11. dersin $g(q)$'su işini yapıyor). Buradaki `qfrc_bias` bir adım geriden okunuyor; taze değerle overshoot 4,009° (Sıfırdan yaz, Adım 5).
 
 ![Solda: yerçekimsiz PD ekleminin 0,1'den 1,5'e kadar damping oranları için step yanıtları; düşük oranlar hedef etrafında salınıyor, 1,0 overshoot'suz varıyor, 1,5 sürünüyor. Sağda: aynı eklem yerçekimi altında; PD hedefin 8,342° gerisinde kalıyor, Ki 160'lı PID hedefin 46,016° ötesine salınıyor, gravity feedforward'lı PD hedefe oturuyor.](../../experiments/12-joint-control/step_responses.png)
 
@@ -177,7 +411,7 @@ Hedef açılar tam tutulsaydı gövde 32,35 cm'de dururdu (ön bacaklar; arka 31
 
 **Kp yukarı, Kd sabit.** 80 / 0,5'te gövde t = 0,33 s'de 50,8 cm'ye kadar overshoot yapıyor, **dört ayağın dördü de yerden kesik**, ve adımların %2,9'unda bir joint tork limitinde. ζ diliyle: Kd yerinde kalırken Kp dört katına çıktı, yani ζ yarıya indi; joint'ler hedefin çok ötesine savruluyor ve biriken enerji robotu fırlatıyor. Kd'yi Kp ile birlikte artırmak (60 / 5) %0,2 overshoot ve 29,8 cm'lik bir duruş veriyor.
 
-**Ki yukarı.** B bölümünde Ki = 160 kalıcı (uzun vadede kalan) hatayı gideriyor ama 46,016° overshoot yapıyor: 90°'lik hareket sırasında integral büyük bir hata biriktiriyor ve bu hata hedefin ötesine geçerek "boşaltılmak" zorunda. Gerçek controller'lar saturation ve büyük hatalar sırasında integrator'ı kırpar ya da dondurur (anti-windup), ya da feedforward kullanıp Ki'yi küçük tutar.
+**Ki yukarı.** B bölümünde Ki = 160 kalıcı (uzun vadede kalan) hatayı gideriyor ama 46,016° overshoot yapıyor: 90°'lik hareket sırasında integral büyük bir hata biriktiriyor ve bu hata hedefin ötesine geçerek "boşaltılmak" zorunda. Gerçek controller'lar saturation ve büyük hatalar sırasında integrator'ı kırpar ya da dondurur (anti-windup), ya da feedforward kullanıp Ki'yi küçük tutar. Sıfırdan yaz, Adım 6'daki 3 N·m'lik clamp aynı Ki = 160'ı 4,646° overshoot'a indiriyor.
 
 ## Gerçek robotta
 

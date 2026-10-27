@@ -455,3 +455,21 @@ starlight-toc a[aria-current='true'] {
 :root[data-theme='dark'] .sl-markdown-content .fa-q[data-state='wrong'] .fa-q-verdict { color: #f87171; }
 .sl-markdown-content .fa-quiz-score { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; margin: 1rem 0 0; display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
 .sl-markdown-content .fa-quiz-score:empty { display: none; }
+
+/* ---------- "Act on this lesson" checklist (sync.mjs actPanel) ---------- */
+.fa-act { border: 1px solid var(--fa-line); background: var(--fa-panel); padding: 1rem 1.2rem; margin: 1.5rem 0 2rem; }
+.fa-act-title { font-family: 'VT323', monospace; text-transform: uppercase; font-size: 1.7rem; line-height: 1; margin: 0; color: var(--fa-text); }
+.fa-act-note { font-size: 0.85rem; color: var(--fa-muted); margin: 0.3rem 0 0.6rem; }
+.fa-act ol { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--fa-line); }
+.fa-act li { border-bottom: 1px solid var(--fa-line); padding: 0.55rem 0; margin: 0; }
+.fa-act label { display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; cursor: pointer; font-size: 0.95rem; line-height: 1.45; }
+.fa-act input { accent-color: var(--fa-accent); transform: translateY(1px); }
+.fa-act b { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fa-text); font-weight: 600; }
+.fa-act span { color: var(--sl-color-gray-1); flex: 1 1 18rem; }
+.fa-act code { font-size: 0.78rem; }
+.fa-act-done {
+	margin-top: 0.8rem; font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; letter-spacing: 0.06em; text-transform: uppercase;
+	background: transparent; color: var(--fa-accent); border: 1px solid var(--fa-accent); padding: 0.45rem 0.8rem; cursor: pointer;
+}
+.fa-act[data-complete='yes'] .fa-act-done { background: var(--fa-accent); color: var(--fa-bg); }
+nav.sidebar a.fa-done::after { content: ' ✓'; color: var(--fa-accent); }

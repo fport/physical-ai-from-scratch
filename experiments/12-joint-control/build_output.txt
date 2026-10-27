@@ -1,0 +1,55 @@
+MuJoCo 3.17.0 | NumPy 2.5.4
+
+== Step 1. Gravity torque m g l cos(q) by hand vs MuJoCo ==
+inertia: m l^2 + 1e-4 = 0.0901 kg m^2, MuJoCo mass matrix = 0.0901 kg m^2
+ q (deg)  ours (N m)  -qfrc_bias (N m)
+       0      2.9430            2.9430
+      30      2.5487            2.5487
+      60      1.4715            1.4715
+      90      0.0000            0.0000
+     -45      2.0810            2.0810
+max difference: 4.7e-16 N m
+
+== Step 2. Semi-implicit Euler by hand vs mj_step (free swing from horizontal, 1 s) ==
+angle after 1 s: ours 77.423 deg, MuJoCo 77.423 deg
+max |q_ours - q_mujoco| over 1000 steps: 4.4e-16 rad
+
+== Step 3. PD step 0 -> 0.5 rad, Kp = 20, no gravity: overshoot ==
+ zeta     Kd  ours %  MuJoCo %  formula %
+  0.1  0.268   72.91     72.91      72.92
+  0.3  0.805   37.14     37.14      37.23
+  0.5  1.342   16.16     16.16      16.30
+  0.7  1.879    4.45      4.45       4.60
+  1.0  2.685    0.00      0.00       0.00
+max |q_ours - q_mujoco| over all runs: 3.3e-16 rad
+same loop through qfrc_applied instead of the motor: max diff 0.0e+00 rad
+
+== Step 4. PD under gravity, hanging (90 deg) -> horizontal (0 deg), zeta 0.7: sag ==
+  Kp  ours (deg)  MuJoCo (deg)  Kp e = mgl cos e (deg)
+   5      29.385        29.385                  29.385
+  20       8.342         8.342                   8.342
+  80       2.106         2.106                   2.106
+
+== Step 5. PD + gravity feedforward, Kp = 20, Kd = 1.879 ==
+feedforward                            overshoot (deg)  final err (deg)  t into 0.5 deg (s)
+ours: -g(q) at the current q                     4.009            0.000               0.463
+MuJoCo: qfrc_bias after mj_forward               4.009            0.000               0.463
+MuJoCo: qfrc_bias left by mj_step                3.994            0.000               0.463
+max |q_ours - q_fresh|: 4.2e-17 rad
+
+== Step 6. Limits: integrator clamp (anti-windup) and torque cap ==
+controller                             overshoot (deg)  final err (deg)  t into 0.5 deg (s)
+PID Ki = 160                                    46.016            0.000               1.520   peak |tau| 31.67 N m
+PID Ki = 160, |Ki integ| <= 3 N m                4.646            0.000               0.685   peak |tau| 31.67 N m
+PD + feedforward                                 4.009            0.000               0.463   peak |tau| 31.42 N m
+PD + feedforward, |tau| <= 3.5 N m               2.512            0.000               0.607   peak |tau| 3.50 N m
+PID Ki = 160, ours vs MuJoCo: max diff 7.5e-17 rad
+torque cap, ours (clip in PID) vs MuJoCo (unclipped torque, ctrlrange = +-3.5): max diff 2.2e-16 rad
+
+== Use it. MuJoCo's own position actuator and gravity compensation ==
+dampratio="0.7" -> kv = 1.879 (2 zeta sqrt(Kp I) = 1.879)
+step 0 -> 0.5 rad: overshoot 4.45 %, max diff to our PD loop 1.1e-16 rad
+under gravity, hanging -> horizontal     overshoot (deg)  final err (deg)  qfrc_passive  qfrc_actuator
+position actuator                                  0.000            8.342         0.000         -2.912
++ body gravcomp="1"                                4.009            0.000        -2.943          0.000
++ joint actuatorgravcomp="true"                    4.009            0.000         0.000         -2.943

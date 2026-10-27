@@ -119,6 +119,236 @@ Daha derine: [Probability and Distributions](https://aiengineeringfromscratch.co
 
 <!-- figure: 18-kalman -->
 
+## Sıfırdan yaz
+
+Şimdi filtreyi yaklaşık 60 satır NumPy ile kendin yazacaksın ve her adımı kontrol edeceksin. Kodun sinyal dışında hiçbir kütüphaneden bir şey almıyor: eklemin gerçek hareketi MuJoCo'dan, encoder modeli de Deney script'inden geliyor; böylece Sıfırdan yaz ile Deney aynı 5000 okuma üzerinde çalışıyor. SciPy yalnızca hakem olarak var.
+
+Adımları kopyalamak yerine kendi dosyana yaz (örneğin `scratch/my_kalman.py`) ve her adımdan sonra çalıştır. Bitmiş fonksiyonlar [`physai/estimation.py`](../../physai/estimation.py) içinde; `uv run python experiments/18-kalman-filter/build.py` altı adımı kontrolleriyle birlikte koşturur (çıktı [`build_output.txt`](../../experiments/18-kalman-filter/build_output.txt) dosyasında).
+
+### Adım 1 · Modeli yaz
+
+Eklemi ve encoder'ını dört matris tarif eder; hepsi timestep'ten ve iki ayar düğmenden kurulur:
+
+```python
+def cv_model(dt, q_c, r):
+    """Constant-velocity model of one joint: state [q, qdot], the sensor reads q.
+
+    q_c: intensity of the white acceleration noise (rad^2/s^3); r: variance of one reading (rad^2).
+    """
+    F = np.array([[1.0, dt], [0.0, 1.0]])                            # q += qdot * dt, qdot stays
+    Q = q_c * np.array([[dt**3 / 3, dt**2 / 2], [dt**2 / 2, dt]])   # white acceleration over one step
+    H = np.array([[1.0, 0.0]])                                       # the encoder sees q only
+    R = np.array([[r]])
+    return F, Q, H, R
+```
+
+$Q$ formülü, beyaz ivmenin bir adım boyunca integralinden geldi (Matematik ayrıntısı). Bu integrali bilgisayar da alabilir: Van Loan yöntemi sürekli zamanlı modeli tek bir blok matrise yerleştirir ve bu matrisin exponential'ı hem $F$'yi hem de tam $Q$'yu içerir. Kontrol bu:
+
+```python
+A = np.array([[0.0, 1.0], [0.0, 0.0]])                 # d/dt [q, qd] = A x + [0, 1] a
+W = np.array([[0.0, 0.0], [0.0, 1.0]])                 # white acceleration of intensity 1 enters qd
+C = scipy.linalg.expm(np.block([[-A, W], [np.zeros((2, 2)), A.T]]) * dt)
+Phi, Q_vl = C[2:, 2:].T, C[2:, 2:].T @ C[:2, 2:]       # equal to F and Q
+```
+
+== Step 1. The model at dt = 2 ms, q_c = 1 rad^2/s^3, R = 1e-4 rad^2 ==
+F = [1 0.002; 0 1]   H = [1 0]   R = [0.0001]
+Q = [2.667e-09 2e-06; 2e-06 0.002]
+max |F - expm(A dt)| = 0.0e+00, max |Q - Q_VanLoan| / max |Q| = 2.1e-19
+
+$Q$'daki sayıları oku: 2 ms'lik her adımda beyaz ivme açıyı neredeyse hiç oynatmıyor (2,667e-09 rad²), ama hızı gözle görülür biçimde oynatıyor (0,002 rad²/s²). Filtre hızı encoder'dan öğrenebiliyor, çünkü model ikisini birbirine bağlıyor.
+
+### Adım 2 · Predict
+
+Öngörü iki satır: state'i modelle ilerlet, belirsizliği büyüt.
+
+```python
+def kf_predict(x, P, F, Q):
+    """Forecast one step: the state moves with the model, the uncertainty grows by Q."""
+    return F @ x, F @ P @ F.T + Q
+```
+
+$x = (0{,}1\ \text{rad},\ 0{,}5\ \text{rad/s})$'den başlayıp bir adımı elle kontrol et: açı $0{,}1 + 0{,}5 \cdot 0{,}002 = 0{,}101$ olur, $P_{00}$ ise $10^{-4} + \Delta t^2 \cdot 1 + \Delta t^3/3$. Sonra hiç okuma almadan 500 kez öngör. $Q$ tam bir discretization olduğu için 500 küçük adım, $T = 1$ s'lik tek bir adıma eşit olmalı; karşılaştırmak için kapalı bir formül veriyor: $F^{500} P_0 F^{500\top} + q_c\,[T^3/3,\ T^2/2;\ T^2/2,\ T]$.
+
+== Step 2. Predict: one step from x = (0.1 rad, 0.5 rad/s), P = diag(1e-4, 1) ==
+x- = [0.101 0.5]   P- = [0.000104003 0.002002; 0.002002 1.002]
+max |x- - hand| = 0.0e+00, max |P- - hand| = 0.0e+00
+after 500 predicts (1 s): position sigma 0.010 -> 1.155 rad, max |P - closed form| / max |P| = 2.2e-15
+
+Okuma olmadan konum belirsizliği bir saniyede 0,010'dan 1,155 rad'a çıkıyor: büyük kısmı başlangıçtaki 1 rad/s'lik hız belirsizliğinin 1 s boyunca taşınması, üstüne beyaz ivme. Update'in her okumada geri çekmesi gereken şey bu.
+
+### Adım 3 · Update
+
+```python
+def kf_update(x, P, z, H, R):
+    """Blend the forecast with a reading z; returns the new state, covariance and the gain."""
+    S = H @ P @ H.T + R                            # expected spread of the innovation
+    K = P @ H.T @ np.linalg.inv(S)                 # share of the surprise to believe
+    x = x + K @ (np.atleast_1d(z) - H @ x)         # z - H x is the innovation
+    P = (np.eye(len(x)) - K @ H) @ P               # uncertainty shrinks
+    return x, P, K
+```
+
+Kontrol aynı Bayes kuralını ikinci bir yoldan, ters covariance'larla (**information**) yazar: $P^{+\,-1} = P^{-\,-1} + H^\top R^{-1} H$; yani öngörünün ve okumanın information'ı basitçe toplanır.
+
+== Step 3. Update: the one-step forecast meets a reading z = 0.12 rad ==
+K = [0.5098 9.814]   x+ = [0.1107 0.6865]   sigma_q 10.20 -> 7.14 mrad
+scalar check K_q = P00/(P00 + R) = 0.5098
+max |x+ - info form| = 2.2e-16, max |P+ - info form| = 1.1e-16
+
+Öngörü (1,04e-4 rad²) ve okuma (1e-4 rad²) aşağı yukarı eşit belirsiz, bu yüzden $K_q = 0{,}5098$: yolun yaklaşık yarısını git. Ana fikir'deki skaler kural $P_{00}/(P_{00} + R)$ aynı sayıyı veriyor. $K_{\dot q} = 9{,}814$ ise skaler bir filtreden alamayacağın kısım: tek bir açı okuması, $P$'nin köşegen dışı elemanı üzerinden hızı da düzeltiyor.
+
+### Adım 4 · Dersin encoder'ında çalıştır
+
+Döngü predict, update, sakla:
+
+```python
+def kalman_filter(z, dt, q_c, r, x0=None, P0=None):
+    """Run the constant-velocity filter over readings z; returns states, covariances and the last gain."""
+    F, Q, H, R = cv_model(dt, q_c, r)
+    x = np.array([z[0], 0.0]) if x0 is None else x0     # start at the first reading, at rest
+    P = np.diag([r, 1.0]) if P0 is None else P0         # sure of q to one reading, unsure of qdot
+    xs, Ps = np.zeros((len(z), 2)), np.zeros((len(z), 2, 2))
+    for k in range(len(z)):
+        x, P = kf_predict(x, P, F, Q)
+        x, P, K = kf_update(x, P, z[k], H, R)
+        xs[k], Ps[k] = x, P
+    return xs, Ps, K
+```
+
+Sinyal Deney'inki; fonksiyonlarını yeniden yazmak yerine yükle. Ders 17'nin moving average'ı karşılaştırma noktası:
+
+```python
+spec = importlib.util.spec_from_file_location("kf_experiment", "experiments/18-kalman-filter/experiment.py")
+exp = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(exp)
+q, v = exp.simulate(exp.reference)                          # true angle and velocity from MuJoCo
+z = exp.encoder(q, np.random.default_rng(exp.SEED))         # 12-bit steps + 10 mrad noise
+r = exp.SIGMA**2 + (2 * np.pi / exp.COUNTS) ** 2 / 12       # R from Math details
+xs, Ps, K = kalman_filter(z, exp.DT, 1.0, r)
+```
+
+```python
+def moving_average(x, n):
+    """Causal moving average: the mean of the last n samples (fewer at the start), as in lesson 17."""
+    c = np.cumsum(np.insert(x, 0, 0.0))
+    i = np.arange(len(x))
+    lo = np.maximum(0, i + 1 - n)
+    return (c[i + 1] - c[lo]) / (i + 1 - lo)
+```
+
+== Step 4. The lesson's encoder signal (Experiment setup, seed 0) ==
+R = 1.002e-04 rad^2, 5000 readings, scored after the first 500
+        filter  pos RMS mrad  vel RMS rad/s     K_q    K_qd  max |ours - Exp.|
+  KF q_c = 0.1          3.23          0.084  0.0724   1.361            5.6e-15
+    KF q_c = 1          3.15          0.093  0.1251   4.179            5.1e-15
+      MA N = 5          5.17                                           0.0e+00
+
+Bunlar Deney tablosunun sayıları: $q_c = 1$'de 3,15 mrad ve 0,093 rad/s, $q_c = 0{,}1$'de 3,23 mrad ve 0,084 rad/s, aynı son gain'ler ve 5 örneklik moving average için 5,17 mrad. Hiçbiri farklı değil, çünkü ikisi de aynı sinyali, aynı başlangıcı (ilk okumada, durağan $x_0$; $P_0 = \text{diag}(R, 1)$) ve ilk 500 örnekten sonraki aynı puanlamayı kullanıyor. 5e-15'lik fark yuvarlama: senin update'in $S^{-1}$ ile çarpıyor, Deney $S$'ye bölüyor.
+
+### Adım 5 · Sabit gain, üç yoldan
+
+Transient'ten sonra gain değişmeyi bırakır. Bu sabiti veri olmadan da bulabilirsin; covariance özyinelemesini tek başına, oturana kadar çalıştırman yeter:
+
+```python
+def steady_state_gain(F, Q, H, R, rtol=1e-12, max_iter=100_000):
+    """Iterate the covariance recursion until it stops changing; returns the constant gain K and forecast P."""
+    P = Q.copy()
+    for _ in range(max_iter):
+        K = P @ H.T @ np.linalg.inv(H @ P @ H.T + R)
+        P_next = F @ (P - K @ H @ P) @ F.T + Q     # update, then predict
+        done = np.allclose(P_next, P, rtol=rtol, atol=0.0)
+        P = P_next
+        if done:
+            break
+    return P @ H.T @ np.linalg.inv(H @ P @ H.T + R), P
+```
+
+SciPy sabit noktayı doğrudan çözer. `scipy.linalg.solve_discrete_are(a, b, q, r)` kontrol (LQR) için yazılmıştır: $A^\top X A - X - A^\top X B (R + B^\top X B)^{-1} B^\top X A + Q = 0$ denklemini sağlayan $X$'i döndürür. $A$ yerine $F^\top$, $B$ yerine $H^\top$ ver; aynı denklem filtreninki olur (estimation ile control'ün **duality**'si). $X$ o zaman kararlı durumdaki öngörü covariance'ı $P^-$'dir:
+
+```python
+P_dare = scipy.linalg.solve_discrete_are(F.T, H.T, Q, R)   # filter = LQR with A -> F^T, B -> H^T
+K_dare = P_dare @ H.T @ np.linalg.inv(H @ P_dare @ H.T + R)
+```
+
+== Step 5. Steady-state gain: run, Riccati iteration, scipy.linalg.solve_discrete_are ==
+    q_c     K_q     K_qd  |K_iter - K_dare|  |K_run - K_dare|
+  0.001  0.0235    0.140            3.6e-12           1.4e-14
+   0.01  0.0414    0.437            4.9e-12           1.4e-14
+    0.1  0.0724    1.361            3.9e-12           6.4e-15
+      1  0.1251    4.179            1.9e-12           5.4e-14
+     10  0.2116   12.545            1.4e-12           6.2e-14
+    100  0.3448   36.165            1.8e-12           7.1e-15
+   1000  0.5285   97.018            2.6e-11           8.5e-14
+
+$K_q$ ve $K_{\dot q}$ sütunları, her $q_c$ için Deney tablosunun son gain'leri. Senin iterasyonun SciPy ile yaklaşık 1e-12 farkla örtüşüyor (durma toleransı), filtrenin 5000 okumadan sonraki son gain'i ise yaklaşık 1e-14 farkla: çalışan filtre, Ana fikir'in vaat ettiği sabit doğrusal filtreye dönüşmüş.
+
+### Adım 6 · Belirsizlik dürüst mü?
+
+```python
+def coverage(err, sd, k=2.0):
+    """Fraction of samples whose error lies within +-k of the filter's own standard deviation."""
+    return np.mean(np.abs(err) <= k * sd)
+```
+
+Filtrenin iddia ettiği hatayı (koşunun sonundaki $\sqrt{P_{00}}$) gerçekte yaptığı hatayla karşılaştır:
+
+== Step 6. Honest uncertainty: claimed sigma vs actual error ==
+    q_c  claimed sigma mrad  actual RMS mrad  2-sigma coverage %
+  0.001                1.53            20.71                 8.0
+   0.01                2.04             6.91                32.4
+    0.1                2.69             3.23                91.0
+      1                3.54             3.15                97.8
+     10                4.60             4.02                98.1
+    100                5.88             5.22                97.8
+   1000                7.28             6.61                97.3
+q_c and R (and P0) x 100: max |x change| = 7.1e-15 rad, P ratio 100.000
+
+$q_c = 0{,}001$'de filtre 1,53 mrad iddia ediyor ama 20,71 mrad yanılıyor: aşırı emin, bu yüzden örneklerin yalnızca %8,0'ı bandına düşüyor. $q_c = 1$'de 3,54 mrad iddia edip 3,15 mrad yanılıyor, biraz karamsar, %97,8. Hiçbir satır tam %95'e oturmuyor: o sayı model doğruysa geçerli; bu eklemin ivmesi ise beyaz noise değil yumuşak bir sinüs hareketi, yuvarlama hatası da Gauss değil. Filtrenin kendi modelinden üretilen veride `tests/` altındaki test coverage'ın %93 ile %97 arasına düştüğünü kontrol ediyor. Son satır Ana fikir'deki gerçeği ölçüyor: $q_c$, $R$ ve $P_0$'ı 100 ile ölçeklemek tahmini 7,1e-15 rad değiştiriyor, covariance'ı ise tam 100 katına çıkarıyor.
+
+### Elinde kalan
+
+`physai.estimation` artık `moving_average`, `cv_model`, `kf_predict`, `kf_update`, `kalman_filter`, `steady_state_gain` ve `coverage` içeriyor. Encoder'dan eklem hızı gereken sonraki bir script, noise'un türevini almak yerine `kalman_filter`'ı import edebilir; [ders 24](../part-6-planning-and-optimal-control/24-lqr-and-mpc.md) `solve_discrete_are`'yi bu kez LQR için yeniden çağırıyor. [`tests/test_18_kalman_filter.py`](../../tests/test_18_kalman_filter.py) bunları SciPy'a ve elle hesaplanan değerlere sabitliyor; bir şey değiştirdikten sonra `uv run pytest tests/test_18_kalman_filter.py` çalıştır.
+
+## Kütüphaneyle kullan
+
+NumPy'da ve SciPy'da Kalman filter sınıfı yok; SciPy kararlı durumu verir (Adım 5), çalışan bir filtre için ise küçük bir kütüphane ya da kendi döngün kullanılır. OpenCV'de bir tane var ve burada zaten kurulu. Adım 4'teki filtrenin aynısı:
+
+```python
+kf = cv2.KalmanFilter(2, 1, 0, cv2.CV_64F)           # 2 states, 1 measurement, no control; default is CV_32F
+F, Q, H, R = cv_model(dt, 1.0, r)
+kf.transitionMatrix, kf.measurementMatrix = F, H
+kf.processNoiseCov, kf.measurementNoiseCov = Q, R
+kf.statePost = np.array([[z[0]], [0.0]])
+kf.errorCovPost = np.diag([r, 1.0])
+est = []
+for zk in z:
+    kf.predict()
+    est.append(kf.correct(np.array([[zk]])).ravel().copy())   # correct() returns its internal Mat
+```
+
+`np.array(est)`'yi Adım 4'teki `xs` ile kendin karşılaştır. Başka araçlar aynı parçalara farklı adlar verir; sayıları kopyalamadan önce hangisinin elinde olduğuna bak:
+
+| Parça | Bu ders / physai | filterpy `KalmanFilter` | OpenCV `cv2.KalmanFilter` |
+|---|---|---|---|
+| hareket modeli | $F$ | `F` | `transitionMatrix` |
+| sensor'ün gördüğü | $H$ | `H` | `measurementMatrix` |
+| process noise (adım başına) | $Q$ | `Q` | `processNoiseCov` |
+| ölçüm noise'u (varyans) | $R$ | `R` | `measurementNoiseCov` |
+| okumadan önce / sonra covariance | $P^-$, $P$ | `P_prior`, `P_post` (ve `P`) | `errorCovPre`, `errorCovPost` |
+| gain | $K$ | `K` | `gain` |
+| iki adım | `kf_predict`, `kf_update` | `predict()`, `update(z)` | `predict()`, `correct(z)` |
+| varsayılanlar | hepsini sen verirsin | `P`, `Q`, `R` = birim matris | `processNoiseCov`, `measurementNoiseCov` = birim matris; `measurementMatrix`, `errorCovPost` = sıfır |
+
+Kaynaklar: [filterpy KalmanFilter](https://filterpy.readthedocs.io/en/latest/kalman/KalmanFilter.html), OpenCV'nin [`tracking.hpp`](https://github.com/opencv/opencv/blob/4.x/modules/video/include/opencv2/video/tracking.hpp) dosyası; OpenCV varsayılanlarını OpenCV 5.0.0'da `cv2.KalmanFilter(2, 1)` yazdırıyor.
+
+Saatlere mal olan dört tuzak:
+
+- **Hangi $Q$?** filterpy'da aynı model için fiziği farklı iki yardımcı var. `Q_continuous_white_noise(dim=2, dt, spectral_density)` bu dersteki $q_c\,[\Delta t^3/3,\ \Delta t^2/2;\ \Delta t^2/2,\ \Delta t]$'dir, $q_c$ rad²/s³ biriminde. `Q_discrete_white_noise(dim=2, dt, var)` ise ivmenin her adım içinde sabit olduğunu varsayar: $G = [\Delta t^2/2,\ \Delta t]^\top$ ve $Q = G G^\top \cdot$`var`; `var` rad²/s⁴ biriminde bir ivme varyansıdır ([filterpy.common](https://filterpy.readthedocs.io/en/latest/common/common.html)). Aynı düğme değeri farklı bir filtre verir. ROS'taki robot_localization üçüncü bir biçim kullanır: `process_noise_covariance` (15 × 15, state sırası x, y, z, roll, pitch, yaw, sonra bunların hızları, sonra doğrusal ivmeler, [`ekf.yaml`](https://github.com/cra-ros-pkg/robot_localization/blob/ros2/params/ekf.yaml)) her predict'te geçen süreyle (saniye) çarpılır ([`ekf.cpp`](https://github.com/cra-ros-pkg/robot_localization/blob/ros2/src/ekf.cpp)); yani sayıları adım başına değil saniye başınadır.
+- **$R$ bir varyanstır, standart sapma değil.** Bu encoder'ın $R$'si 1,002e-4 rad² (σ 10,01 mrad). $R$ yerine σ = 0,01 verirsen filtreye encoder'ının olduğundan yaklaşık 100 kat daha noisy olduğunu söylemiş olursun: Boz bölümündeki $R_{\text{used}}/R = 100$ satırı, 3,15 yerine 6,91 mrad ve işe yaramaz bir %100 coverage. ROS mesajları da varyans taşır: `sensor_msgs/Imu` covariance'ları row-major'dır, hepsi sıfırsa "bilinmiyor", 0. eleman −1 ise "tahmin yok" demektir ([`Imu.msg`](https://github.com/ros2/common_interfaces/blob/rolling/sensor_msgs/msg/Imu.msg)).
+- **Birimler birlikte gezer.** $z$, $R$ ve $q_c$ açı için tek bir birim kullanmalı (burada rad) ve $\Delta t$ saniye cinsinden olmalı. Count olarak okunan bir encoder'ın $R$'si count² cinsinden olmalı; milisaniye cinsinden bir $\Delta t$, $F$ ve $Q$'nun her elemanını sessizce değiştirir.
+- **Sessiz varsayılanlar ve float32.** OpenCV'nin `measurementMatrix`'i sıfırlarla başlar; ayarlamayı unuttuğun bir filtre okumalarına hiç bakmaz ve hata da vermez. `errorCovPost` sıfırdan başlar, yani ilk state kesin kabul edilir. Varsayılan tipi `CV_32F`: buradaki $Q$'nun elemanları 2,667e-09 ile 0,002 arasında yayılıyor, kod parçasının `CV_64F` istemesinin sebebi bu.
+
 ## Deney
 
 **Kurulum.** Ders 17 ile aynı sinyal: MuJoCo'da SO-101 `shoulder_pan`, 2 ms timestep, aynı trajectory, 12-bit encoder modeli artı 10 mrad beyaz noise, aynı seed; noise dizisi birebir aynı. $R = 1{,}002\times10^{-4}$ rad² (σ 10,01 mrad). $q_c$'yi altı dekad boyunca sweep ediyor; konum ve hız RMS hatasını, delay'i ve **2σ coverage**'ı ölçüyoruz: gerçek konumun $\pm2\sqrt{P_{00}}$ içinde kaldığı örneklerin oranı. Hatası iddia ettiği $P$ ile uyumlu Gauss bir filtre için coverage yaklaşık %95'tir.

@@ -23,6 +23,33 @@ import Default from '@astrojs/starlight/components/MarkdownContent.astro'
 	}, { rootMargin: '400px 0px' })
 	document.querySelectorAll<HTMLElement>('.fa-fig[data-fig]').forEach((el) => io.observe(el))
 
+	// "Act on this lesson" checklist; completed lessons get a mark in the sidebar
+	const load = (k: string) => { try { return JSON.parse(localStorage.getItem(k) || 'null') } catch { return null } }
+	const save = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} }
+	document.querySelectorAll<HTMLElement>('.fa-act').forEach((act) => {
+		const key = `fa-act:${act.dataset.lesson}`
+		const state = load(key) || { steps: {}, done: false }
+		const boxes = [...act.querySelectorAll<HTMLInputElement>('input[data-step]')]
+		const btn = act.querySelector<HTMLButtonElement>('.fa-act-done')!
+		const paint = () => {
+			boxes.forEach((b) => (b.checked = !!state.steps[b.dataset.step!]))
+			act.dataset.complete = state.done ? 'yes' : ''
+			btn.textContent = state.done ? act.dataset.undo! : act.dataset.done!
+		}
+		boxes.forEach((b) => b.addEventListener('change', () => { state.steps[b.dataset.step!] = b.checked; save(key, state) }))
+		btn.addEventListener('click', () => {
+			state.done = !state.done
+			if (state.done) boxes.forEach((b) => (state.steps[b.dataset.step!] = true))
+			save(key, state); paint(); markSidebar()
+		})
+		paint()
+	})
+	const markSidebar = () => document.querySelectorAll<HTMLAnchorElement>('nav.sidebar a[href]').forEach((a) => {
+		const m = a.getAttribute('href')!.match(/\/(\d\d-[^/]+)\/$/)
+		a.classList.toggle('fa-done', !!(m && load(`fa-act:${m[1]}`)?.done))
+	})
+	markSidebar()
+
 	const T = lang === 'tr'
 		? { right: 'Doğru.', wrong: 'Değil.', score: (k: number, n: number) => `${n} sorudan ${k} doğru.`, again: 'Yeniden dene', best: 'en iyi' }
 		: { right: 'Correct.', wrong: 'Not quite.', score: (k: number, n: number) => `${k} of ${n} correct.`, again: 'Try again', best: 'best' }

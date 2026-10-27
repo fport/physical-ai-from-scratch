@@ -1,5 +1,65 @@
 # Lesson 09 · Jacobians and differential kinematics. Every answer is supported by the lesson page or
 # experiments/09-jacobians/output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: The shoulder turns at the same speed with the arm folded and with it stretched out. When does the gripper move faster?
+    tr: Omuz, kol katlıyken de gerginken de aynı hızla dönüyor. Gripper ne zaman daha hızlı hareket eder?
+  options:
+    - en: Folded, because the motor carries less load.
+      tr: Katlıyken, çünkü motor daha az yük taşır.
+    - en: Stretched, because the gripper is farther from the shoulder axis.
+      tr: Gerginken, çünkü gripper omuz ekseninden daha uzaktadır.
+    - en: The same in both, because the joint speed is the same.
+      tr: İkisinde de aynı, çünkü joint hızı aynı.
+  answer: 1
+  why:
+    en: A hinge's column is $\hat a \times (p - o)$; its length grows with the distance from the axis to the tool, like a longer wrench (In plain words).
+    tr: Bir hinge'in sütunu $\hat a \times (p - o)$; uzunluğu eksenden alete olan mesafeyle büyür, daha uzun bir anahtar gibi (Sade anlatımla).
+- stage: pre
+  q:
+    en: You push straight down on the gripper. Which joint feels no torque from that push?
+    tr: Gripper'a dümdüz aşağı bastırıyorsun. Hangi joint bu baskıdan hiç tork hissetmez?
+  options:
+    - en: shoulder_pan, whose axis is vertical.
+      tr: Ekseni dikey olan shoulder_pan.
+    - en: shoulder_lift, the joint closest to the base.
+      tr: Tabana en yakın joint olan shoulder_lift.
+    - en: None; every joint feels part of it.
+      tr: Hiçbiri; her joint bir kısmını hisseder.
+  answer: 0
+  why:
+    en: A vertical force has no moment about a vertical axis. In the Experiment, Step 3, $J^\top F$ for $F = (0, 0, -2)$ N starts with 0.0000.
+    tr: Dikey bir kuvvetin dikey bir eksen etrafında momenti yoktur. Deney, Adım 3'te $F = (0, 0, -2)$ N için $J^\top F$ 0,0000 ile başlıyor.
+- stage: check
+  q:
+    en: In Build it, what does your code take from MuJoCo?
+    tr: Sıfırdan yaz bölümünde kodun MuJoCo'dan ne alıyor?
+  options:
+    - en: The world positions of the joints at the current pose.
+      tr: Joint'lerin o anki pozdaki dünya konumlarını.
+    - en: Only the model's static numbers (body offsets, hinge axes, the tool point); the kinematics is yours.
+      tr: Yalnız modelin sabit sayılarını (gövde ofsetleri, hinge eksenleri, alet noktası); kinematik senin.
+    - en: The Jacobian, which your code then checks.
+      tr: Jacobian'ı; kodun sonra onu kontrol ediyor.
+  answer: 1
+  why:
+    en: '`chain_from_mujoco` reads `body_pos`, `body_quat`, `jnt_axis`, `jnt_pos` and the site position; `fk` and `jacobian` compute the rest, and match MuJoCo to 2.2e-16 m and 1.0e-15.'
+    tr: '`chain_from_mujoco` yalnız `body_pos`, `body_quat`, `jnt_axis`, `jnt_pos` ve site konumunu okur; gerisini `fk` ve `jacobian` hesaplar ve MuJoCo ile 2,2e-16 m ve 1,0e-15 farkla örtüşür.'
+- stage: check
+  q:
+    en: Build it, Step 4 gives $J^\top F$ = 0.4385 N m at the lift for a 2 N downward push; the Experiment's servo held 0.4383 N m. Why the difference?
+    tr: Sıfırdan yaz, Adım 4 2 N aşağı baskı için lift'te $J^\top F$ = 0,4385 N m veriyor; Deney'deki servo 0,4383 N m tuttu. Fark neden?
+  options:
+    - en: A bug in the hand-written Jacobian.
+      tr: Elle yazılan Jacobian'da bir hata.
+    - en: Float rounding in the transpose.
+      tr: Transpose'taki float yuvarlaması.
+    - en: The servos give a little under the load, so the arm settles at a slightly different pose, and $J$ depends on the pose.
+      tr: Servo'lar yük altında biraz esner, kol biraz farklı bir pozda oturur ve $J$ poza bağlıdır.
+  answer: 2
+  why:
+    en: Step 4 evaluates $J$ at the commanded pose; the Experiment compares at the settled pose, where $J^\top F$ and the servo torque agree to 4.2e-14. The hand-written $J$ matches `mj_jacSite` to 1.0e-15 at any given pose (Step 3).
+    tr: Adım 4 $J$'yi komut verilen pozda hesaplar; Deney oturmuş pozda karşılaştırır ve orada $J^\top F$ ile servo torku 4,2e-14 farkla aynıdır. Elle yazılan $J$ verilen her pozda `mj_jacSite` ile 1,0e-15 farkla örtüşür (Adım 3).
 - q:
     en: You compute the position Jacobian by finite differences. Is a smaller step ε always more accurate?
     tr: Konum Jacobian'ını finite difference ile hesaplıyorsun. Daha küçük ε adımı her zaman daha mı doğru?
@@ -14,6 +74,7 @@
   why:
     en: Step 2 table, the best forward step is 1e-8 (error 9.8e-09) and the best central step 1e-5 (error 5.6e-12); at 1e-14 the central error is 4.5e-03.
     tr: Adım 2 tablosu, en iyi ileri adım 1e-8 (hata 9,8e-09), en iyi merkezi adım 1e-5 (hata 5,6e-12); 1e-14'te merkezi hata 4,5e-03.
+  stage: post
 - q:
     en: The model's servos hold 9.61 N of extra tip load in the mid pose but only 4.95 N in the stretched pose. Why?
     tr: Modelin servo'ları orta pozda 9,61 N ek uç yükü tutarken gergin pozda yalnızca 4,95 N tutuyor. Neden?
@@ -28,17 +89,4 @@
   why:
     en: Break it, every joint has the same 2.94 N m limit; in the stretched pose gravity alone already takes −0.909 N m at the lift and shoulder_lift saturates first.
     tr: Boz bölümünde her joint'in limiti aynı, 2,94 N m; gergin pozda yalnız yerçekimi lift'te −0,909 N m alıyor ve ilk doyan shoulder_lift oluyor.
-- q:
-    en: Why do the finite-difference rotation columns $J_r$ show no truncation error at all?
-    tr: Finite difference ile bulunan rotation sütunları $J_r$ neden hiç truncation hatası göstermiyor?
-  options:
-    - en: Moving one hinge by ε rotates the tool by exactly ε about that hinge's axis, so the difference quotient is exact.
-      tr: Bir hinge'i ε kadar oynatmak aleti tam olarak o hinge'in ekseni etrafında ε kadar döndürür, yani fark oranı kesindir.
-    - en: Orientation differences are computed in single precision, which hides the error.
-      tr: Orientation farkları single precision'da hesaplanır ve bu hatayı gizler.
-    - en: Rotation columns are always zero for a hinge.
-      tr: Bir hinge için rotation sütunları hep sıfırdır.
-  answer: 0
-  why:
-    en: Only round-off remains; in Step 2 the forward $J_r$ error is 4.8e-15 at ε = 0.1 and grows as ε shrinks.
-    tr: Geriye yalnızca yuvarlama kalır; Adım 2'de ileri $J_r$ hatası ε = 0,1'de 4,8e-15 ve ε küçüldükçe büyüyor.
+  stage: post

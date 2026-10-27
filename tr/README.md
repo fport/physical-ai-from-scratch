@@ -70,6 +70,8 @@ git clone https://github.com/fport/physical-ai-from-scratch.git
 cd physical-ai-from-scratch
 uv sync                                   # Python 3.14 + kilitli bağımlılıklar
 uv run python experiments/02-timestep/experiment.py
+uv run python experiments/09-jacobians/build.py   # bir dersin Sıfırdan yaz adımları, MuJoCo ile kontrollü
+uv run pytest                             # derslerde yazdığın physai/ kütüphanesinin testleri
 ```
 
 Kitabı yerelde web sitesi olarak okumak için: `cd site && npm install && npm run dev` ([site/README.md](../site/README.md)).

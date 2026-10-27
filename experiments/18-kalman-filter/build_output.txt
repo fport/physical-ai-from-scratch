@@ -1,0 +1,44 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | SciPy 1.18.1
+
+== Step 1. The model at dt = 2 ms, q_c = 1 rad^2/s^3, R = 1e-4 rad^2 ==
+F = [1 0.002; 0 1]   H = [1 0]   R = [0.0001]
+Q = [2.667e-09 2e-06; 2e-06 0.002]
+max |F - expm(A dt)| = 0.0e+00, max |Q - Q_VanLoan| / max |Q| = 2.1e-19
+
+== Step 2. Predict: one step from x = (0.1 rad, 0.5 rad/s), P = diag(1e-4, 1) ==
+x- = [0.101 0.5]   P- = [0.000104003 0.002002; 0.002002 1.002]
+max |x- - hand| = 0.0e+00, max |P- - hand| = 0.0e+00
+after 500 predicts (1 s): position sigma 0.010 -> 1.155 rad, max |P - closed form| / max |P| = 2.2e-15
+
+== Step 3. Update: the one-step forecast meets a reading z = 0.12 rad ==
+K = [0.5098 9.814]   x+ = [0.1107 0.6865]   sigma_q 10.20 -> 7.14 mrad
+scalar check K_q = P00/(P00 + R) = 0.5098
+max |x+ - info form| = 2.2e-16, max |P+ - info form| = 1.1e-16
+
+== Step 4. The lesson's encoder signal (Experiment setup, seed 0) ==
+R = 1.002e-04 rad^2, 5000 readings, scored after the first 500
+        filter  pos RMS mrad  vel RMS rad/s     K_q    K_qd  max |ours - Exp.|
+  KF q_c = 0.1          3.23          0.084  0.0724   1.361            5.6e-15
+    KF q_c = 1          3.15          0.093  0.1251   4.179            5.1e-15
+      MA N = 5          5.17                                           0.0e+00
+
+== Step 5. Steady-state gain: run, Riccati iteration, scipy.linalg.solve_discrete_are ==
+    q_c     K_q     K_qd  |K_iter - K_dare|  |K_run - K_dare|
+  0.001  0.0235    0.140            3.6e-12           1.4e-14
+   0.01  0.0414    0.437            4.9e-12           1.4e-14
+    0.1  0.0724    1.361            3.9e-12           6.4e-15
+      1  0.1251    4.179            1.9e-12           5.4e-14
+     10  0.2116   12.545            1.4e-12           6.2e-14
+    100  0.3448   36.165            1.8e-12           7.1e-15
+   1000  0.5285   97.018            2.6e-11           8.5e-14
+
+== Step 6. Honest uncertainty: claimed sigma vs actual error ==
+    q_c  claimed sigma mrad  actual RMS mrad  2-sigma coverage %
+  0.001                1.53            20.71                 8.0
+   0.01                2.04             6.91                32.4
+    0.1                2.69             3.23                91.0
+      1                3.54             3.15                97.8
+     10                4.60             4.02                98.1
+    100                5.88             5.22                97.8
+   1000                7.28             6.61                97.3
+q_c and R (and P0) x 100: max |x change| = 7.1e-15 rad, P ratio 100.000

@@ -5,6 +5,8 @@
 3. Every lesson has an English and a Turkish page and an experiments/<slug>/output.txt.
 4. Interactive figure markers (<!-- figure: NN-name -->) match between languages and have a module in
    site/src/figures/; every quizzes/<slug>.yaml is well formed and belongs to a lesson.
+5. Lessons with a "Build it" / "Sıfırdan yaz" section have experiments/<slug>/build.py and build_output.txt,
+   and every function or class shown there is copied verbatim from the physai/ package.
 
 Run:  uv run python tools/check_book.py
 """
@@ -90,6 +92,8 @@ def figures_and_quizzes():
             bad.append(f"{f}: {e}")
             continue
         for i, q in enumerate(qs if isinstance(qs, list) else [None]):
+            if isinstance(q, dict) and q.get("stage", "post") not in ("pre", "check", "post"):
+                bad.append(f"{f}: question {i + 1} has an unknown stage {q.get('stage')!r}")
             ok = (isinstance(q, dict) and all(isinstance(q.get(k), dict) and {"en", "tr"} <= set(q[k]) for k in ("q", "why"))
                   and isinstance(q.get("options"), list) and len(q["options"]) >= 2
                   and all(isinstance(o, dict) and {"en", "tr"} <= set(o) for o in q["options"])
@@ -99,10 +103,32 @@ def figures_and_quizzes():
     return bad
 
 
+def build_sections():
+    bad = []
+    lib = "".join(open(p, encoding="utf-8").read() for p in sorted(glob.glob(os.path.join(ROOT, "physai", "*.py"))))
+    norm = lambda t: re.sub(r"\s+", " ", t).strip()  # noqa: E731
+    lib_n = norm(lib)
+    for d, slug in lessons():
+        for page, title in ((f"{d}/{slug}.md", "Build it"), (f"tr/{d}/{slug}.md", "Sıfırdan yaz")):
+            text = open(os.path.join(ROOT, page), encoding="utf-8").read()
+            m = re.search(rf"^## {title}\n(.*?)(?=^## )", text, re.M | re.S)
+            if not m:
+                continue
+            for f in ("build.py", "build_output.txt"):
+                if not os.path.exists(os.path.join(ROOT, "experiments", slug, f)):
+                    bad.append(f"{page}: Build it needs experiments/{slug}/{f}")
+            for block in re.findall(r"```python\n(.*?)```", m.group(1), re.S):
+                code = "\n".join(line for line in block.splitlines() if not line.lstrip().startswith("#"))
+                if re.match(r"\s*(def |class |@dataclass)", code) and norm(code) not in lib_n:
+                    bad.append(f"{page}: Build it code block not found verbatim in physai/: {code.strip().splitlines()[0]}")
+    return bad
+
+
 def main():
     problems = 0
     for title, items in [("broken links", broken_links()), ("missing lesson files", missing_pieces()),
                          ("figure and quiz problems", figures_and_quizzes()),
+                         ("build-it problems", build_sections()),
                          ("generated files out of date (run tools/build_book.py)", generated_drift())]:
         print(f"{title}: {len(items)}")
         for item in items[:50]:

@@ -70,6 +70,8 @@ git clone https://github.com/fport/physical-ai-from-scratch.git
 cd physical-ai-from-scratch
 uv sync                                   # Python 3.14 + locked dependencies
 uv run python experiments/02-timestep/experiment.py
+uv run python experiments/09-jacobians/build.py   # a lesson's Build it steps, checked against MuJoCo
+uv run pytest                             # tests for physai/, the library you build in the lessons
 ```
 
 To read the book as a website locally: `cd site && npm install && npm run dev` ([site/README.md](site/README.md)).

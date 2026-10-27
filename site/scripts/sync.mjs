@@ -8,7 +8,9 @@
 // - The sidebar comes from SUMMARY.md (labels translated from tr/SUMMARY.md); lesson badges from
 //   the Status row of each page's metadata table.
 // - "<!-- figure: NN-name -->" lines become interactive figure slots (module src/figures/NN-name.ts).
-// - quizzes/NN-slug.yaml becomes a clickable quiz at the top of "Check yourself" / "Kendini dene".
+// - quizzes/NN-slug.yaml becomes clickable quizzes by stage: "pre" before Core idea, "check" before
+//   Experiment, "post" (default) at the top of "Check yourself" / "Kendini dene".
+// - Lessons with a "Build it" section get an "Act on this lesson" checklist under the metadata table.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,14 +26,18 @@ const BASE = (process.env.SITE_BASE || '/').replace(/\/?$/, '/')
 
 const LANGS = {
   en: {
-    dir: '', statusRow: 'Status', check: 'Check yourself', quiz: (n) => `Quick check · ${n} questions. Click an answer.`, why: 'Why:',
+    dir: '', statusRow: 'Status', check: 'Check yourself', core: 'Core idea', experiment: 'Experiment', build: 'Build it', why: 'Why:',
+    quiz: { pre: (n) => `Before you read · ${n} questions. Guess first; the lesson tells you why.`, check: (n) => `Check after building · ${n} questions.`, post: (n) => `Quick check · ${n} questions. Click an answer.` },
+    act: { title: 'Act on this lesson', note: 'Tick each step when you have done it. Saved in this browser only.', read: ['Read', 'The problem and the core idea; answer the questions before you read.'], build: ['Build it', 'Type the steps yourself, then run'], run: ['Run the experiment', 'Predict first, then run'], break: ['Break it', 'Change the one parameter and watch it fail.'], quiz: ['Check yourself', 'Quizzes and exercises at the end.'], done: 'Mark lesson complete', undo: 'Completed · undo' },
     aside: { 'coming soon': ['caution', 'Coming soon'], draft: ['note', 'Draft'], done: ['tip', 'Done'] },
     status: { done: 'tam', draft: 'taslak', 'coming soon': 'yakinda' },
     tagline: 'Start with a laptop, end with a robot arm doing a task on its own. 44 lessons, every number from a real run.',
     start: 'Start the first lesson', setup: 'Setup', lessons: 'Lessons', map: 'Map', links: '**[Setup]',
   },
   tr: {
-    dir: 'tr/', statusRow: 'Durum', check: 'Kendini dene', quiz: (n) => `Hızlı kontrol · ${n} soru. Bir cevaba tıkla.`, why: 'Neden:',
+    dir: 'tr/', statusRow: 'Durum', check: 'Kendini dene', core: 'Ana fikir', experiment: 'Deney', build: 'Sıfırdan yaz', why: 'Neden:',
+    quiz: { pre: (n) => `Okumadan önce · ${n} soru. Önce tahmin et; nedenini ders anlatıyor.`, check: (n) => `Yazdıktan sonra · ${n} soru.`, post: (n) => `Hızlı kontrol · ${n} soru. Bir cevaba tıkla.` },
+    act: { title: 'Bu derste yap', note: 'Her adımı yapınca işaretle. Yalnız bu tarayıcıda saklanır.', read: ['Oku', 'Problem ve ana fikir; okumadan önceki soruları cevapla.'], build: ['Sıfırdan yaz', 'Adımları kendin yaz, sonra çalıştır'], run: ['Deneyi çalıştır', 'Önce tahmin et, sonra çalıştır'], break: ['Boz', 'Tek parametreyi değiştir ve bozulmasını izle.'], quiz: ['Kendini dene', 'Sondaki quiz ve alıştırmalar.'], done: 'Dersi tamamlandı say', undo: 'Tamamlandı · geri al' },
     aside: { yakında: ['caution', 'Yakında'], taslak: ['note', 'Taslak'], tam: ['tip', 'Tam'] },
     status: { tam: 'tam', taslak: 'taslak', yakında: 'yakinda' },
     tagline: 'Bir dizüstüyle başla, bir robot kola kendi başına iş yaptır. 44 ders, her sayı gerçek bir koşudan.',
@@ -89,14 +95,11 @@ function figures(body, lang) {
 }
 
 // quizzes/NN-slug.yaml → markdown inside HTML wrappers, so math and inline code still render
-function quiz(body, srcPath, L, lang) {
-  const name = path.posix.basename(srcPath, '.md')
-  const file = path.join(ROOT, 'quizzes', `${name}.yaml`)
-  if (!fs.existsSync(file)) return body
-  const qs = YAML.parse(fs.readFileSync(file, 'utf8'))
-  const block = [
-    `<div class="fa-quiz" data-lesson="${name}-${lang}">`,
-    `<p class="fa-quiz-tag">${L.quiz(qs.length)}</p>`,
+const STAGES = ['pre', 'check', 'post']
+function quizBlock(qs, stage, name, L, lang) {
+  return [
+    `<div class="fa-quiz" data-stage="${stage}" data-lesson="${name}-${lang}-${stage}">`,
+    `<p class="fa-quiz-tag">${L.quiz[stage](qs.length)}</p>`,
     '',
     ...qs.flatMap((q, i) => [
       `<div class="fa-q" data-answer="${q.answer}">`,
@@ -117,9 +120,50 @@ function quiz(body, srcPath, L, lang) {
     '</div>',
     '',
   ].join('\n')
-  const heading = new RegExp(`^## ${escapeRe(L.check)}\\n+`, 'm')
-  if (!heading.test(body)) throw new Error(`${srcPath}: no "## ${L.check}" heading for the quiz`)
-  return body.replace(heading, (h) => h + block + '\n')
+}
+
+function quiz(body, srcPath, L, lang) {
+  const name = path.posix.basename(srcPath, '.md')
+  const file = path.join(ROOT, 'quizzes', `${name}.yaml`)
+  if (!fs.existsSync(file)) return body
+  const all = YAML.parse(fs.readFileSync(file, 'utf8'))
+  const anchor = { pre: [L.core, 'before'], check: [L.experiment, 'before'], post: [L.check, 'after'] }
+  for (const stage of STAGES) {
+    const qs = all.filter((q) => (q.stage || 'post') === stage)
+    if (!qs.length) continue
+    const [title, where] = anchor[stage]
+    const heading = new RegExp(`^## ${escapeRe(title)}\\n+`, 'm')
+    if (!heading.test(body)) throw new Error(`${srcPath}: no "## ${title}" heading for the ${stage} quiz`)
+    const block = quizBlock(qs, stage, name, L, lang)
+    body = body.replace(heading, (h) => (where === 'after' ? h + block + '\n' : block + '\n' + h))
+  }
+  return body
+}
+
+// "Act on this lesson": a checklist under the metadata table, for lessons with a Build it section
+function actPanel(body, srcPath, L, lang) {
+  if (!new RegExp(`^## ${escapeRe(L.build)}$`, 'm').test(body)) return body
+  const name = path.posix.basename(srcPath, '.md')
+  const run = (f) => `<code>uv run python experiments/${name}/${f}</code>`
+  const steps = [
+    ['read', L.act.read[1]],
+    ['build', `${L.act.build[1]} ${run('build.py')}`],
+    ['run', `${L.act.run[1]} ${run('experiment.py')}`],
+    ['break', L.act.break[1]],
+    ['quiz', L.act.quiz[1]],
+  ]
+  const panel = [
+    `<div class="fa-act not-content" data-lesson="${name}" data-done="${L.act.done}" data-undo="${L.act.undo}">`,
+    `<p class="fa-act-title">${L.act.title}</p>`,
+    `<p class="fa-act-note">${L.act.note}</p>`,
+    '<ol>',
+    ...steps.map(([k, text], i) => `<li><label><input type="checkbox" data-step="${k}" /> <b>${String(i + 1).padStart(2, '0')} · ${L.act[k][0]}</b> <span>${text}</span></label></li>`),
+    '</ol>',
+    `<button type="button" class="fa-act-done">${L.act.done}</button>`,
+    '</div>',
+    '',
+  ].join('\n')
+  return body.replace(/<!-- \/meta -->\n/, (m) => m + '\n' + panel + '\n')
 }
 
 function splitTitle(src) {
@@ -150,7 +194,7 @@ function convert(srcPath, L, extra = {}) {
   fm.editUrl = `${REPO}/edit/main/${srcPath}`
   const front = ['---', ...Object.entries(fm).map(([k, v]) => `${k}: ${typeof v === 'string' ? yaml(v) : JSON.stringify(v)}`), '---', '']
   const lang = L.dir ? 'tr' : 'en'
-  return { front: front.join('\n'), body: quiz(figures(statusAsides(rewriteLinks(body, srcPath), L), lang), srcPath, L, lang) }
+  return { front: front.join('\n'), body: actPanel(quiz(figures(statusAsides(rewriteLinks(body, srcPath), L), lang), srcPath, L, lang), srcPath, L, lang) }
 }
 
 function parseSummary(file) {

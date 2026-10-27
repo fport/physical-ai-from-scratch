@@ -1,6 +1,22 @@
-# Lesson 18 · The Kalman filter. Every answer is supported by the lesson page or
-# experiments/18-kalman-filter/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 18 · The Kalman filter. Every answer is supported by the lesson page,
+# experiments/18-kalman-filter/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
+    en: Your forecast of the joint angle and the encoder reading are about equally uncertain. How far should you move from the forecast towards the reading?
+    tr: Eklem açısı için öngörün ile encoder okuması aşağı yukarı eşit belirsiz. Öngörüden okumaya doğru ne kadar gitmelisin?
+  options:
+    - en: Not at all; the forecast already knows how the joint moves.
+      tr: Hiç; öngörü eklemin nasıl hareket ettiğini zaten biliyor.
+    - en: About halfway.
+      tr: Yaklaşık yarı yola kadar.
+    - en: All the way; a measurement always beats a model.
+      tr: Sonuna kadar; ölçüm her zaman modeli yener.
+  answer: 1
+  why:
+    en: The gain is a trust ratio, $K = P/(P + R)$. In Build it, Step 3, a forecast variance of 1.04e-4 rad² meets $R$ = 1e-4 rad² and the filter computes $K_q = 0.5098$.
+    tr: Gain bir güven oranıdır, $K = P/(P + R)$. Sıfırdan yaz, Adım 3'te 1,04e-4 rad²'lik öngörü varyansı $R$ = 1e-4 rad² ile karşılaşıyor ve filtre $K_q = 0{,}5098$ hesaplıyor.
+- stage: pre
+  q:
     en: The moving average of lesson 17 lags 4 ms at its best; the tuned Kalman filter shows 0.0 ms of delay. Where does the difference come from?
     tr: Ders 17'deki moving average en iyi hâlinde 4 ms geride kalıyor; ayarlı Kalman filter 0,0 ms delay gösteriyor. Fark nereden geliyor?
   options:
@@ -14,7 +30,38 @@
   why:
     en: The filter is strictly causal; a smooth motion is not "averaged into the past". At $q_c = 1$ it reaches 3.15 mrad against MA N=5's 5.17 mrad.
     tr: Filtre tamamen causal; yumuşak bir hareket "geçmişe doğru ortalanmaz". $q_c = 1$'de MA N=5'in 5,17 mrad'ına karşı 3,15 mrad'a iniyor.
-- q:
+- stage: check
+  q:
+    en: In Build it, Step 5, you call `scipy.linalg.solve_discrete_are(F.T, H.T, Q, R)`. What does it return, and why the transposes?
+    tr: Sıfırdan yaz, Adım 5'te `scipy.linalg.solve_discrete_are(F.T, H.T, Q, R)` çağırıyorsun. Ne döndürür ve transpose'lar neden var?
+  options:
+    - en: The gain $K$ directly; the transposes only fix the array shapes.
+      tr: Doğrudan gain $K$'yi; transpose'lar yalnızca dizi boyutlarını düzeltir.
+    - en: The steady-state forecast covariance $P^-$; the solver is written for LQR, and $F^\top$, $H^\top$ turn that equation into the filter's (duality).
+      tr: Kararlı durumdaki öngörü covariance'ı $P^-$'yi; çözücü LQR için yazılmıştır ve $F^\top$, $H^\top$ o denklemi filtreninkine çevirir (duality).
+    - en: The covariance after the very first reading.
+      tr: İlk okumadan hemen sonraki covariance'ı.
+  answer: 1
+  why:
+    en: The gain then follows as $K = P^- H^\top (H P^- H^\top + R)^{-1}$; for every $q_c$ it matches the filter's last gain after 5000 readings to about 1e-14, the Experiment table's final $K$.
+    tr: Gain buradan $K = P^- H^\top (H P^- H^\top + R)^{-1}$ olarak çıkar; her $q_c$ için filtrenin 5000 okumadan sonraki son gain'iyle, yani Deney tablosunun son $K$'siyle yaklaşık 1e-14 farkla örtüşür.
+- stage: check
+  q:
+    en: You move to filterpy and build $Q$ with `Q_discrete_white_noise(dim=2, dt=0.002, var=1)`, expecting this lesson's filter at $q_c = 1$. What do you get?
+    tr: filterpy'a geçiyorsun ve bu dersteki $q_c = 1$ filtresini beklerken $Q$'yu `Q_discrete_white_noise(dim=2, dt=0.002, var=1)` ile kuruyorsun. Ne elde edersin?
+  options:
+    - en: The same filter; both helpers build the constant-velocity $Q$.
+      tr: Aynı filtreyi; iki yardımcı da constant-velocity $Q$'sunu kurar.
+    - en: A different filter; that helper assumes the acceleration is constant within each step ($Q = G G^\top$ var, var in rad²/s⁴). This lesson's $Q$ is `Q_continuous_white_noise` with $q_c$ in rad²/s³.
+      tr: Farklı bir filtre; o yardımcı ivmenin her adım içinde sabit olduğunu varsayar ($Q = G G^\top$ var, var rad²/s⁴ biriminde). Bu dersin $Q$'su, $q_c$'si rad²/s³ biriminde olan `Q_continuous_white_noise`'dur.
+    - en: An error, because filterpy needs $Q$ per second.
+      tr: Bir hata, çünkü filterpy $Q$'yu saniye başına ister.
+  answer: 1
+  why:
+    en: Use it, first trap. The same knob value under a different noise model gives a different filter; robot_localization uses yet another form, a covariance multiplied by the elapsed seconds at each predict.
+    tr: Kütüphaneyle kullan, ilk tuzak. Farklı bir noise modelinde aynı düğme değeri farklı bir filtre verir; robot_localization ise bir başka biçim kullanır, her predict'te geçen saniyeyle çarpılan bir covariance.
+- stage: post
+  q:
     en: You tell the filter that the encoder noise $R$ is 100 times smaller than it really is ($q_c = 1$). What goes wrong?
     tr: Filtreye encoder noise'u $R$'nin gerçekte olduğundan 100 kat küçük olduğunu söylüyorsun ($q_c = 1$). Ne bozulur?
   options:
@@ -28,7 +75,8 @@
   why:
     en: Break it - $R \times 0.01$ gives the same 5.22 mrad / 0.482 rad/s as $q_c = 100$ with the true $R$, but coverage drops from 97.8% to 17.5%. RMS can look fine while $P$ is wrong.
     tr: Boz - $R \times 0{,}01$, gerçek $R$ ile $q_c = 100$'ün verdiği 5,22 mrad / 0,482 rad/s'yi veriyor, ama coverage %97,8'den %17,5'e düşüyor. RMS iyi görünürken $P$ yanlış olabilir.
-- q:
+- stage: post
+  q:
     en: A 0.3 rad step command makes the tuned filter lag by up to 44.1 mrad. What is the fix the lesson recommends?
     tr: 0,3 rad'lık bir basamak komutu ayarlı filtreyi 44,1 mrad'a kadar geride bırakıyor. Dersin önerdiği çözüm ne?
   options:

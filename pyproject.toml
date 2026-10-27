@@ -18,7 +18,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["ruff==0.17.0"]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.17.0",
+]
 
 [tool.uv]
 package = false
@@ -30,3 +33,7 @@ extend-exclude = ["site", ".cache", "notebooks"]
 
 [tool.ruff.lint]
 select = ["E9", "F"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "experiments"]

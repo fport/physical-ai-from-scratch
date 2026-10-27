@@ -1,6 +1,7 @@
-# Lesson 12 · Joint control. Every answer is supported by the lesson page or
-# experiments/12-joint-control/output.txt. answer = index of the correct option (0-based).
-- q:
+# Lesson 12 · Joint control. Every answer is supported by the lesson page,
+# experiments/12-joint-control/output.txt or build_output.txt. answer = index of the correct option (0-based).
+- stage: pre
+  q:
     en: A PD joint holds a link out against gravity. Why does it settle below the target?
     tr: Bir PD eklem, bir link'i yerçekimine karşı tutuyor. Neden hedefin altında oturur?
   options:
@@ -14,7 +15,53 @@
   why:
     en: At rest $K_p e = mgl\cos e$. In part B, Kp 20 leaves 8.342° and Kp 80 still 2.106°; the sag shrinks with Kp but never reaches zero.
     tr: Dururken $K_p e = mgl\cos e$. B bölümünde Kp 20 8,342° bırakıyor, Kp 80 bile 2,106°; sarkma Kp ile küçülüyor ama sıfıra inmiyor.
-- q:
+- stage: pre
+  q:
+    en: What does a hobby position servo, like the SO-101's, take as its command?
+    tr: SO-101'dekiler gibi bir hobi position servo'su komut olarak ne alır?
+  options:
+    - en: A target angle; a PD loop inside the motor turns the error into torque, up to its torque cap.
+      tr: Bir hedef açı; motorun içindeki bir PD döngüsü hatayı torque cap'ine kadar torka çevirir.
+    - en: A torque, which it applies directly.
+      tr: Bir tork; onu doğrudan uygular.
+    - en: A joint speed, which it integrates into an angle.
+      tr: Bir joint hızı; onu integre edip açıya çevirir.
+  answer: 0
+  why:
+    en: In the Menagerie model each STS3215 is a `position` actuator, force $= k_p(\text{ctrl} - q) - k_v\dot q$ clipped at ±2.94 N·m (Core idea, Servo).
+    tr: Menagerie modelinde her STS3215 bir `position` actuator'ü; kuvvet $= k_p(\text{ctrl} - q) - k_v\dot q$, ±2,94 N·m'de kırpılıyor (Ana fikir, Servo).
+- stage: check
+  q:
+    en: In Build it, Step 6, PID with Ki = 160 overshoots by 46.016°. What does clamping the integral term to 3 N·m do, and why 3?
+    tr: Sıfırdan yaz, Adım 6'da Ki = 160'lı PID 46,016° overshoot yapıyor. Integral terimini 3 N·m'ye clamp'lemek ne yapar ve neden 3?
+  options:
+    - en: Nothing useful; any clamp leaves a steady error because the integral can no longer grow.
+      tr: İşe yarar bir şey yapmaz; integral artık büyüyemediği için her clamp kalıcı hata bırakır.
+    - en: It removes the overshoot completely; 3 is the motor's torque cap.
+      tr: Overshoot'u tamamen kaldırır; 3 motorun torque cap'idir.
+    - en: Overshoot drops to 4.646° with zero final error; 3 N·m is just above the most the integral must supply, $mgl$ = 2.943 N·m.
+      tr: Overshoot 4,646°'ye iner ve son hata sıfır kalır; 3 N·m, integralin sağlaması gereken en büyük torkun, $mgl$ = 2,943 N·m'nin hemen üstünde.
+  answer: 2
+  why:
+    en: The sum can still reach the gravity torque at horizontal, so the error goes to zero, but it can no longer wind up during the 90° move (Build it, Step 6 table; time into ±0.5° 1.520 s → 0.685 s).
+    tr: Toplam yine yataydaki yerçekimi torkuna ulaşabiliyor, yani hata sıfıra gidiyor; ama 90°'lik hareket sırasında artık şişemiyor (Sıfırdan yaz, Adım 6 tablosu; ±0,5° içine girme 1,520 s → 0,685 s).
+- stage: check
+  q:
+    en: With `gravcomp="1"` on the body, MuJoCo's position actuator holds the link at horizontal and reports 0.000 N·m. How much would a real motor have to supply?
+    tr: Gövdede `gravcomp="1"` varken MuJoCo'nun position actuator'ü link'i yatayda tutuyor ve 0,000 N·m gösteriyor. Gerçek bir motor ne kadar sağlamak zorunda kalırdı?
+  options:
+    - en: 2.943 N·m; MuJoCo booked the gravity compensation as a passive force, not as actuator torque.
+      tr: 2,943 N·m; MuJoCo gravity compensation'ı actuator torku olarak değil passive kuvvet olarak kaydetti.
+    - en: 0 N·m, because gravity is compensated.
+      tr: 0 N·m, çünkü yerçekimi kompanse ediliyor.
+    - en: 31.42 N·m, the first command of the uncapped loop.
+      tr: 31,42 N·m, cap'siz döngünün ilk komutu.
+  answer: 0
+  why:
+    en: 'In the Use it output, `gravcomp` shows qfrc_passive −2.943 and qfrc_actuator 0.000; with `actuatorgravcomp="true"` the same −2.943 moves to qfrc_actuator.'
+    tr: 'Kütüphaneyle kullan çıktısında `gravcomp` için qfrc_passive −2,943 ve qfrc_actuator 0,000; `actuatorgravcomp="true"` ile aynı −2,943 qfrc_actuator''a geçiyor.'
+- stage: post
+  q:
     en: Which fix removes the 8.342° sag fastest and with the least overshoot in part B?
     tr: B bölümünde 8,342°'lik sarkmayı en hızlı ve en az overshoot ile hangisi kaldırıyor?
   options:
@@ -28,7 +75,8 @@
   why:
     en: Feedforward reaches ±0.5° in 0.463 s with 3.994° overshoot. Ki = 160 overshoots by 46.016°, and Ki = 10 has not settled within 4 s.
     tr: Feedforward ±0,5°'ye 0,463 s'de, 3,994° overshoot ile giriyor. Ki = 160 46,016° aşıyor, Ki = 10 ise 4 s içinde oturmuyor.
-- q:
+- stage: post
+  q:
     en: On the Go2, Kp goes from 20 to 80 while Kd stays at 0.5. What happens?
     tr: Go2'de Kd 0,5'te kalırken Kp 20'den 80'e çıkıyor. Ne olur?
   options:

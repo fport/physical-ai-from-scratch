@@ -53,6 +53,18 @@ Both are invisible on GitHub (an HTML comment / a separate data file) and come a
 
 **Quiz.** `quizzes/<slug>.yaml`, 3 multiple-choice questions (3–4 options, one correct, `answer` = 0-based index; vary its position). Inserted automatically at the top of "Check yourself" / "Kendini dene". Each `q`, option and `why` has `en` and `tr` (markdown: `$math$`, `code`, **bold**; one line each). Ask about understanding (why, what happens if, which reading of the table), not trivia. Every correct answer and every number in `why` must be on the lesson page or in its `output.txt`; `why` says where (part/table) when it uses a number. Wrong options are plausible misconceptions, not jokes.
 
+## Build it / Use it, physai and tests (pilot: lessons 09, 12, 18)
+
+Reference implementation: lesson 09 (`## Build it` and `## Use it` between Core idea and Experiment; TR `## Sıfırdan yaz` and `## Kütüphaneyle kullan`).
+
+- **Build it**: the learner writes the lesson's core algorithm in plain NumPy, in 4–6 numbered steps (`### Step N · …` / `### Adım N · …`), each step ending in a check against MuJoCo, SciPy or a known property, with the printed result. Only static model numbers may come from the library; the computation is the learner's. Close with `### What you keep` / `### Elinde kalan`: which `physai` functions now exist, who uses them later, the test command. Target 100–200 code lines in the page.
+- **physai/**: the functions shown in Build it live in the package (`physai/<module>.py`), one module per topic (spatial, kinematics, control, estimation, …), plain NumPy, short docstrings, English comments. The lesson shows them **verbatim** (`tools/check_book.py` fails otherwise). Draft the section with `{{src:physai/<file>.py:<name>}}` and `{{out:Step N}}` placeholders and fill it with `uv run python tools/fill_build.py draft.md experiments/<slug>/build_output.txt`.
+- **build.py**: `experiments/<slug>/build.py` runs the steps in order, prints `== Step N. … ==` blocks (deterministic, seconds), and its stdout is committed as `build_output.txt`. Every number in Build it comes from that file. It adds the repo root and `experiments/` to `sys.path` and imports from `physai`.
+- **Use it**: the same result with the real library (MuJoCo first, SciPy where it applies), the call sequence and its prerequisites, a small table of how other tools name or order the same thing (check each claim in that tool's docs), and 2–4 convention traps.
+- **Tests**: `tests/test_<slug>.py` with pytest (`uv run pytest`): physai vs the library on random inputs, 1–3 properties the lesson relies on, and a test that `build.py` reproduces `build_output.txt` exactly.
+- **Staged quiz**: six questions with `stage:` — 2 `pre` (shown before Core idea; answerable by intuition, the lesson explains why), 2 `check` (shown before Experiment; about Build it / Use it), 2 `post` (end of the lesson; Experiment and Break it).
+- A lesson with Build it automatically gets the "Act on this lesson" checklist on the website (read, build, run, break, check, complete).
+
 ## Experiments
 
 - Run with `uv run python …` from the repo root (Python 3.14 via `.python-version`; MuJoCo 3.17.0, NumPy 2.5.4, SciPy, PyTorch 2.14 CPU/MPS, Gymnasium, OpenCV, Matplotlib, all locked in `uv.lock`). Before finishing: `uv run ruff check .` and `uv run python tools/check_book.py`.
