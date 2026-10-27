@@ -1,0 +1,3 @@
+# Phase 0 experiments (experiments/0x-*/experiment.py). Numbers were produced with these versions.
+mujoco==3.17.0
+numpy>=2.0

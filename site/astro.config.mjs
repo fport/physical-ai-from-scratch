@@ -1,0 +1,41 @@
+// @ts-check
+import { defineConfig } from 'astro/config'
+import starlight from '@astrojs/starlight'
+import sidebar from './src/sidebar.generated.json' with { type: 'json' }
+
+const REPO = 'https://github.com/fport/physical-ai-from-scratch'
+
+export default defineConfig({
+  base: process.env.SITE_BASE || '/',
+  integrations: [
+    starlight({
+      title: { en: 'Physical AI', tr: 'Fiziksel AI' },
+      description: 'Physical AI Engineering from Scratch: an open course book with runnable MuJoCo experiments, from simulation to a real SO-101 arm.',
+      defaultLocale: 'root',
+      locales: {
+        root: { label: 'English', lang: 'en' },
+        tr: { label: 'Türkçe', lang: 'tr' },
+      },
+      social: [{ icon: 'github', label: 'GitHub', href: REPO }],
+      sidebar,
+      customCss: [
+        '@fontsource-variable/inter',
+        '@fontsource/jetbrains-mono/400.css',
+        '@fontsource/jetbrains-mono/700.css',
+        '@fontsource/silkscreen/400.css',
+        './src/styles/custom.css',
+      ],
+      components: {
+        ThemeProvider: './src/components/ThemeProvider.astro',
+        Sidebar: './src/components/Sidebar.astro',
+      },
+      expressiveCode: {
+        themes: ['github-dark', 'github-light'],
+        styleOverrides: { borderRadius: '0.5rem', frames: { shadowColor: 'transparent' } },
+      },
+      lastUpdated: false,
+      pagination: true,
+      tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },
+    }),
+  ],
+})

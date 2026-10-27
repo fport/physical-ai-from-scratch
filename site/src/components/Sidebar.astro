@@ -1,0 +1,8 @@
+---
+// A green monospace path label above the sidebar.
+import Default from '@astrojs/starlight/components/Sidebar.astro'
+const label = Astro.currentLocale === 'tr' ? '/sıfırdan' : '/from-scratch'
+---
+
+<p class="sidebar-path" translate="no">{label}</p>
+<Default><slot /></Default>
