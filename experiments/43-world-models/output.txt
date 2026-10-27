@@ -1,0 +1,49 @@
+mujoco 3.17.0 · numpy 2.5.4 · torch 2.14.1 (CPU, 1 thread) · python 3.14.7 · arm64
+pendulum: 1 kg at 0.5 m, |u| <= 2.0 N m (gravity torque at horizontal 4.91 N m), control step 0.05 s = 5 x 10 ms, semi-implicit Euler
+data: 400 random-action trajectories x 50 steps = 20000 transitions; MLP 4-128-128-2 (17410 parameters), 1200 gradient steps (batch 512, 30 epochs), train MSE 2.47e-06 (training ~5 s, loaded machine)
+
+[A] Open-loop rollout horizon -> prediction error (200 held-out trajectories, random actions)
+ H steps    H s  mean |angle err| rad  median rad  mean |vel err| rad/s
+       1   0.05                0.0004      0.0004                0.0019
+       2   0.10                0.0008      0.0007                0.0037
+       5   0.25                0.0018      0.0012                0.0059
+      10   0.50                0.0030      0.0023                0.0074
+      20   1.00                0.0068      0.0031                0.0222
+      40   2.00                0.0222      0.0042                0.0585
+      60   3.00                0.0547      0.0047                0.1310
+     100   5.00                0.0966      0.0072                0.2400
+
+[B] Random-shooting MPC swing-up from hanging (3 starts, theta ~ U(-0.1, 0.1), K = 100 sequences,
+    each piecewise constant with a new random torque every 5 steps)
+    success = within 0.2 rad of upright for the whole last 1 s of a 5 s episode; the chosen action
+    is always applied to the true simulator, only the planner's predictions differ.
+  planner   H  success  mean tail err rad  first upright step  plan time s
+     true  10      0/3              0.831                   -          5.7
+  learned  10      0/3              0.853                   -          1.2
+     true  20      2/3              0.046                  76         10.9
+  learned  20      2/3              0.059                  77          2.6
+     true  30      3/3              0.023                  66         18.2
+  learned  30      3/3              0.021                  67          4.0
+
+[C] Break it: a world model trained only on low-energy data (starts |theta| <= 0.3 rad,
+    |theta_dot| <= 0.5 rad/s, torques <= 0.5 N m) -> it never saw the upright half of the circle
+  max |theta| in this dataset: 0.42 rad (full-range dataset: 3.14 rad)
+  one-step mean |angle err| on the full-range test set: 0.0371 rad (full-range model 0.0004); 10-step: 0.1160 rad (full-range model 0.0030)
+  MPC with the low-energy model, H = 20: success 2/3, mean tail err 0.072 rad
+
+[D] Break it harder: shrink the (full-range) dataset; same 1200 gradient steps, MPC with H = 30
+ trajectories transitions  1-step err rad  20-step err rad  MPC success  mean tail err rad
+          400       20000          0.0004           0.0068          3/3              0.021
+           40        2000          0.0005           0.0088          3/3              0.026
+            8         400          0.0005           0.0125          3/3              0.027
+            2         100          0.0009           0.0307          3/3              0.012
+
+[E] Break it: replan less often. Execute the first k actions of each plan open loop (H = 30)
+   k  replan every s  true: success  tail err rad  learned: success  tail err rad
+   1            0.05            3/3         0.023               3/3         0.021
+   5            0.25            3/3         0.074               2/3         0.126
+  10            0.50            1/3         0.173               1/3         0.173
+  20            1.00            0/3         0.665               0/3         0.620
+  30            1.50            0/3         1.216               0/3         1.216
+
+total time ~2.1 min (approximate; heavily loaded machine, not a benchmark)

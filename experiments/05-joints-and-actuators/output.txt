@@ -1,0 +1,42 @@
+mujoco 3.17.0 · numpy 2.5.4
+link 20 cm, 0.3 kg · gravity torque at horizontal 0.2943 N·m · link inertia 0.0040 kg·m² · timestep 0.005 s · implicitfast
+
+sweep 1: kp (armature 0.028, dampratio 1, no joint damping/frictionloss) · step -0.5 rad -> 0
+   kp     kv(from dampratio)  sag(deg)  tau_g/kp(deg)  exact(deg)  rise 10-90 %(ms)
+     1     0.359              16.193    16.862         16.193       533.0
+     3     0.621               5.594     5.621          5.594       335.6
+    10     1.134               1.685     1.686          1.685       185.6
+    30     1.964               0.562     0.562          0.562       106.1
+   100     3.586               0.169     0.169          0.169        56.7
+   300     6.211               0.056     0.056          0.056        31.6
+  1000    11.340               0.017     0.017          0.017        16.5
+
+break it A: SO-101 servo (kp 998.22, kv 2.731, damping 0.6, frictionloss 0.052), sweep armature
+ armature  I_eff(kg·m²)  h·w                    Euler            implicitfast                discrete
+   0.028      0.0320   0.88                   stable                  stable                  stable
+   0.010      0.0140   1.34                   stable                  stable                  stable
+   0.005      0.0090   1.67   DIVERGED (|e| 139 rad)                  stable                  stable
+   0.002      0.0060   2.04   DIVERGED (|e| 169 rad)                  stable                  stable
+   0.001      0.0050   2.23   DIVERGED (|e| 148 rad)                  stable                  stable
+   0.000      0.0040   2.50   DIVERGED (|e| 384 rad)                  stable                  stable
+
+break it B: same, with the Menagerie forcerange ±2.94 N·m (Euler) -> steady chatter
+ armature 0.005 · last 0.5 s: mean  -0.017 deg · std  0.000 deg · peak-to-peak  0.000 deg
+ armature 0.001 · last 0.5 s: mean  -0.081 deg · std  0.166 deg · peak-to-peak  0.629 deg
+ armature 0.000 · last 0.5 s: mean  -0.097 deg · std  0.212 deg · peak-to-peak  0.798 deg
+
+break it C: implicitfast, armature 0.028, kv 2.731, sweep kp
+ kp   998.22 · h·w 0.88 · implicitfast stable · discrete stable
+ kp  3000.00 · h·w 1.53 · implicitfast stable · discrete stable
+ kp 10000.00 · h·w 2.80 · implicitfast DIVERGED (|e| 237 rad) · discrete stable
+ kp 30000.00 · h·w 4.84 · implicitfast DIVERGED (|e| 1341 rad) · discrete stable
+
+SO-101 Menagerie model (robotstudio_so101/so101.xml) · timestep 0.005 s · integrator mjINT_IMPLICITFAST
+ actuator       kp      kv     forcerange      ctrlrange(rad)     armature damping frictionloss  M_ii(kg·m²)  link part  h·w  h·w(no armature)
+ shoulder_pan   998.22  2.731  [-2.94 2.94]  [-1.920  1.920]    0.028    0.60     0.052      0.04446    0.01646  0.75   1.23
+ shoulder_lift  998.22  2.731  [-2.94 2.94]  [-1.745  1.745]    0.028    0.60     0.052      0.04542    0.01742  0.74   1.20
+ elbow_flex     998.22  2.731  [-2.94 2.94]  [-1.690  1.690]    0.028    0.60     0.052      0.03734    0.00934  0.82   1.63
+ wrist_flex     998.22  2.731  [-2.94 2.94]  [-1.658  1.658]    0.028    0.60     0.052      0.02913    0.00113  0.93   4.71
+ wrist_roll     998.22  2.731  [-2.94 2.94]  [-2.744  2.841]    0.028    0.60     0.052      0.02808    0.00008  0.94  17.62
+ gripper        998.22  2.731  [-2.94 2.94]  [-0.175  1.745]    0.028    0.60     0.052      0.02802    0.00002  0.94  39.33
+ (M_ii at the home pose qpos0, includes armature; h·w = timestep * sqrt(kp / M_ii))

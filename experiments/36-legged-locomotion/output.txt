@@ -1,0 +1,38 @@
+mujoco 3.17.0 | numpy 2.5.4 | Apple M5 (4P + 6E cores), os.cpu_count() = 10 | load average at start 19
+Go2: nq 19, nv 18, nu 12, timestep 2 ms, cone elliptic, impratio 100, PD Kp 20.0 Kd 0.5
+
+[A] Standing 2 s with PD 20 / 0.5 around the training default joint angles
+  base height 26.2 cm | floor contacts 4 on ['FL', 'FR', 'RL', 'RR'] | sum of normal forces 149.2 N vs m g = 15.21 kg x 9.81 = 149.2 N
+
+[B] rollout vs Python loop after 500 steps: max |state difference| = 0.0e+00
+
+[C] Total physics steps/s = nbatch x nstep / wall time, Go2 standing (from the settled stance of A),
+    ~5e4 steps per call, best of 5 round-robin rounds
+  Python loop, 1 MjData, 1 thread: 66,222 steps/s
+  wall-clock steps/s:
+   nbatch     nthread 1     nthread 2     nthread 4     nthread 8
+        1        53,682        57,408        54,815        52,672
+        8        64,102       151,081       275,833       488,908
+       64        73,356       154,889       240,953       490,195
+      512        49,779       100,212       242,904       428,027
+     4096        33,881        85,478       180,025       272,937
+  steps per CPU-second (process CPU time summed over all threads; flat = no threading overhead):
+   nbatch     nthread 1     nthread 2     nthread 4     nthread 8
+        1        80,578        81,863        78,990        78,729
+        8        82,577        84,988        78,202        70,084
+       64        88,725        86,335        73,876        69,250
+      512        72,782        71,480        69,633        62,351
+     4096        61,348        61,575        58,368        58,883
+  best: 490,195 steps/s at nbatch 64, nthread 8 = 7.4x the Python loop
+
+[D] Break it. Same rollouts, different start: 512 robots x 25 steps (50 ms), nthread 8, best of 3
+  start                                          steps/s  solver iters/step  contacts
+  settled stance (+ small joint velocities)      379,209                1.7       4.0
+  released from keyframe pose, joints +-0.1 rad    34,194               10.3       4.4
+
+[E] Go2 training config (num_envs 4096, num_steps_per_env 24, max_iterations 1500, decimation 4)
+  policy steps 147,456,000 -> physics steps 589,824,000
+  load average at end 24 (other jobs share the 10 cores)
+  at the best rate in C: 0.3 h of physics alone on this CPU (no policy, no learning; our 2 ms step vs 5 ms in that config)
+
+total wall-clock 119 s (shared machine; approximate)

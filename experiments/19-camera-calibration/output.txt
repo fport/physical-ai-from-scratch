@@ -1,0 +1,43 @@
+mujoco 3.17.0 · opencv 5.0.0 · numpy 2.5.4 · seed 0
+image 640x480, fovy 50.0 deg -> ground truth fx = fy = 514.68 px, cx = 319.5, cy = 239.5
+
+[A1] 60 train + 15 test views rendered; detected corners vs pinhole projection with ground-truth K: mean 0.220 px, max 0.525 px
+
+[A2] sweep number of views (10 random subsets each, median)
+ views  train RMS px  held-out RMS px  fx err %  fy err %  cx err px  cy err px
+     3         0.088            0.103     0.292     0.230       1.17       0.89
+     5         0.089            0.101     0.145     0.146       0.93       0.54
+    10         0.093            0.101     0.066     0.064       0.41       0.30
+    20         0.093            0.101     0.043     0.046       0.40       0.24
+    40         0.091            0.101     0.021     0.025       0.23       0.18
+    all 60 views: fx 514.58, fy 514.58, cx 319.57, cy 239.33, k1 +0.0005, train RMS 0.091 px
+
+[A3] break it: 10 views, board tilt limited to +-t deg (3 trials, median)
+ tilt deg  train RMS px  held-out RMS px  fx err %
+        0         0.088            2.441      1193
+        2         0.087            0.179      5.61
+        5         0.083            0.114      1.93
+       15         0.092            0.102      0.48
+       35         0.091            0.101      0.02
+
+[A4] synthetic k1 = -0.15 applied to 20 views: estimated k1 = -0.1558, fx err 0.096 %, RMS 0.091 px
+     same views, distortion forced to zero: RMS 0.252 px, fx err 1.24 %
+
+[B] hand-eye AX = XB, SO-101 wrist camera, 15 poses, 20 trials per row (median)
+    cv2.calibrateHandEye available in this OpenCV build: False -> Park & Martin closed form implemented here
+    ground-truth camera offset in gripper frame: |t| = 76.0 mm
+ rot noise deg  trans noise mm  X rot err deg  X trans err mm
+             0               0          0.000            0.00
+           0.1             0.5          0.050            0.31
+           0.2               1          0.105            0.68
+           0.5               2          0.177            1.55
+             1               5          0.389            2.84
+             2              10          0.905            6.87
+
+[B2] break it: joints sampled in a fraction of their range (noise 0.5 deg / 2 mm)
+ range frac  median rot between poses deg  X rot err deg  X trans err mm
+       0.02                           3.6          4.818           27.18
+       0.05                           9.2          2.200           13.68
+        0.1                          18.8          0.977            4.89
+        0.3                          54.8          0.348            1.85
+        0.6                         116.4          0.274            1.33

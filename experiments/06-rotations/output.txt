@@ -1,0 +1,48 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | Python 3.14.7 | arm64
+
+== A. Rotation matrix facts and conversions (MuJoCo quaternions are [w, x, y, z]) ==
+one free body: nq = 7 (position 3 + quaternion 4), nv = 6 (linear 3 + angular 3); default qpos quaternion = [1. 0. 0. 0.]
+after 1000 compositions: max |R^T R - I| = 1.4e-14, max |det R - 1| = 1.3e-14
+order matters: angle(Rz90*Rx90, Rx90*Rz90) = 120.00 deg
+active  Rz(90) p          = [0. 1. 0.]   (the vector is rotated)
+passive Rz(90)^T p        = [ 0. -1.  0.]   (same vector, coordinates in a frame rotated by +90)
+check (1000 random rotations)                     max abs error
+euler->quat (mju_euler2Quat 'zyx') vs matrix            5.6e-16
+axis-angle (mju_axisAngle2Quat) vs Rodrigues            6.7e-16
+mju_mat2Quat -> mju_quat2Mat round trip                 4.2e-16
+q and -q give the same matrix                           0.0e+00
+
+== B. Sweep pitch -> Euler-rate map w_b = E(pitch, roll) * [roll', pitch', yaw'] (roll = 30 deg) ==
+pitch (deg)      det E  sigma_min      cond(E)  |E - E_fd|
+       0.00   1.00e+00   1.00e+00    1.000e+00     5.3e-11
+      30.00   8.66e-01   7.07e-01    1.732e+00     9.6e-11
+      60.00   5.00e-01   3.66e-01    3.732e+00     7.2e-11
+      80.00   1.74e-01   1.23e-01    1.143e+01     7.7e-11
+      85.00   8.72e-02   6.17e-02    2.290e+01     7.8e-11
+      89.00   1.75e-02   1.23e-02    1.146e+02     7.2e-11
+      89.90   1.75e-03   1.23e-03    1.146e+03     7.1e-11
+      89.99   1.75e-04   1.23e-04    1.146e+04     7.1e-11
+      90.00   6.12e-17   3.40e-17          inf     7.1e-11
+
+== C. Sweep start pitch -> naive Euler interpolation vs slerp (300 pairs, each a 60 deg rotation) ==
+start pitch  median dev   p95 dev   max dev  median path/60  max path/60  dev>90   (angles in deg)
+          0        3.71      6.30      6.95           1.010        1.031       0
+         30        4.44     14.88     20.62           1.014        1.257       0
+         60        7.83     23.91    179.74           1.042        5.538       7
+         75       10.51     30.58    179.97           1.075        5.570      12
+         85       14.96    178.59    179.83           1.149        5.595      22
+         89       16.99    178.73    179.99           1.190        5.595      23
+
+== Break it 1. Euler rates needed for a 1 rad/s body rotation about the 'lost' axis (roll = 30 deg) ==
+pitch (deg)  |euler rate| (rad/s)
+       0.00                   1.0
+      60.00                   2.6
+      85.00                  16.2
+      89.00                  81.0
+      89.90                 810.3
+      89.99                8102.8
+
+== Break it 2. slerp without the q.q1 < 0 sign check (300 pairs, 60 deg apart, random sign of q1) ==
+pairs with q0.q1 < 0: 156 of 300
+sign check True : rotation travelled min   60.0 deg, max   60.0 deg
+sign check False: rotation travelled min   60.0 deg, max  300.0 deg

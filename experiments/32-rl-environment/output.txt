@@ -1,0 +1,35 @@
+mujoco 3.17.0 | numpy 2.5.4 | gymnasium 1.4.0 | torch 2.14.1 | Apple M5, CPU, 1 thread
+
+[A] Environment
+  model timestep 5 ms, frame_skip 4 -> policy period 20 ms (50 Hz), 80 steps per episode (1.6 s)
+  observation_space (15,), action_space (4,) in [-1, 1]
+  reset(seed=7) twice -> same target: True (target [0.273 0.098 0.153] m, start distance 0.113 m)
+  terminate_on_success=True, scripted IK, 50 episodes: terminated 50, truncated 0
+
+[B] Baselines, 200 episodes each, success = gripper within 2 cm of target at the time limit
+  policy                  return  median final d   success      Wilson 95%
+  random           -14.37 ± 5.10         185.7 mm     1/200     0.1-2.8%
+  zero action      -12.87 ± 4.92         170.8 mm     1/200     0.1-2.8%
+  scripted IK       -1.16 ± 0.68           0.2 mm   200/200    98.1-100.0%
+
+[C] Throughput vs frame_skip (random actions, 1 env, 1 thread, 3 s of process CPU time per row;
+    CPU time, not wall-clock, so other load on the machine distorts it less)
+  frame_skip  policy Hz  env steps/CPU s  physics steps/CPU s   sim s / CPU s
+           1      200.0            22595                22595           113.0
+           2      100.0            22316                44631           223.2
+           4       50.0            14809                59235           296.2
+           8       25.0            10900                87203           436.0
+          16       12.5             6224                99585           497.9
+          32        6.2             3357               107417           537.1
+  linear fit, CPU time per env.step = 31.0 us + 8.3 us x frame_skip (fixed Python/env overhead + physics)
+
+[D] Break it: time limit (truncation) vs scripted IK success, 200 episodes, frame_skip 4
+  time limit  steps   success      Wilson 95%  median final d
+      0.08 s      4    11/200     3.1-9.6%        120.1 mm
+      0.16 s      8    43/200    16.4-27.7%         50.7 mm
+      0.24 s     12    81/200    33.9-47.4%         23.1 mm
+      0.32 s     16   160/200    73.9-85.0%          7.9 mm
+      0.48 s     24   199/200    97.2-99.9%          1.0 mm
+      1.60 s     80   200/200    98.1-100.0%          0.2 mm
+
+total wall-clock 54 s (shared machine; approximate)

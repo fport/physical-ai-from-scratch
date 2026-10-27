@@ -4,102 +4,109 @@
 
 ## Başlarken
 
-* [Kurulum: bir Mac, 0 TL](getting-started/setup.md)
-* [Bir ders nasıl okunur](getting-started/how-to-read-a-lesson.md)
-* [Sayı ve kaynak kuralları](getting-started/numbers-and-sources.md)
-* [Okuma sırası](getting-started/reading-order.md)
+* [Physical AI stack'i](start-here/physical-ai-stack.md)
+* [Önkoşullar](start-here/prerequisites.md)
+* [Kurulum](start-here/setup.md)
+* [Bir ders nasıl okunur](start-here/how-to-read-a-lesson.md)
+* [Sayı ve kaynak kuralları](start-here/numbers-and-sources.md)
+* [Okuma yolları](start-here/reading-paths.md)
+* [Videolar ve dersler](start-here/video-map.md)
 
-## Faz 0 · Dünya kare kare
+## Bölüm 1 · Simulation
 
-* [Giriş](phase-0-world-frame-by-frame/README.md)
-  * [01 · Dünya bir metin dosyası](phase-0-world-frame-by-frame/01-world-as-text.md)
-  * [02 · Timestep: küp masanın içinden neden geçti?](phase-0-world-frame-by-frame/02-timestep.md)
-  * [03 · Simülasyonda masa aslında bir sünger: soft contact](phase-0-world-frame-by-frame/03-soft-contact.md)
-  * [04 · Friction: ağır küp daha geç kayar mı?](phase-0-world-frame-by-frame/04-friction.md)
+* [Genel bakış](part-1-simulation/README.md)
+  * [01 · Dünya bir metin dosyası: MJCF ve URDF](part-1-simulation/01-world-as-text.md)
+  * [02 · Time integration ve timestep](part-1-simulation/02-timestep.md)
+  * [03 · Contact: soft constraint, solref ve solimp](part-1-simulation/03-contact.md)
+  * [04 · Friction ve friction cone](part-1-simulation/04-friction.md)
+  * [05 · Joint'ler ve actuator'ler](part-1-simulation/05-joints-and-actuators.md)
 
-## Faz 1 · Uzay ve beden
+## Bölüm 2 · Spatial math
 
-* [Giriş](phase-1-space-and-body/README.md)
-  * [05 · Robot için "sol" diye bir şey yok: coordinate frames](phase-1-space-and-body/05-coordinate-frames.md)
-  * [06 · 6 motor var, 6 degrees of freedom yok](phase-1-space-and-body/06-degrees-of-freedom.md)
-  * [07 · İki açı, bir nokta: forward kinematics](phase-1-space-and-body/07-forward-kinematics.md)
-  * [08 · Bu kol kendi tabanına dokunabilir mi? Workspace](phase-1-space-and-body/08-workspace.md)
-  * [09 · Aynı noktaya iki farklı dirsekle: inverse kinematics](phase-1-space-and-body/09-inverse-kinematics.md)
+* [Genel bakış](part-2-spatial-math/README.md)
+  * [06 · Rotation: matrix, Euler açıları, axis-angle, quaternion](part-2-spatial-math/06-rotations.md)
+  * [07 · Rigid transform'lar ve frame tree'leri](part-2-spatial-math/07-rigid-transforms.md)
 
-## Faz 2 · Kas
+## Bölüm 3 · Kinematics
 
-* [Giriş](phase-2-muscle/README.md)
-  * [10 · Motora kuvvet değil, açı söylüyorsun: position servo](phase-2-muscle/10-position-servo.md)
-  * [11 · 12 eklem, iki sayı: 20 ve 0,5](phase-2-muscle/11-pd-control.md)
-  * [12 · Kol zayıf değil, matematik onu sarkıtıyor: gravity compensation](phase-2-muscle/12-gravity.md)
-  * [13 · Eklemleri düz oynattım, uç eğri çizdi: trajectory](phase-2-muscle/13-trajectory.md)
-  * [14 · Robotun ilk kuralı: kendini durdurabilmek](phase-2-muscle/14-safety.md)
+* [Genel bakış](part-3-kinematics/README.md)
+  * [08 · Forward kinematics, degrees of freedom ve workspace](part-3-kinematics/08-forward-kinematics.md)
+  * [09 · Jacobian ve differential kinematics](part-3-kinematics/09-jacobians.md)
+  * [10 · Inverse kinematics ve singularity](part-3-kinematics/10-inverse-kinematics.md)
 
-## Faz 3 · Duyular
+## Bölüm 4 · Dynamics ve control
 
-* [Giriş](phase-3-senses/README.md)
-  * [15 · Noise'u temizledim, robot geç kaldı: filtering ve latency](phase-3-senses/15-noise-and-latency.md)
-  * [16 · Kameran düz çizgiyi eğri görüyor: camera calibration](phase-3-senses/16-camera-calibration.md)
-  * [17 · Ekrana tıkladım, kol oraya dokundu: homography](phase-3-senses/17-pixel-to-table.md)
-  * [18 · Lambayı açtım, robot kırmızıyı göremedi: color thresholding ve open-vocabulary detection](phase-3-senses/18-color-vs-open-vocabulary.md)
+* [Genel bakış](part-4-dynamics-and-control/README.md)
+  * [11 · Rigid-body dynamics](part-4-dynamics-and-control/11-rigid-body-dynamics.md)
+  * [12 · Joint control: PD, PID, gravity feedforward ve position servo](part-4-dynamics-and-control/12-joint-control.md)
+  * [13 · Trajectory generation](part-4-dynamics-and-control/13-trajectory-generation.md)
+  * [14 · Operational-space ve impedance control](part-4-dynamics-and-control/14-impedance-control.md)
+  * [15 · Safety: limit'ler, torque cap, e-stop ve watchdog](part-4-dynamics-and-control/15-safety.md)
+  * [16 · Grasping ve scripted pick-and-place](part-4-dynamics-and-control/16-grasping-and-pick-place.md)
 
-## Faz 4 · Göstererek öğretmek
+## Bölüm 5 · Perception ve estimation
 
-* [Giriş](phase-4-learning-from-demonstration/README.md)
-  * [19 · Replay öğrenme değildir](phase-4-learning-from-demonstration/19-replay.md)
-  * [20 · Bir robot dataset'i neye benzer?](phase-4-learning-from-demonstration/20-datasets.md)
-  * [21 · Kimse kod yazmadı: behavior cloning](phase-4-learning-from-demonstration/21-behavior-cloning.md)
-  * [22 · %90 success rate dedim, aslında ne kadar? Evaluation](phase-4-learning-from-demonstration/22-evaluation.md)
-  * [23 · Mükemmel taklitçi ilk hatada batar mı? Distribution shift](phase-4-learning-from-demonstration/23-distribution-shift.md)
-  * [24 · İki doğru cevabın ortalaması yanlıştır](phase-4-learning-from-demonstration/24-two-right-answers.md)
-  * [25 · Robot her frame'de fikir değiştiriyordu: action chunking](phase-4-learning-from-demonstration/25-action-chunking.md)
-  * [26 · Gerçek kolda end-to-end imitation learning](phase-4-learning-from-demonstration/26-end-to-end-imitation.md)
+* [Genel bakış](part-5-perception-and-estimation/README.md)
+  * [17 · Sensor'ler, noise ve filtering](part-5-perception-and-estimation/17-sensors-noise-filtering.md)
+  * [18 · Kalman filter](part-5-perception-and-estimation/18-kalman-filter.md)
+  * [19 · Camera model, calibration ve hand-eye calibration](part-5-perception-and-estimation/19-camera-calibration.md)
+  * [20 · Pixel'den masaya: homography ve depth back-projection](part-5-perception-and-estimation/20-pixels-to-table.md)
+  * [21 · Manipulation için object perception](part-5-perception-and-estimation/21-object-perception.md)
 
-## Faz 5 · Ajan
+## Bölüm 6 · Planning ve optimal control
 
-* [Giriş](phase-5-agents/README.md)
-  * [27 · Agent loop'u 25 satırda yazmak](phase-5-agents/27-agent-loop.md)
-  * [28 · Büyük model kolu oynatmıyor, emir veriyor](phase-5-agents/28-two-brains.md)
-  * [29 · Agent'a "masanın altına uzan" dedim: tool call validation](phase-5-agents/29-agent-safety.md)
-  * [30 · Aynı kolu üç farklı agent kullansın: MCP](phase-5-agents/30-mcp.md)
-  * [31 · Robota konuşarak iş yaptırmak: Strands](phase-5-agents/31-strands-agent.md)
+* [Genel bakış](part-6-planning-and-optimal-control/README.md)
+  * [22 · Configuration space ve sampling-based planning](part-6-planning-and-optimal-control/22-motion-planning.md)
+  * [23 · Trajectory optimization](part-6-planning-and-optimal-control/23-trajectory-optimization.md)
+  * [24 · LQR ve model predictive control](part-6-planning-and-optimal-control/24-lqr-and-mpc.md)
 
-## Faz 6 · Deneyerek öğrenmek
+## Bölüm 7 · Learning from demonstration
 
-* [Giriş](phase-6-learning-by-trial/README.md)
-  * [32 · Yol göstermedim, sadece reward verdim: Q-learning](phase-6-learning-by-trial/32-q-learning.md)
-  * [33 · Binlerce robot aynı anda düşerse: PPO sezgisi](phase-6-learning-by-trial/33-parallel-rl.md)
-  * [34 · Agent reward'u kandırırsa: reward hacking](phase-6-learning-by-trial/34-reward-hacking.md)
+* [Genel bakış](part-7-learning-from-demonstration/README.md)
+  * [25 · Robot policy'lerini evaluate etmek](part-7-learning-from-demonstration/25-evaluating-policies.md)
+  * [26 · Teleoperation, replay ve data collection](part-7-learning-from-demonstration/26-teleop-replay-data.md)
+  * [27 · Robot dataset'leri](part-7-learning-from-demonstration/27-robot-datasets.md)
+  * [28 · Behavior cloning](part-7-learning-from-demonstration/28-behavior-cloning.md)
+  * [29 · Distribution shift ve DAgger](part-7-learning-from-demonstration/29-dagger.md)
+  * [30 · Multimodal action'lar: diffusion ve flow policy'ler](part-7-learning-from-demonstration/30-diffusion-and-flow-policies.md)
+  * [31 · Action chunking ve ACT](part-7-learning-from-demonstration/31-act.md)
 
-## Faz 7 · Sim'den masaya
+## Bölüm 8 · Robotlar için reinforcement learning
 
-* [Giriş](phase-7-sim-to-real/README.md)
-  * [35 · Robotun beyni kaç milisaniye geride? Latency ve control rate](phase-7-sim-to-real/35-latency-and-control-rate.md)
-  * [36 · Simdeki motor gerçeğinden farklıydı: system identification](phase-7-sim-to-real/36-system-identification.md)
-  * [37 · Sim'i bilerek bozmak: domain randomization](phase-7-sim-to-real/37-domain-randomization.md)
+* [Genel bakış](part-8-rl-for-robots/README.md)
+  * [32 · Bir MuJoCo RL environment'ı](part-8-rl-for-robots/32-rl-environment.md)
+  * [33 · Continuous control için PPO](part-8-rl-for-robots/33-ppo.md)
+  * [34 · Observation ve action tasarımı](part-8-rl-for-robots/34-observation-action-design.md)
+  * [35 · Reward tasarımı ve reward hacking](part-8-rl-for-robots/35-reward-design.md)
+  * [36 · Legged locomotion ve massively parallel training](part-8-rl-for-robots/36-legged-locomotion.md)
 
-## Faz 8 · Büyük beyinler
+## Bölüm 9 · Sim-to-real
 
-* [Giriş](phase-8-big-models/README.md)
-  * [38 · Bir VLA'nın içine bakmak: image + text → action](phase-8-big-models/38-vla.md)
-  * [39 · Noise'dan yol çıkarmak: diffusion ve flow matching](phase-8-big-models/39-diffusion-and-flow.md)
+* [Genel bakış](part-9-sim-to-real/README.md)
+  * [37 · Control rate ve end-to-end latency](part-9-sim-to-real/37-latency.md)
+  * [38 · System identification](part-9-sim-to-real/38-system-identification.md)
+  * [39 · Domain randomization](part-9-sim-to-real/39-domain-randomization.md)
+  * [40 · Gerçek SO-101'e deploy etmek](part-9-sim-to-real/40-real-so101.md)
 
-## Faz 9 · Bitirme
+## Bölüm 10 · Foundation model'ler ve agent'lar
 
-* [Giriş](phase-9-capstone/README.md)
-  * [40 · "Mavi küpü kutuya koy"](phase-9-capstone/40-capstone.md)
+* [Genel bakış](part-10-foundation-models-and-agents/README.md)
+  * [41 · Vision-language-action model'leri](part-10-foundation-models-and-agents/41-vla.md)
+  * [42 · Robot tool'ları olan LLM agent'ları](part-10-foundation-models-and-agents/42-llm-agents.md)
+  * [43 · World model'ler: öğrenilmiş dynamics](part-10-foundation-models-and-agents/43-world-models.md)
+
+## Bitirme projesi
+
+* [Genel bakış](capstone/README.md)
+  * [44 · Söyle, gör, planla, tut](capstone/44-capstone.md)
 
 ## Ekler
 
-* [Ek dersler](appendix/README.md)
-  * [EK A · Singularity: kol dümdüz uzanınca neden çıldırır?](appendix/a-singularities.md)
-  * [EK B · Gimbal lock ve quaternion](appendix/b-gimbal-lock.md)
-  * [EK C · Kalman sezgisi: iki noisy ölçümü birleştirmek](appendix/c-kalman.md)
-  * [EK D · SAM ile grasp point](appendix/d-sam-grasp-points.md)
-  * [EK E · SmolVLA'yı kendi verinde fine-tune etmek](appendix/e-smolvla-finetuning.md)
-  * [EK F · World model: "sonra ne olur"u öğrenen küçük model](appendix/f-world-models.md)
-  * [EK G · π0, GR00T, Gemini Robotics: aynı fikrin üç ölçeği](appendix/g-big-robot-models.md)
-  * [EK H · Mac'te kaç Hz? CPU ve MPS'de inference hızı](appendix/h-inference-speed-on-mac.md)
+* [Ekler](appendix/README.md)
+  * [A · Büyük robot model'leri: π0, GR00T, Gemini Robotics](appendix/a-large-robot-models.md)
+  * [B · SmolVLA fine-tuning](appendix/b-smolvla-finetuning.md)
+  * [C · Mac'te inference hızı](appendix/c-inference-speed-on-mac.md)
+  * [D · Grasp point için segmentation](appendix/d-segmentation-for-grasping.md)
 
 ## Başvuru
 

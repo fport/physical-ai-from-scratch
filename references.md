@@ -4,19 +4,19 @@ The courses, books, docs and papers the curriculum rests on. Each lesson has its
 
 ## Curriculum backbone
 
-The phases and lesson order were built by studying the common chain shared by these curricula (space and transforms → kinematics → dynamics and control → perception → estimation → learning → sim-to-real).
+The parts and lesson order were built by studying the common chain shared by these curricula (space and transforms → kinematics → dynamics and control → perception → estimation → learning → sim-to-real).
 
 | Source | What it contributed |
 |---|---|
-| Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics) | Frames, FK/IK, dynamics, trajectories, control, grasping (Phases 1–2) |
-| Tedrake, [*Robotic Manipulation*](https://manipulation.mit.edu/) | Spatial algebra, pose estimation, perception (Phases 1, 3) |
-| Tedrake, [*Underactuated Robotics*](https://underactuated.mit.edu/) | System identification, state estimation (Phases 3, 7) |
+| Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics) | Frames, FK/IK, dynamics, trajectories, control, grasping (Parts 2–4) |
+| Tedrake, [*Robotic Manipulation*](https://manipulation.mit.edu/) | Spatial algebra, pose estimation, perception (Parts 2, 5) |
+| Tedrake, [*Underactuated Robotics*](https://underactuated.mit.edu/) | System identification, state estimation (Parts 5, 6, 9) |
 | [Hugging Face Robotics Course](https://huggingface.co/learn/robotics-course) | Classical robotics → RL → imitation flow |
 | Capuano et al., [*Robot Learning: A Tutorial*, arXiv 2510.12403](https://arxiv.org/abs/2510.12403) | RL → behavior cloning → generalist policies |
-| [LeRobot docs](https://huggingface.co/docs/lerobot/index) | Calibration → teleop → recording → training → evaluation workflow (Phase 4) |
-| [NVIDIA · SO-101 Sim-to-Real](https://docs.nvidia.com/learning/physical-ai/sim-to-real-so-101/latest/index.html) | Sim-to-real strategies (Phase 7) |
-| [Berkeley CS285](https://rail.eecs.berkeley.edu/deeprlcourse/) | Order of behavior cloning and RL (Phases 4, 6) |
-| [MuJoCo Playground](https://playground.mujoco.org/), [arXiv 2502.08844](https://arxiv.org/abs/2502.08844) | Parallel locomotion training on GPU (Phase 6) |
+| [LeRobot docs](https://huggingface.co/docs/lerobot/index) | Calibration → teleop → recording → training → evaluation workflow (Parts 7, 9) |
+| [NVIDIA · SO-101 Sim-to-Real](https://docs.nvidia.com/learning/physical-ai/sim-to-real-so-101/latest/index.html) | Sim-to-real strategies (Part 9) |
+| [Berkeley CS285](https://rail.eecs.berkeley.edu/deeprlcourse/) | Order of behavior cloning and RL (Parts 7, 8) |
+| [MuJoCo Playground](https://playground.mujoco.org/), [arXiv 2502.08844](https://arxiv.org/abs/2502.08844) | Parallel locomotion training on GPU (Part 8) |
 | Rohit Ghumare et al., [AI Engineering from Scratch](https://github.com/rohitg00/ai-engineering-from-scratch) (MIT) | Lesson format and the "from scratch" approach (structural inspiration; no content copied) |
 
 ## Tools and models

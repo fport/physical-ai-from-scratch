@@ -1,0 +1,48 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | Python 3.14.7 | arm64
+
+== A. Velocity map v = J_p qdot, w = J_r qdot (50 random poses, random qdot, |qdot| = 1 rad/s) ==
+relative error, linear velocity: max 7.9e-07 | angular velocity: max 3.8e-07
+typical site speed for |qdot| = 1 rad/s: median |v| = 0.306 m/s
+
+== B. Sweep finite-difference step eps: median over 50 poses of max |J_fd - J_mj| ==
+eps (rad)  forward Jp  forward Jr  central Jp  central Jr
+    1e-01     1.2e-02     4.8e-15     4.2e-04     2.6e-15
+    1e-02     1.2e-03     4.5e-14     4.2e-06     2.4e-14
+    1e-03     1.2e-04     4.5e-13     4.2e-08     2.5e-13
+    1e-04     1.2e-05     4.7e-12     4.2e-10     2.1e-12
+    1e-05     1.2e-06     4.7e-11     5.6e-12     2.3e-11
+    1e-06     1.2e-07     4.3e-10     5.2e-11     2.5e-10
+    1e-07     1.2e-08     4.5e-09     4.7e-10     2.3e-09
+    1e-08     9.8e-09     4.4e-08     4.9e-09     2.3e-08
+    1e-09     9.1e-08     4.6e-07     5.1e-08     2.7e-07
+    1e-10     9.5e-07     4.4e-06     4.3e-07     2.2e-06
+    1e-11     8.6e-06     4.7e-05     4.9e-06     2.4e-05
+    1e-12     8.9e-05     4.6e-04     4.7e-05     2.4e-04
+    1e-13     8.3e-04     4.5e-03     4.7e-04     2.5e-03
+    1e-14     8.3e-03     4.5e-02     4.5e-03     2.6e-02
+best forward step for Jp: eps = 1e-08 -> error 9.8e-09
+best central step for Jp: eps = 1e-05 -> error 5.6e-12
+double precision machine epsilon: 2.2e-16; sqrt = 1.5e-08, cbrt = 6.1e-06
+
+== C. Static force map: external force F at the gripper site vs servo torques after settling ==
+           F (N)                  J^T F (N m), joints 1-5                       servo torque (N m)  max diff
+   [ 0.  0. -2.]   0.0000  0.4383  0.5191  0.2584  0.0042   0.0000  0.4383  0.5191  0.2584  0.0042   4.2e-14
+      [2. 0. 0.]   0.0052 -0.0395 -0.2569 -0.1872 -0.0036   0.0052 -0.0395 -0.2569 -0.1872 -0.0036   7.1e-14
+   [0.  1.5 0. ]  -0.3745 -0.0000 -0.0001 -0.0001  0.0175  -0.3745 -0.0000 -0.0001 -0.0001  0.0175   7.2e-14
+   [ 1. -1.  1.]   0.2523 -0.2390 -0.3882 -0.2229 -0.0156   0.2523 -0.2390 -0.3882 -0.2229 -0.0156   1.6e-13
+joint speed at the end: max |qvel| = 8.5e-15 rad/s
+
+== Break it. Vertical tip load the model's servos can hold (forcerange from so101.xml) ==
+servo force limit in the model: 2.94 N m per joint
+                    pose (rad) lever (m)                gravity tau (N m)           tau per N down (N m/N) max tip load (N) limiting joint
+  near      (0,-1.5,1.5,0.5,0)     0.172  0.000 -0.059 -0.469 -0.115 -0.006  0.000  0.170  0.280  0.145 -0.001             8.81     elbow_flex
+  mid       (0,-0.6,0.9,0.4,0)     0.220  0.000 -0.281 -0.443 -0.101 -0.005  0.000  0.219  0.260  0.129 -0.001             9.61     elbow_flex
+    stretched (0,1.3,-1.3,0,0)     0.411  0.000 -0.909 -0.483 -0.130 -0.007  0.000  0.410  0.294  0.159 -0.001             4.95  shoulder_lift
+
+== Break it (simulated). Stretched pose, gravity on, downward tip force as a fraction of the limit ==
+tip force (N)  x limit  tip drop after 5 s (mm)  lift servo torque (N m)
+         0.00      0.0                      0.5                   -0.909
+         2.48      0.5                      1.2                   -1.925
+         4.46      0.9                      1.8                   -2.737
+         5.45      1.1                    147.4                   -2.940
+         7.43      1.5                    179.7                   -2.940

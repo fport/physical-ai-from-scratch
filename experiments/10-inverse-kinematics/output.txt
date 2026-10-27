@@ -1,0 +1,43 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | Python 3.14.7 | arm64
+
+== A. Sweep damping: 500 random reachable position targets, seed q0 = 0, tol 0.5 mm, max 200 iterations ==
+          method  success  median it  p95 it  median err (mm)  max err (mm)  median max|dq| (rad)  fails ending at a limit
+       transpose    85.6%         35     151            0.480         199.6                 0.699            24 of  72
+            pinv    73.2%          6      34            0.237         557.5                 4.901           132 of 134
+     dls l=0.001    73.2%          6      34            0.239         557.5                 4.900           130 of 134
+     dls l=0.003    74.0%          6      35            0.247         557.5                 4.846           128 of 130
+      dls l=0.01    76.0%          6      34            0.247         555.2                 4.737           120 of 120
+      dls l=0.03    84.6%          7      30            0.281         557.8                 3.920            77 of  77
+       dls l=0.1    88.6%         15      92            0.453         295.2                 1.598            56 of  57
+       dls l=0.3    74.6%         64     167            0.492         235.0                 0.485            50 of 127
+dls l=0.1 +4 restarts    96.8%  (median total iterations 17, max 1000)
+
+== B. Multiple solutions: reach (0.20, 0.05, 0.05) m, fingers pointing down, wrist_roll held at 0, 100 random seeds ==
+joint limits OFF: converged 96 / 100 seeds; distinct solutions (tol 0.01 rad): 4
+  count      pan    lift   elbow   wrist  (deg)  inside limits?
+     37    -17.6    96.8  -177.0   170.2         False
+     26    -17.6   -17.2    29.3    77.9         True
+     20    163.1   -55.0  -120.6   -94.4         False
+     13    163.1  -105.5   -27.1  -137.4         False
+joint limits ON : converged 92 / 100 seeds; distinct solutions (tol 0.01 rad): 1
+  count      pan    lift   elbow   wrist  (deg)  inside limits?
+     92    -17.6   -17.2    29.3    77.9         True
+
+== C. Stretching the arm: q(s) = q_bent + s (q_straight - q_bent); straight elbow -73.74 deg, wrist 2.01 deg ==
+q_bent = [0.  1.3 0.  0.  0. ] rad, q_straight = [ 0.     1.3   -1.287  0.035  0.   ] rad
+    s   sigma1   sigma2    sigma3  w=sqrt(det JJ^T)      cond  reach (m)
+ 0.00   0.4764   0.2419  7.71e-02         8.879e-03   6.2e+00     0.3477
+ 0.50   0.5155   0.3885  4.42e-02         8.857e-03   1.2e+01     0.3945
+ 0.80   0.5277   0.4336  1.83e-02         4.190e-03   2.9e+01     0.4084
+ 0.90   0.5295   0.4397  9.20e-03         2.143e-03   5.8e+01     0.4104
+ 0.95   0.5299   0.4410  4.61e-03         1.078e-03   1.1e+02     0.4109
+ 0.99   0.5301   0.4412  9.35e-04         2.187e-04   5.7e+02     0.4110
+ 1.00   0.5301   0.4411  1.05e-04         2.444e-05   5.1e+03     0.4110
+
+== Break it. Request v = 5 cm/s along the weakest direction (u3) near the stretched pose ==
+    s  |qdot| pinv (rad/s)  |qdot| dls l=0.03  dls |J qdot|/|v|  |qdot| dls l=0.1  dls l=0.1 |J qdot|/|v|
+0.500                 1.13              0.774             0.685             0.185                   0.164
+0.900                 5.43              0.467             0.086             0.046                   0.008
+0.990                53.47              0.052             0.001             0.005                   0.000
+0.999               345.39              0.008             0.000             0.001                   0.000
+1.000               478.33              0.006             0.000             0.001                   0.000

@@ -1,0 +1,46 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | SciPy 1.18.1 | Python 3.14.7 | arm64
+
+Part A · cart 1 kg, pole 0.2 kg / 0.6 m, dt = 0.01 s, state (x, theta, xdot, thetadot)
+A =
+ [[ 1.     -0.0001  0.01    0.    ]
+ [ 0.      1.0027  0.      0.01  ]
+ [ 0.     -0.0136  1.      0.    ]
+ [ 0.      0.2729  0.      1.    ]]
+B = [ 0.0001 -0.0002  0.0095 -0.0232]
+open-loop |eig(A)| max = 1.0536  (> 1: unstable)
+K = [ -9.081  -65.8771 -10.3669 -11.81  ]
+closed-loop |eig(A - B K)| = [0.9202 0.9202 0.9869 0.9869]
+
+Part B · LQR region of attraction: initial angle (cart at rest at x = 0), 5 s, success = |theta| < 2 deg at the end
+theta0 (deg) |       F=5 N |      F=10 N |      F=20 N |      F=50 N
+           0 |          ok |          ok |          ok |          ok
+           5 |          ok |          ok |          ok |          ok
+          10 |          ok |          ok |          ok |          ok
+          15 |          ok |          ok |          ok |          ok
+          20 |        fell |          ok |          ok |          ok
+          25 |        fell |          ok |          ok |          ok
+          30 |        fell |          ok |          ok |          ok
+          35 |        fell |   track end |          ok |          ok
+          40 |        fell |   track end |          ok |          ok
+          45 |        fell |        fell |   track end |          ok
+          50 |        fell |        fell |   track end |          ok
+          55 |        fell |        fell |   track end |   track end
+          60 |        fell |        fell |   track end |   track end
+  180 (down) |      not up |      not up |      not up |      not up
+
+Part C · MPPI swing-up from hanging down, |F| <= 20.0 N, 64 samples, sigma 8.0 N, lambda 0.5, 50 Hz, 6 s, 8 seeds
+
+C1 · MPPI only
+horizon (s) | H steps | passed <10 deg | held (<10 deg) | med t_up (s) | med worst |theta| last 1 s (deg) | med cost
+        0.2 |      10 |      8/8       |      0/8       |         0.80 |                            178.2 |    30.97
+        0.3 |      15 |      8/8       |      0/8       |         0.72 |                            177.2 |    29.84
+        0.5 |      25 |      8/8       |      8/8       |         0.90 |                              3.1 |    10.79
+        0.7 |      35 |      8/8       |      8/8       |         1.27 |                              5.1 |     9.12
+        1.0 |      50 |      8/8       |      3/8       |         1.09 |                             11.8 |     7.57
+        1.5 |      75 |      8/8       |      1/8       |         1.51 |                             16.0 |    10.08
+
+C2 · MPPI for the swing-up, LQR once |theta| < 20 deg
+horizon (s) | H steps | passed <10 deg | held (<10 deg) | med t_up (s) | med worst |theta| last 1 s (deg) | med cost
+        0.5 |      25 |      8/8       |      7/8       |         1.09 |                              0.1 |     7.61
+        1.0 |      50 |      8/8       |      8/8       |         1.12 |                              0.0 |     7.16
+        1.5 |      75 |      8/8       |      8/8       |         1.66 |                              0.1 |     9.00

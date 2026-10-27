@@ -1,0 +1,27 @@
+mujoco 3.17.0 | numpy 2.5.4 | torch 2.14.1 | Apple M5, CPU, 1 torch thread per run
+PPO: {'total_steps': 300000, 'lr': 0.001, 'gamma': 0.95, 'lam': 0.95, 'log_std_init': -1.0} (+ lesson-33 defaults), 3 seeds x 100 evaluation episodes per cell
+
+[A] Reward shape (no termination; success = within 2 cm at the 1.6 s time limit)
+  reward                        success per seed  pooled success, Wilson 95%   median final d mm
+  dense  -d                     100/98/100        298/300 [97.6,  99.8]                      7.5
+  sparse 1[d < 2 cm]            8/0/0               8/300 [ 1.4,   5.2]                    117.8
+  sparse + 0.95*Phi(s') - Phi(s)99/97/99          295/300 [96.2,  99.3]                      7.8
+
+[B] Reward hacking: episode ends when d < 2 cm (success = episode ended by reaching)
+  reward                        success per seed  pooled success, Wilson 95%   written return ep. length median final d mm
+  1 - tanh(d/5cm), ends on success23/43/29           95/300 [26.7,  37.1]                 22.67       62.3              28.8
+  -d, ends on success           99/100/98         297/300 [97.1,  99.7]                 -0.72        9.2              14.7
+  1 - tanh(d/5cm), no termination98/100/100        298/300 [97.6,  99.8]                 64.00       80.0               5.1
+  close+end policy run WITHOUT termination: median final distance 30.8 mm
+  scripted IK (reaches every target) scored by the same written reward: return 2.28, ends on success
+
+[C] Action-rate penalty r = -d - w ||a_t - a_(t-1)||^2 (no termination)
+       w  success per seed  pooled success, Wilson 95%   median final d mm  tau rate N m/s  power W
+     0.0  100/98/100        298/300 [97.6,  99.8]                      7.5            1002     9.66
+    0.03  81/99/99          279/300 [89.5,  95.4]                      8.8             933     9.44
+     0.1  80/87/96          263/300 [83.5,  90.9]                     11.4             901     9.45
+     0.3  41/9/94           144/300 [42.4,  53.6]                     25.6             850     8.20
+     1.0  7/35/14            56/300 [14.7,  23.5]                     39.2             674     6.54
+     3.0  27/6/26            59/300 [15.6,  24.5]                     31.9             743     5.64
+
+33 training runs, 1904 s wall-clock in total (6 worker processes, shared machine)

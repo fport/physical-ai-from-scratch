@@ -1,0 +1,42 @@
+mujoco 3.17.0 · numpy 2.5.4 · seed 0 · dt 2 ms
+
+[1] jointpos sensor with noise=0.01: max |sensordata - qpos| = 0.0e+00 rad
+    -> MuJoCo does not add noise; we add it ourselves.
+
+[2] encoder: 4096 counts/rev -> step 1.534 mrad; added white noise sigma 10 mrad
+    raw reading: position RMS 9.95 mrad, finite-difference velocity RMS 3.50 rad/s (true velocity RMS 0.63 rad/s)
+
+[3] moving average (causal), window N
+    N  theory delay ms  measured delay ms  pos RMS mrad  vel RMS rad/s
+    1              0.0                0.0          9.95           3.50
+    3              2.0                2.0          5.91           1.65
+    5              4.0                4.0          5.17           1.01
+    9              8.0                8.0          6.03           0.55
+   17             16.0               16.0         10.22           0.29
+   33             32.0               32.0         19.76           0.16
+   65             64.0               64.0         39.01           0.12
+  129            128.0              128.0         76.52           0.19
+
+[4] first-order low-pass, cutoff fc
+ fc Hz   tau ms  measured delay ms  pos RMS mrad  vel RMS rad/s
+   100      1.6                2.0          6.28           1.95
+    50      3.2                4.0          5.30           1.35
+    20      8.0                8.0          6.02           0.71
+    10     15.9               16.0         10.16           0.39
+     5     31.8               32.0         19.57           0.21
+     2     79.6               78.0         47.33           0.14
+     1    159.2              150.0         88.80           0.22
+   0.5    318.3              274.0        152.59           0.35
+
+    lowest position RMS: MA N=5 (5.17 mrad)
+
+[5] arm at rest: |accelerometer| = 9.810 m/s^2 (gravity is included)
+    gyro z: true max |w| = 9.5e-05 rad/s; with bias 0.02 rad/s and noise 0.05 rad/s, integrated angle after 10 s = 0.209 rad (12.0 deg)
+
+[6] break it: fixed moving average N=17, motion frequencies scaled by k
+   k  true vel RMS rad/s  raw pos RMS mrad  MA17 pos RMS mrad
+ 0.5                0.28              9.94               5.01
+   1                0.61              9.95              10.22
+   2                1.27              9.95              20.46
+   4                2.51              9.95              40.00
+   8                3.73              9.94              59.49

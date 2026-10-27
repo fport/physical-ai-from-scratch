@@ -1,0 +1,39 @@
+mujoco 3.17.0 · numpy 2.5.4
+
+[A] Open-loop replay vs closed-loop re-planning, cube shifted 0.5-5 cm in 8 directions (81 trials)
+recording: 2250 steps x 6 commands (2 ms), IK error 0.18 mm
+
+ shift cm   replay     Wilson 95%  feedback   replay outcomes
+        0      1/1   [0.21, 1.00]       1/1   held 1
+      0.5      8/8   [0.68, 1.00]       8/8   held 8
+        1      7/8   [0.53, 0.98]       8/8   held 7, pushed 1
+      1.5      4/8   [0.22, 0.78]       8/8   held 4, pushed 4
+        2      3/8   [0.14, 0.69]       8/8   held 3, pushed 5
+      2.5      1/8   [0.02, 0.47]       8/8   held 1, missed 2, pushed 5
+        3      1/8   [0.02, 0.47]       8/8   held 1, missed 2, pushed 5
+      3.5      1/8   [0.02, 0.47]       8/8   held 1, missed 6, pushed 1
+        4      1/8   [0.02, 0.47]       8/8   held 1, missed 6, pushed 1
+      4.5      0/8   [0.00, 0.32]       8/8   missed 6, pushed 2
+        5      0/8   [0.00, 0.32]       8/8   missed 7, pushed 1
+total: replay 27/81, feedback 81/81
+
+farthest successful replay shift per direction (0 = forward +x, 90 = +y moving-jaw side, 270 = -y fixed-jaw side):
+    0 deg:   1 cm   0.5..5 cm: oo........
+   45 deg:   2 cm   0.5..5 cm: oooo......
+   90 deg:   4 cm   0.5..5 cm: oooooooo..
+  135 deg:   2 cm   0.5..5 cm: oooo......
+  180 deg: 1.5 cm   0.5..5 cm: ooo.......
+  225 deg:   1 cm   0.5..5 cm: oo........
+  270 deg: 0.5 cm   0.5..5 cm: o.........
+  315 deg:   1 cm   0.5..5 cm: oo........
+
+[B] Scripted demonstrations (lesson 16 scripted_pick)
+120 scripted demonstrations, cube x in [16, 28] cm, y in [-8, 8] cm (seed 26), recorded at 25 Hz
+  successful (physical test): 120/120; failed episodes at cube xy [cm]: 
+  frames per episode: min 114, max 114, total 13680 (4.56-4.56 s)
+  observation 9 = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper', 'cube_x', 'cube_y', 'cube_z']
+  action      6 = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper'] (joint position targets [rad])
+  saved demos.npz: 0.47 MB
+
+[C] Is the saved dataset self-consistent?
+replay of the saved 25 Hz actions, same cube position: 20/20 succeed (Wilson 95% [0.84, 1.00]); the original demos: 20/20

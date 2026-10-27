@@ -1,0 +1,44 @@
+numpy 2.5.4 · torch 2.14.1
+
+[A] Anatomy of the lesson-26 dataset
+episodes 120, frames 13680, fps 25, task 'pick up the cube', successful episodes 120/120
+episode boundaries (first index of each episode): [0, 114, 228, 342] ... 13566
+first frames of episode 1 as rows (index, episode_index, frame_index, timestamp, task_index, observation.state[:3], action[:3]):
+    114   1    0   0.00  0   [ 0.  -1.2  0.5]   [ 0.  -1.2  0.5]
+    115   1    1   0.04  0   [-0.  -1.2  0.5]   [ 0.  -1.2  0.5]
+    116   1    2   0.08  0   [-0.  -1.2  0.5]   [ 0.  -1.2  0.5]
+
+statistics (observation.state | action), like meta/stats.json; joints in rad, cube in m
+       feature     mean      std      min      max      q01      q99
+  shoulder_pan    0.053    0.235   -0.401    0.560   -0.389    0.551
+ shoulder_lift   -0.240    0.515   -1.200    0.702   -1.200    0.620
+    elbow_flex    0.202    0.394   -1.217    0.938   -0.953    0.857
+    wrist_flex    1.377    0.202    1.051    1.658    1.052    1.658
+    wrist_roll    1.685    0.232    1.219    2.178    1.232    2.168
+       gripper    0.731    0.505    0.141    1.200    0.162    1.200
+        cube_x    0.222    0.037    0.160    0.332    0.161    0.321
+        cube_y   -0.002    0.048   -0.093    0.080   -0.083    0.079
+        cube_z    0.036    0.032    0.015    0.114    0.015    0.101
+act.shoulder_pan    0.053    0.236   -0.401    0.559   -0.389    0.551
+act.shoulder_lift   -0.230    0.508   -1.200    0.702   -1.200    0.624
+act.elbow_flex    0.196    0.396   -1.218    0.946   -0.978    0.856
+act.wrist_flex    1.381    0.203    1.051    1.658    1.052    1.658
+act.wrist_roll    1.685    0.234    1.219    2.178    1.232    2.168
+   act.gripper    0.561    0.674   -0.170    1.200   -0.170    1.200
+
+[B] Normalization: 80 training episodes (0-79), validation on episodes 80-99, same MLP, 4000 steps
+ normalization  val RMSE deg  worst joint  its RMSE deg
+          none         0.306      gripper         0.480
+ none, cube mm         4.649      gripper         8.164
+      mean_std         0.264      gripper         0.507
+  mean_std, mm         0.265      gripper         0.514
+       min_max         0.245      gripper         0.448
+
+[C] Frame-level vs episode-level split (MEAN_STD, 4000 steps); test = 20 unseen episodes (100-119)
+ train eps    split  val RMSE deg  test RMSE deg  test / val
+        10    frame         0.252          1.595        6.33
+        10  episode         0.640          1.804        2.82
+        30    frame         0.280          0.446        1.59
+        30  episode         0.544          0.479        0.88
+        90    frame         0.270          0.279        1.03
+        90  episode         0.343          0.323        0.94

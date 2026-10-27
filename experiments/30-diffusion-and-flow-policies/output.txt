@@ -1,0 +1,45 @@
+NumPy 2.5.4 | PyTorch 2.14.1 | Python 3.14.7 | arm64 | torch threads 2
+
+Part A · 200 demonstrations (100 left, 100 right), 200 trials, NumPy MLP 64-64 tanh, 1500 epochs, seed 0
+model                              collided     rate  95% CI (Wilson)  left  right
+MSE, half left / half right         200/200   100.0%  [ 98.1, 100.0]      0      0
+MSE, all demonstrations left          0/200     0.0%  [  0.0,   1.9]    200      0
+mixture (MDN, K=2), half / half       0/200     0.0%  [  0.0,   1.9]     96    104
+at the obstacle (y = 0): demos pass at x = -0.55 / +0.55; MSE path at x = +0.030 (obstacle radius 0.3)
+
+robustness: three other seeds (data, init, trials)
+seed  MSE collided  MDN collided
+   1       193/200         0/200
+   2       184/200         0/200
+   3       200/200         0/200
+
+Part B · MSE model, sweep the number of demonstrations (half left / half right)
+demos  collided    rate
+   10    16/200    8.0%
+   20    92/200   46.0%
+   50   170/200   85.0%
+  100   183/200   91.5%
+  200   200/200  100.0%
+  500   200/200  100.0%
+
+Part B · MSE model, sweep the fraction of left demonstrations (200 demos)
+left %  collided    rate
+    50   200/200  100.0%
+    60   183/200   91.5%
+    70   126/200   63.0%
+    80    73/200   36.5%
+    90     0/200    0.0%
+   100     0/200    0.0%
+(Parts A-B: 88.1 s wall time)
+
+Part C · flow-matching policy, same 200 demos; MLP 3x256 SiLU, 4000 Adam steps, batch 256, lr 0.001, seed 0
+training: 78.0 s wall time (machine under load), final batch loss 0.1912
+Euler steps  collided    rate  95% CI (Wilson)  left  right  net evals  1-query ms (min)  mean |x| at y=0
+          1   200/200  100.0%  [ 98.1, 100.0]      0      0          1              0.04            0.161
+          2    95/200   47.5%  [ 40.7,  54.4]     53     52          2              0.06            0.372
+          4    17/200    8.5%  [  5.4,  13.2]     87     96          4              0.10            0.494
+          8     7/200    3.5%  [  1.7,   7.0]     95     98          8              0.19            0.533
+         16     5/200    2.5%  [  1.1,   5.7]     96     99         16              0.39            0.546
+         32     3/200    1.5%  [  0.5,   4.3]     97    100         32              0.77            0.554
+(latency: fastest of 30 single-trajectory queries on CPU, 2 threads; the machine was under heavy load,
+ so treat absolute ms as approximate; network evaluations per query = Euler steps)

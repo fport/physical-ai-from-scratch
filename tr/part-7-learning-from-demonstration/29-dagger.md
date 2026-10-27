@@ -1,0 +1,119 @@
+# 29 · Distribution shift ve DAgger
+
+<!-- meta -->
+| | |
+|---|---|
+| **Bölüm** | [7 · Learning from demonstration](README.md) |
+| **Çalışma türü** | CPU · Mac ya da Colab CPU |
+| **Önkoşul** | [28](28-behavior-cloning.md) |
+| **Önce öğren** | [Bias-Variance Tradeoff](https://aiengineeringfromscratch.com/lesson?path=phases/02-ml-fundamentals/10-bias-variance) |
+| **Süre** | ~45 dk |
+| **Kod** | [`experiments/29-dagger/experiment.py`](../../experiments/29-dagger/experiment.py) |
+| **Durum** | ✅ tam |
+<!-- /meta -->
+
+> Behavior cloning expert'in state'lerinde eğitilir ve kendi state'lerinde çalışır. DAgger bu boşluğu, öğrenenin gerçekten ulaştığı state'lerde ne yapılacağını expert'e sorarak kapatır.
+
+## Problem
+
+Ders 28, 50 demonstration'la eğitilen ve girdi gürültüsü olmadan eğitildiğinde 0/20 yapan bir network'le bitti. Regression'da bir sorun yok; başarısızlıklar closed loop'ta oluyor. Ross ve Bagnell (2010) sebebe bir ad verdi: imitation'ı i.i.d. supervised learning gibi ele almak, öğrenenin kendi action'larının bir sonra hangi state'leri göreceğine karar verdiğini yok sayar ve ortaya çıkan regret görev süresinde karesel büyür. Bu ders o distribution shift'i SO-101 pick'inde ölçüyor ve standart çözümü, DAgger'ı (Ross, Gordon, Bagnell 2011), expert olarak ders 16'nın scripted pick'iyle uyguluyor.
+
+## Ana fikir
+
+**İki state dağılımı.** BC loss'u $d_{\pi^*}$ altında, yani expert'in ziyaret ettiği state'lerde minimize eder. Çalışma anında policy $d_{\pi_\theta}$ ile, kendi ziyaret ettiği state'lerle karşılaşır. Policy expert state'lerinde $\epsilon$ olasılıkla hata yapıyorsa (0-1 loss, adım başına görev maliyeti [0, 1] içinde), erken bir hata onu hiçbir şeyin eğitilmediği state'lere taşır ve hatalar birikir. $T$ adımlık bir ufuk için DAgger makalesi BC sınırını ve sıkılığını veriyor (Ross & Bagnell 2010 ona ulaşan bir örnek veriyor):
+
+$$J(\hat\pi_{\text{BC}}) \le J(\pi^*) + T^2 \epsilon \qquad \text{ve} \qquad J(\hat\pi_{\text{DAgger}}) \le J(\pi^*) + u\,T\,\epsilon_N + O(1)$$
+
+burada $J$, $T$ adım boyunca beklenen maliyet; $\epsilon_N$, öğrenilen policy'lerin state dağılımlarında geriye dönük en iyi policy'nin loss'u; $u$ ise ardından expert devam ettiğinde tek bir hatanın kalan maliyeti ne kadar artırabileceğinin sınırı. DAgger sınırı, $N$ $uT$ mertebesine ulaşınca $\hat\pi_{1:N}$ içindeki bir policy için geçerli ([Ross, Gordon, Bagnell 2011](https://arxiv.org/abs/1011.0686), Teorem 2.1 ve 3.2). Bizim ufkumuz $T = 150$ policy adımı.
+
+**DAgger (Dataset Aggregation).** Makalenin Algoritma 3.1'i, bizim koştuğumuz haliyle:
+
+1. $\mathcal D \leftarrow$ expert demonstration'ları; $\hat\pi_1$'i eğit (bu $\beta_1 = 1$: ilk veri expert'ten geliyor).
+2. $i = 1 \dots N$ için: $\hat\pi_i$'yi $m$ episode boyunca koş (burada $\beta_i = 0$, yalnız öğrenen); ziyaret ettiği her state'i kaydet; her birini expert'in action'ı $\pi^*(s)$ ile etiketle; $\mathcal D \leftarrow \mathcal D \cup \{(s, \pi^*(s))\}$; $\hat\pi_{i+1}$'i $\mathcal D$'nin tamamında eğit.
+
+Makale $\beta_i = \mathbb 1(i = 1)$'i basit, parametresiz versiyon olarak adlandırıyor ve pratikte çoğu zaman en iyi sonucu verdiğini bildiriyor.
+
+**Etiketleyici.** DAgger, expert'in hiç ziyaret etmediği state'lerde $\pi^*(s)$'e ihtiyaç duyar. Bizim expert'imiz ders 16'nın zaman indeksli state machine'i; bu yüzden policy adımı $k$'deki bir öğrenen state'inin etiketi, scripted pick'in küpün şu anki konumu için $k$ adımında komutladığı action. Öğrenen küpü 1 cm'den fazla ittiyse expert yeni konum için yeniden planlıyor (planlar küp konumlarının 2 mm'lik bir ızgarasında önbelleğe alınıyor). Bu etiketleyici zamanında doğru, öğrenen geç ya da erken kaldığında daha zayıf; bir insan operatörün de farklı biçimde aynı sınırı var.
+
+**Kaymayı ölçmek.** Ziyaret edilen her state için kol konfigürasyonunun (5 joint + çene) 20 training demonstration'ının en yakın frame'ine uzaklığını derece cinsinden hesaplıyoruz: $\min_j \max_i |q_i - q_i^{(j)}|$. Sıfır "dataset'in içerdiği bir state" demek; episode boyunca büyüme birikme demek.
+
+## Deney
+
+Kurulum: ders 28'in feature'ları (state + saat) ve MLP'si, girdi gürültüsü **olmadan** eğitilmiş ("düz BC"), 20 demonstration, aynı 20 test konumu, 3 seed. DAgger her iterasyonda yeni küp konumlarında 10 öğrenen episode'u ekliyor, 4 iterasyon. Karşılaştırma, aynı sayıda expert etiketli episode'la, scripted demonstration'lardan eğitilen düz BC. Tam script: [`experiments/29-dagger/experiment.py`](../../experiments/29-dagger/experiment.py), çıktı: [`output.txt`](../../experiments/29-dagger/output.txt). MuJoCo 3.17.0, NumPy 2.5.4, PyTorch 2.14.1 (CPU), Apple Silicon Mac (Apple M5), deterministik, yaklaşık 4,5 dk CPU (yaklaşık; çok yüklü bir makinede duvar saati süresi birkaç kat uzundu).
+
+```python
+for it in range(1, ITERS + 1):
+    for xy in L26.sample_positions(ROLLOUTS, seed=1000 * seed + it):
+        _, x, y, _ = run_episode(scene, labeler, pol, xy, label=True)   # learner drives
+        nx += x; ny += y                                                # expert labels
+    X, Y = np.concatenate([X, nx]), np.concatenate([Y, ny])             # aggregate
+    pol = L28.train_mlp(X, Y, seed=seed)                                # retrain on all
+```
+
+*Tahmin et:* düz BC 20 demonstration'da başarısız. 40 ya da 60 demonstration'la toparlanır mı? Aynı sayıda expert etiketli episode'la DAgger toparlanır mı?
+
+**B. DAgger ve düz BC.** "uzaklık", ziyaret edilen kol state'lerinin 20 başlangıç demonstration'ının en yakın frame'ine ortalama uzaklığı (40 ve 60 ile eğitilen BC satırlarında da).
+
+| İterasyon | expert etiketli episode | DAgger, seed 0/1/2 | birleşik | Wilson %95 | uzaklık [derece] | düz BC, seed 0/1/2 | birleşik | uzaklık [derece] |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 20 | 0/0/0 | 0/60 | [0,00, 0,06] | 29,35 | 0/0/0 | 0/60 | 29,35 |
+| 1 | 30 | 3/18/5 | 26/60 | [0,32, 0,56] | 15,79 | – | – | – |
+| 2 | 40 | 19/11/12 | 42/60 | [0,57, 0,80] | 12,59 | 0/0/0 | 0/60 | 26,75 |
+| 3 | 50 | 19/16/15 | 50/60 | [0,72, 0,91] | 6,09 | – | – | – |
+| 4 | 60 | 15/15/15 | 45/60 | [0,63, 0,84] | 7,50 | 0/0/0 | 0/60 | 24,76 |
+
+(Düz BC, CPU bütçesi içinde kalmak için yalnız 40 ve 60 episode'da yeniden eğitildi.) Demonstration'ları üç katına çıkarmak düz BC'ye hiçbir şey kazandırmıyor: 20, 40 ve 60 episode'da 0/60 ve state'leri başlangıç demonstration'larından yaklaşık 25–29° uzakta kalıyor. Aynı expert bütçesini, onu öğrenenin kendi state'lerine harcayan DAgger'a vermek üç iterasyon sonra başarıyı 50/60'a çıkarıyor ve demonstration'lara uzaklık yaklaşık 6°'ye iniyor. İterasyon 4, iterasyon 3'ten düşük (45/60 ve 50/60, örtüşen aralıklar): DAgger monoton iyileşmiyor; Algoritma 3.1'in "validation'da en iyi policy'yi döndür" ile bitmesinin sebebi bu. Etiketler de bedava değil: scripted expert 1327 kez koşturuldu (etiketleme ve drift referansı). Bunların en fazla 180'i yeni başlangıç konumları için (20 test + 160 toplama episode'u); kalanı, öğrenen küpü 1 cm'den fazla ittikten sonraki yeniden planlamalar.
+
+**A. Öğrenen nereye gidiyor.** Zaman penceresi başına en yakın demonstration frame'ine ortalama uzaklık [derece], seed 0:
+
+| Policy | 0–1 s | 1–2 s | 2–3 s | 3–4,5 s | 4,5–6 s | başarı | expert trajectory'sinden ortalama maksimum sapma [derece] |
+|---|---|---|---|---|---|---|---|
+| düz BC, 20 demo | 22,44 | 29,05 | 28,96 | 28,94 | 28,87 | 0/20 | 62,6 |
+| BC + girdi gürültüsü (ders 28), 20 demo | 1,80 | 4,52 | 4,94 | 4,46 | 3,85 | 20/20 | 10,7 |
+| 4 iterasyon sonra DAgger | 2,27 | 4,97 | 7,38 | 15,10 | 15,95 | 15/20 | 19,0 |
+
+İlk saniyenin ortalamasında düz BC zaten gösterilmiş her kol konfigürasyonundan 22° uzakta, sonrasında yaklaşık 29°: birikme ilk 25 policy adımında oluyor, ardından policy verisi olmayan bir bölgede çalışıyor. İki çözüm de yaklaşma sırasında öğreneni veriye yakın tutuyor (ilk iki saniyede 5°'nin altında). DAgger'ın state'leri episode'un ilerisinde kayıyor (3 s'den sonra 15°); dataset'i artık bu state'leri expert etiketleriyle içeriyor, yani orada *demonstration'lardan* uzak olmak *training verisinden* uzak olmakla aynı şey değil. Burada üçünün en iyisi ders 28'in gürültüyle eğitilmiş BC policy'si: ek expert sorgusu olmadan 20/20. Girdi gürültüsü, DAgger'ın on-policy verisinin ucuz ve yerel bir ikamesi ve öğrenenin hataları küçük kaldığında yetiyor.
+
+## Boz
+
+DAgger'daki "Agg" aggregation'dır. Her iterasyonu yalnız en yeni 10 öğrenen episode'unda eğit (demonstration'ları ve önceki turları atarak), seed 0:
+
+| İterasyon | 0 | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| aggregation olmadan başarı | 0/20 | 0/20 | 0/20 | 0/20 | 0/20 |
+| aggregation ile başarı | 0/20 | 3/20 | 19/20 | 19/20 | 15/20 |
+
+Aggregation olmadan her iterasyon başarısız. Bizim yorumumuz: her yeni dataset yalnız önceki, başarısız policy'nin ziyaret ettiği state'leri, çoğunlukla hatalardan sonraki state'leri içeriyor. Yalnız bunlarla eğitilen bir policy yaklaşmanın doğru yapıldığını hiç görmemiş oluyor, bu yüzden yeni bir şekilde başarısız oluyor ve sonraki dataset yalnız o başarısızlığı kapsıyor. Makalenin analizi tüm turların birleşimi üzerinde eğitmeye dayanıyor; makale bunu no-regret bir online öğrenici olan Follow-The-Leader olarak yorumluyor. Yalnız en yeni tur üzerinde eğitmek öyle değil. Expert demonstration'larını havuzda tutmak policy'yi expert'in state'lerine bağlıyor; öğrenenin state'lerini eklemek ona kendi hatalarından toparlanmayı öğretiyor.
+
+## Gerçek robotta
+
+- **LeRobot DAgger tarzı veri toplamayı destekliyor.** `lerobot-rollout --strategy.type=dagger`, bir insan izlerken eğitilmiş bir policy'yi robotta çalıştırır. Operatör onu durdurabilir, leader kolla kontrolü alabilir, bir toparlanma ve bir düzeltme teleoperate edebilir ve kontrolü geri verebilir; hepsi tek bir episode içinde. Hem otonom hem insan segmentleri kaydedilir ve policy sonra demonstration'lar artı yeni veri üzerinde fine-tune edilir ([Human-In-the-Loop Data Collection](https://huggingface.co/docs/lerobot/hil_data_collection)). Dokümantasyon uyumlu teleoperator'lar arasında `so_leader`'ı sayıyor, çünkü leader duraklatıldığında follower'ı yansıtmak için kendini hareket ettirebilmeli; arkasındaki fikirler olarak DAgger, HG-DAgger ve RaC'yi adlandırıyor.
+- **İnsan etiketleyiciyle ne değişir.** HIL toplamada insan yalnızca başarısızlık yakın göründüğünde müdahale eder (HG-DAgger kapılaması); yani etiketler bizim döngümüzdeki gibi ziyaret edilen her state'i değil, öğrenenin başarısız olmak üzere olduğu state'leri kapsar. Etiketler ayrıca bir script'inkinden daha gürültülü ve daha yavaştır.
+- Gerçek kolda henüz ölçülmedi. Prosedür: 20 teleoperate edilmiş episode üzerinde bir policy eğit, onu 20 işaretli konumda evaluate et (ders 25), her biri 10 episode'luk 2–3 tur `--strategy.type=dagger` koş, fine-tune et ve aynı konumlarda yeniden evaluate et; her turdan sonra k/20'yi ve Wilson aralıklarını, aynı sayıda düz teleoperate edilmiş episode'la eğitilmiş bir policy'nin yanında raporla.
+
+## Kendini dene
+
+1. **Kolay.** Yukarıdaki DAgger döngüsünde dataset'e giren state'leri kim, action'ları kim seçiyor?
+2. **Orta.** Ders 28'in girdi gürültüsü de düz BC'yi 20 demonstration'da 20/20'ye çıkardı. Neden çalıştığını ve neden DAgger'ın genel bir ikamesi olmadığını açıkla.
+3. **Zor.** Evaluation'a episode ortasında bir bozulma ekle (küpü t = 1,6 s'de 3 cm kaydır) ve DAgger döngüsünü toplama sırasında aynı bozulmayla tekrarla. Düz BC ile farkı tahmin et, sonra ölç.
+
+### Cevaplar
+
+1. State'leri öğrenen seçiyor (sürüyor); action'ları (etiketleri) expert seçiyor.
+2. Gürültü, policy'yi demonstration'lara yakın state'lerde, yakındaki demonstration state'inden gelen expert action'ıyla eğitir; bu ancak doğru action o komşulukta az değişiyorsa iyi bir etikettir. DAgger öğrenenin gerçekten ulaştığı state'leri, ne kadar uzak olursa olsun, o state için expert'in action'ıyla etiketler.
+3. Burada hesaplanmadı; çalıştır.
+
+## Akılda kalanlar ve kaynaklar
+
+- Simülasyonda düz BC (girdi gürültüsü yok) 20, 40 ve 60 demonstration'da 0/60 yaptı; aynı expert bütçesiyle DAgger üç iterasyon sonra 50/60'a ulaştı.
+- Kayma ölçülebilir: düz BC'nin kol state'leri gösterilmiş her konfigürasyondan 22–29° uzaktaydı, DAgger'ınkiler üç–dört iterasyon sonra (ortalama) 6–8°.
+- Aggregate et: yalnız en yeni öğrenen verisiyle yeniden eğitmek her iterasyonda 0/20 yaptı. Bu görev için ders 28'in girdi gürültüsü (ek expert sorgusu olmadan 20/20) daha ucuz çözümdü; DAgger genel çözüm ve LeRobot'un `--strategy.type=dagger`'ı onun human-in-the-loop biçimi.
+
+Sonraki: [ders 30 · Multimodal action'lar: diffusion ve flow policy'ler](30-diffusion-and-flow-policies.md).
+
+Kaynaklar:
+- S. Ross, G. J. Gordon, J. A. Bagnell, ["A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning"](https://arxiv.org/abs/1011.0686), AISTATS 2011 (Algoritma 3.1, Teorem 2.1 ve 3.2).
+- S. Ross, J. A. Bagnell, ["Efficient Reductions for Imitation Learning"](https://proceedings.mlr.press/v9/ross10a.html), AISTATS 2010.
+- LeRobot, [Human-In-the-Loop Data Collection](https://huggingface.co/docs/lerobot/hil_data_collection) ve [Imitation learning on real-world robots](https://huggingface.co/docs/lerobot/il_robots) (okundu 2026-10-27).
+- UC Berkeley [CS 285 Deep Reinforcement Learning](https://rail.eecs.berkeley.edu/deeprlcourse/), ders 2–3 "Behavioral Cloning".
+- Ölçülen tüm sayılar: [`experiments/29-dagger/output.txt`](../../experiments/29-dagger/output.txt).

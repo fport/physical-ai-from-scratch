@@ -1,0 +1,26 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | Python 3.14.7 | arm64
+
+Scene A: Panda + box 0.20 x 0.20 x 0.50 m at x = 0.55 m. Extend step 0.5 rad, dense re-check 0.005 rad.
+start free: True | goal free: True | straight line free (dense): False | straight-line max penetration 139.0 mm | straight length 1.60 rad
+
+Part A · RRT-Connect, sweep edge-check resolution (100 seeds, budget 2000 iterations, 200 shortcut tries)
+res (rad) | success | med iters | med checks | med length raw | med length short | paths in collision | worst pen. (mm)
+     0.01 | 100/100 |        33 |       2070 |           5.62 |             3.61 |        0/100       |             0.0
+     0.05 | 100/100 |        33 |        431 |           5.57 |             3.59 |        7/100       |             4.5
+     0.10 | 100/100 |        33 |        225 |           5.55 |             3.58 |       17/100       |             8.0
+     0.25 | 100/100 |        29 |         96 |           5.37 |             3.44 |       42/100       |            26.5
+     0.50 | 100/100 |        26 |         52 |           5.01 |             3.12 |       66/100       |            72.0
+     1.00 | 100/100 |        25 |         48 |           4.98 |             3.00 |       80/100       |           156.4
+
+Part B · RRT vs RRT-Connect at res 0.05 rad (100 seeds, budget 2000 iterations), then shortcutting
+    planner | success | med iters | med checks | med length raw | med length short | paths in collision
+        RRT |  42/100 |       151 |       1438 |           5.47 |             3.33 |        3/42       
+RRT-Connect | 100/100 |        33 |        431 |           5.57 |             3.59 |        7/100      
+
+Break it · wall at x = 0.4 m (2 m wide, 1.4 m high) with a horizontal slot centred at z = 0.45 m. RRT-Connect, res 0.05 rad, 30 seeds, budget 3000 iterations
+slot (m) | start/goal free | success | med iters | med checks | paths in collision
+    0.40 |            True |  30/30  |         9 |        128 |        2/30       
+    0.30 |            True |  30/30  |       102 |        896 |        4/30       
+    0.25 |            True |  30/30  |       360 |       2747 |        5/30       
+    0.22 |            True |  30/30  |       856 |       6372 |        5/30       
+    0.20 |            True |  25/30  |      1487 |      10520 |        0/25       

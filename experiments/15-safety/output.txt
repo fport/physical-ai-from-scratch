@@ -1,0 +1,44 @@
+mujoco 3.17.0 · numpy 2.5.4
+
+pose [0.0, -0.5, 0.5, 0.8, 0.0, 0.0]: gripper frame at (29.4, -0.1, 12.8) cm
+
+[A] Bad command: pan target 0 -> 1.2 rad at t = 0.1 s; post at pan ~0.6 rad; 2 s
+safeguard                          peak force N hold force N peak speed rad/s peak torque N m
+none                                     125.98        14.33             4.49            2.94
+joint limit |pan| <= 0.3 rad               0.00         0.00             4.02            2.94
+relative target <= 0.02 rad/tick          45.82        14.48             1.82            2.94
+torque cap 0.5 N m                        21.34         2.12             0.75            0.50
+all three                                  0.00         0.00             0.75            0.50
+
+[B] Torque cap sweep on shoulder_pan (same bad command, no other safeguard)
+ cap N m peak force N hold force N peak speed rad/s
+    2.94       125.98        14.33             4.49
+    2.00        69.79         8.73             3.16
+    1.00        37.96         4.34             1.58
+    0.50        21.34         2.12             0.75
+    0.25         8.57         1.48             0.33
+    0.10         0.00         0.00             0.08
+
+[C] Relative-target limit sweep (goal clamped to present +- delta every 20 ms tick)
+ delta rad  speed at impact rad/s peak force N hold force N
+      none                  4.494       125.98        14.33
+       0.2                  4.494       125.98        14.33
+      0.05                  2.866        72.94        13.54
+      0.02                  1.513        45.82        14.48
+      0.01                  0.929        21.39        14.67
+     0.005                  0.359        17.17        13.54
+
+[D] Watchdog: jog pan at 1 rad/s, the last message arrives at t = 0.18 s; post at pan ~0.6 rad
+ timeout s  stopped after last msg s  max travel after last msg deg peak force N
+  (pan at the last message: 0.185 rad)
+      none                     0.350                          19.57        24.48
+         1                     0.350                          19.57        24.48
+       0.5                     0.350                          19.57        24.48
+       0.2                     0.230                          11.61         0.00
+       0.1                     0.130                           5.88         0.00
+      0.05                     0.090                           3.58         0.00
+
+[E] Stop from the 1 rad/s jog at t = 0.2 s: hold position vs torque off (1.5 s)
+stop            max pan travel after stop deg  pan stopped after s  gripper drop cm
+hold                                     0.15                0.030             0.02
+torque off                               1.53                0.124            11.74

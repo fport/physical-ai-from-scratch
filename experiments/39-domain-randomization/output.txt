@@ -1,0 +1,19 @@
+mujoco 3.17.0 · numpy 2.5.4
+joint: link 0.5 kg at 15 cm (gravity torque max 0.736 N m), armature 0.028, damping 0.6, frictionloss 0.052, torque limit 2.94 N m
+reference: 0.5 sin(2 pi 0.4 t) + 0.25 sin(2 pi 1.1 t + 1) rad, 3 s at 2 ms; nominal delay 5 ms
+CEM: 12 iterations x 24 candidates x 10 plants; test: nominal plant and 32 held-out real plants
+real plants: mass x1.10-1.39, damping x0.80-1.56, friction x1.02-2.48, delay 15.5-28.8 ms
+success = RMS tracking error below 2 deg
+
+    width w | delay range ms | scale range |      Kp |     Kd |     kg | nominal RMS deg | real mean deg | real worst deg | real success
+       0.00 |     5-5        | 1.00-1.00   |  117.36 |  0.914 |  0.679 |           0.165 |         3.526 |          6.025 |         5/32
+       0.10 |     5-9        | 0.93-1.07   |   99.98 |  4.484 |  0.307 |           0.227 |         1.607 |          3.260 |        24/32
+       0.25 |     5-15       | 0.84-1.19   |   74.77 |  4.276 |  0.523 |           0.252 |         1.490 |          3.368 |        23/32
+       0.50 |     5-25       | 0.71-1.41   |   55.43 |  3.244 |  0.563 |           0.475 |         1.307 |          3.293 |        28/32
+       0.75 |     5-35       | 0.59-1.68   |   45.19 |  2.672 |  0.461 |           0.736 |         1.228 |          3.118 |        27/32
+       1.00 |     5-45       | 0.50-2.00   |   30.41 |  1.969 |  0.591 |           1.224 |         1.233 |          3.419 |        27/32
+    --- break it: wider than needed ---
+       1.50 |     5-65       | 0.35-2.83   |   38.01 |  3.231 |  0.117 |           1.190 |         1.788 |          3.791 |        23/32
+       2.00 |     5-85       | 0.25-4.00   |   19.59 |  1.916 |  0.351 |           2.201 |         2.345 |          4.429 |        13/32
+    --- exercise 3: randomize only the delay (scales fixed at 1) ---
+       0.75 |     5-35       | 1.00-1.00   |   27.87 |  1.810 |  0.722 |           1.339 |         1.174 |          3.440 |        27/32

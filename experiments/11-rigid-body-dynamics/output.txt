@@ -1,0 +1,24 @@
+mujoco 3.17.0 · numpy 2.5.4
+
+[A] Double pendulum, 1000 random (q, qd, qdd), seed 0: max |MuJoCo - analytic|
+  mj_fullM vs M(q)                      1.39e-16 kg m^2
+  qfrc_bias vs C(q,qd) qd + g(q)        1.78e-15 N m
+  mj_inverse (qfrc_inverse) vs tau      3.55e-15 N m   (largest |tau| = 9.0 N m)
+  mj_forward (qacc) vs qdd              1.88e-13 rad/s^2
+
+[B] Passive double pendulum released horizontal, 10 s. Energy error in % of 4.660 J (the potential energy it can release)
+    cell = max |E(t) - E0| % / final E(10 s) - E0 %
+integrator                dt 0.5 ms               dt 1 ms               dt 2 ms               dt 5 ms              dt 10 ms              dt 20 ms
+Euler                3.467 / +3.467        6.984 / +6.984      14.357 / +14.355      41.123 / +39.316      89.992 / +56.191    140.049 / +124.182
+RK4                  0.000 / -0.000        0.000 / -0.000        0.000 / -0.000        0.000 / -0.000        0.003 / -0.001        0.037 / -0.014
+implicit             3.093 / -3.093        6.007 / -6.007      11.352 / -11.352      24.317 / -24.317      39.105 / -39.105      55.292 / -54.794
+implicitfast         3.467 / +3.467        6.984 / +6.984      14.357 / +14.355      41.123 / +39.316      89.992 / +56.191    140.049 / +124.182
+
+[C] The same quantities on robot models (qvel = 0, so qfrc_bias = g(q))
+  Panda 'home' keyframe, joints 1-7:
+    g(q)  [N m]      0.00  -29.36    0.00   22.05    0.67    2.31   -0.00
+    diag M [kg m^2]  1.509   2.795   1.471   1.058   0.144   0.154   0.107
+    of which armature  0.100   0.100   0.100   0.100   0.100   0.100   0.100
+    cond(M[:7,:7]) = 32.6
+  SO-101 stretched forward (all 0)        g(q) [N m]  0.000 -0.573 -0.483 -0.130 -0.007
+  SO-101 folded (lift -1.57, elbow 1.57)  g(q) [N m]  0.000 -0.066 -0.483 -0.130 -0.007

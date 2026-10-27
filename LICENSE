@@ -20,10 +20,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----
-
-Scope: this MIT license covers the code in this repository — `experiments/`,
-`notebooks/`, `tools/` and the website code in `site/`. The lesson text and
-other written content are licensed separately under CC BY 4.0; see
-LICENSE-CONTENT. Robot models are not part of this repository: they are
-downloaded from MuJoCo Menagerie and remain under their own licenses.

@@ -1,0 +1,30 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | SciPy 1.18.1 | Python 3.14.7 | arm64
+
+Pendulum m=1.0 kg, l=1.0 m, b=0.1 N m s, |u| <= 5.0 N m (m g l = 9.81 N m), T = 4.0 s, W_SMOOTH = 0.05
+Initial guess for the sweep: zero torque, state resting at the bottom.
+'solver viol' = max constraint residual the solver sees; 'replay err' = goal error of the same u(t) replayed in MuJoCo.
+
+     method |   N | converged | iters |    cost | solver viol | replay err theta (deg) | replay err omega (deg/s) | pumps
+   shooting |   5 |     False |   438 |  104.44 |     3.9e-01 |                  21.33 |                    22.41 |     4
+collocation |   5 |     False |   500 |   89.74 |     3.5e+00 |                 174.73 |                   527.46 |     2
+   shooting |  10 |      True |   158 |   43.51 |     1.1e-13 |                   0.00 |                     0.00 |     3
+collocation |  10 |      True |    22 |   45.56 |     5.9e-12 |                  23.82 |                    71.61 |     3
+   shooting |  20 |      True |   123 |   39.33 |     5.5e-11 |                   0.00 |                     0.00 |     3
+collocation |  20 |      True |    32 |   39.63 |     3.2e-12 |                   6.73 |                    20.45 |     3
+   shooting |  40 |      True |   147 |   38.34 |     5.1e-12 |                   0.00 |                     0.00 |     3
+collocation |  40 |      True |    54 |   38.41 |     2.9e-12 |                   2.27 |                     6.92 |     3
+   shooting |  80 |      True |   158 |   38.09 |     1.4e-11 |                   0.00 |                     0.00 |     3
+collocation |  80 |      True |    91 |   38.11 |     3.4e-13 |                   0.61 |                     1.87 |     3
+
+Break it · collocation, N = 40, same problem, different initial guesses
+                 initial guess | converged | iters |    cost | replay err theta (deg) | pumps | theta range (deg)
+           rest at bottom, u=0 |      True |    54 |   38.41 |                   2.27 |     3 |     -77 ..   180
+straight line theta 0->pi, u=0 |      True |    33 |   50.63 |                  58.03 |     1 |     -56 ..   180
+          line + noise, draw 0 |      True |    33 |   50.63 |                  58.03 |     1 |     -56 ..   180
+          line + noise, draw 1 |      True |    38 |   50.63 |                  58.03 |     1 |     -56 ..   180
+          line + noise, draw 2 |      True |    50 |   38.41 |                   2.27 |     3 |     -77 ..   180
+          line + noise, draw 3 |      True |    58 |   38.41 |                   2.27 |     3 |     -77 ..   180
+          line + noise, draw 4 |      True |    38 |   50.63 |                  58.03 |     1 |     -56 ..   180
+          line + noise, draw 5 |      True |    37 |   50.63 |                  58.03 |     1 |     -56 ..   180
+          line + noise, draw 6 |     False |    76 |  134.04 |                 160.58 |     2 |     -29 ..   197
+          line + noise, draw 7 |      True |    41 |   50.63 |                  58.03 |     1 |     -56 ..   180

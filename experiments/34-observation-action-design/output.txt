@@ -1,0 +1,31 @@
+mujoco 3.17.0 | numpy 2.5.4 | torch 2.14.1 | Apple M5, CPU, 1 torch thread per run
+PPO: {'total_steps': 300000, 'lr': 0.001, 'gamma': 0.95, 'lam': 0.95, 'log_std_init': -1.0} (+ lesson-33 defaults), 3 seeds x 100 evaluation episodes per cell
+
+[A] Action parameterization (50 Hz policy, frame_skip 4)
+  action                    success per seed  pooled success, Wilson 95%   final d mm  tau rate N m/s  power W  train s
+  abs target q0+1.0*a (PD)  100/98/100        298/300 [97.6,  99.8]               7.5            1002     9.66      125
+  delta target +0.1*a (PD)  95/88/99          282/300 [90.7,  96.2]               8.7             980     8.81      139
+  torque 2.94*a N m         83/93/96          272/300 [86.8,  93.5]               7.6              70     1.87      122
+
+[B] Policy rate, absolute targets, gamma = lambda = 1 - dt/0.4 s, same 300k policy steps
+  frame_skip / Hz / gamma   success per seed  pooled success, Wilson 95%   final d mm  tau rate N m/s  power W  train s
+   1 / 200.0 / 0.9875       37/33/26           96/300 [27.0,  37.5]              27.7            1720     6.33      100
+   2 / 100.0 / 0.9750       71/84/100         255/300 [80.5,  88.6]              11.5            1305     7.79      134
+   4 /  50.0 / 0.9500       100/98/100        298/300 [97.6,  99.8]               7.5            1002     9.66      125
+   8 /  25.0 / 0.9000       87/72/76          235/300 [73.3,  82.6]              13.1             751    13.54      245
+  16 /  12.5 / 0.8000       33/35/13           81/300 [22.3,  32.3]              27.7             567    19.54      359
+
+[C] Observation content (absolute targets, 50 Hz)
+  observation               success per seed  pooled success, Wilson 95%   final d mm  tau rate N m/s  power W  train s
+  full (q, qdot, goal-ee, a)100/98/100        298/300 [97.6,  99.8]               7.5            1002     9.66      125
+  no joint velocities       77/68/80          225/300 [69.8,  79.6]              14.4             713    15.01      200
+  absolute goal, not goal-ee26/40/35          101/300 [28.6,  39.2]              27.7             936    10.01      262
+
+[D] Break it: action scale 0.25 rad (absolute targets, 50 Hz)
+  scale                     success per seed  pooled success, Wilson 95%   final d mm  tau rate N m/s  power W  train s
+  1.0 rad                   100/98/100        298/300 [97.6,  99.8]               7.5            1002     9.66      125
+  0.25 rad                  9/8/4              21/300 [ 4.6,  10.5]              62.6             740     6.45      260
+  scripted IK through the same interface, scale 1.0: 100/100
+  scripted IK through the same interface, scale 0.25: 27/100
+
+30 training runs, 1190 s wall-clock in total (6 worker processes, shared machine)

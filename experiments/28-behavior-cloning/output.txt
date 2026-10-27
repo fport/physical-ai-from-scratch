@@ -1,0 +1,20 @@
+mujoco 3.17.0 · numpy 2.5.4 · torch 2.14.1
+MLP 2 x 256 ReLU, 4000 Adam steps (batch 256, lr 1e-3), MEAN_STD normalization, input noise 0.02 rad on joints / 1 mm on cube; 20 test positions (seed 28); horizon 6 s
+
+[A] Number of demonstrations x 3 training seeds
+ demos  frames  seed 0  seed 1  seed 2   pooled      Wilson 95%  open-loop RMSE deg   failures (pooled)
+     5     570   12/20   11/20   13/20    36/60    [0.47, 0.71]               4.138   closed, cube on floor 24; at test positions #0 (26.2, -5.6) cm x3, #2 (25.2, -4.5) cm x3, #3 (16.4, 1.6) cm x3, #4 (16.6, -6.6) cm x3, #8 (22.4, 7.5) cm x2, #10 (20.0, 6.4) cm x1, #12 (25.8, -6.6) cm x3, #14 (27.6, -5.7) cm x3, #19 (16.2, 2.7) cm x3
+    10    1140   19/20   19/20   19/20    57/60    [0.86, 0.98]               2.282   closed, cube on floor 3; at test positions #4 (16.6, -6.6) cm x3
+    20    2280   20/20   20/20   20/20    60/60    [0.94, 1.00]               0.945   -
+    50    5700   20/20   20/20   20/20    60/60    [0.94, 1.00]               0.408   -
+   100   11400   18/20   18/20   19/20    55/60    [0.82, 0.96]               0.360   closed, cube on floor 4, lifted, not held 1; at test positions #3 (16.4, 1.6) cm x1, #7 (27.4, -3.3) cm x1, #19 (16.2, 2.7) cm x3
+50 vs 100 demos, pooled 60/60 vs 55/60: two-sided Fisher exact p = 0.057 (treats the 60 rollouts as independent; the 3 seeds share the same 20 test positions)
+
+[B] Break it: 50 demonstrations, seed 0
+ input noise rad  clock  success      Wilson 95%   failures
+               0    yes     0/20    [0.00, 0.16]   closed, cube on floor 20
+           0.005    yes     0/20    [0.00, 0.16]   never closed 20
+            0.01    yes     7/20    [0.18, 0.57]   closed, cube on floor 6, lifted, not held 7
+            0.02    yes    20/20    [0.84, 1.00]   -
+            0.04    yes    20/20    [0.84, 1.00]   -
+            0.02     no     4/20    [0.08, 0.42]   never closed 16

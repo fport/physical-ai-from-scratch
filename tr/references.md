@@ -4,19 +4,19 @@ Müfredatın dayandığı kurslar, kitaplar, belgeler ve makaleler. Her dersin k
 
 ## Müfredat iskeleti
 
-Bu kitabın fazları ve ders sırası, aşağıdaki müfredatların ortak zinciri incelenerek kuruldu (space & transforms → kinematics → dynamics & control → perception → estimation → learning → sim-to-real).
+Bu kitabın bölümleri ve ders sırası, aşağıdaki müfredatların ortak zinciri incelenerek kuruldu (space & transforms → kinematics → dynamics & control → perception → estimation → learning → sim-to-real).
 
 | Kaynak | Bu kitaba kattığı |
 |---|---|
-| Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics) | Frames, FK/IK, dynamics, trajectory, control, grasping (Faz 1–2) |
-| Tedrake, [*Robotic Manipulation*](https://manipulation.mit.edu/) | Spatial algebra, pose estimation, perception (Faz 1, 3) |
-| Tedrake, [*Underactuated Robotics*](https://underactuated.mit.edu/) | System identification, state estimation (Faz 3, 7) |
+| Lynch & Park, [*Modern Robotics*](https://hades.mech.northwestern.edu/index.php/Modern_Robotics) | Frames, FK/IK, dynamics, trajectory, control, grasping (Bölüm 2–4) |
+| Tedrake, [*Robotic Manipulation*](https://manipulation.mit.edu/) | Spatial algebra, pose estimation, perception (Bölüm 2, 5) |
+| Tedrake, [*Underactuated Robotics*](https://underactuated.mit.edu/) | System identification, state estimation (Bölüm 5, 6, 9) |
 | [Hugging Face Robotics Course](https://huggingface.co/learn/robotics-course) | Classical robotics → RL → imitation akışı |
 | Capuano vd., [*Robot Learning: A Tutorial*, arXiv 2510.12403](https://arxiv.org/abs/2510.12403) | RL → behavior cloning → generalist policy'ler |
-| [LeRobot belgeleri](https://huggingface.co/docs/lerobot/index) | Calibration → teleop → recording → training → evaluation workflow'u (Faz 4) |
-| [NVIDIA · SO-101 Sim-to-Real](https://docs.nvidia.com/learning/physical-ai/sim-to-real-so-101/latest/index.html) | Sim-to-real stratejileri (Faz 7) |
-| [Berkeley CS285](https://rail.eecs.berkeley.edu/deeprlcourse/) | Behavior cloning ve RL sırası (Faz 4, 6) |
-| [MuJoCo Playground](https://playground.mujoco.org/), [arXiv 2502.08844](https://arxiv.org/abs/2502.08844) | GPU'da parallel locomotion training (Faz 6) |
+| [LeRobot belgeleri](https://huggingface.co/docs/lerobot/index) | Calibration → teleop → recording → training → evaluation workflow'u (Bölüm 7, 9) |
+| [NVIDIA · SO-101 Sim-to-Real](https://docs.nvidia.com/learning/physical-ai/sim-to-real-so-101/latest/index.html) | Sim-to-real stratejileri (Bölüm 9) |
+| [Berkeley CS285](https://rail.eecs.berkeley.edu/deeprlcourse/) | Behavior cloning ve RL sırası (Bölüm 7, 8) |
+| [MuJoCo Playground](https://playground.mujoco.org/), [arXiv 2502.08844](https://arxiv.org/abs/2502.08844) | GPU'da parallel locomotion training (Bölüm 8) |
 | Rohit Ghumare vd., [AI Engineering from Scratch](https://github.com/rohitg00/ai-engineering-from-scratch) (MIT) | Ders formatı ve "sıfırdan" yaklaşımı (yapı ilhamı; içerik kopyalanmadı) |
 
 ## Araçlar ve modeller

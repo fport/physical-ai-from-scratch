@@ -1,0 +1,39 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | Python 3.14.7 | arm64
+
+setup: base at [ 0.1  -0.05  0.  ] m, yaw 30 deg; cube at [0.2905 0.06   0.015 ] m; arm q = [ 0.13 -1.65  1.15  1.33 -2.13] rad
+
+== A. Cube position in each frame: hand (NumPy 4x4) vs MuJoCo framepos sensor ==
+frame                                      hand x, y, z (m)  max |hand - sensor|
+world W                              [0.2905 0.0600 0.0150]              0.0e+00
+base B (body base)                   [0.2200 0.0000 0.0150]              2.8e-17
+gripper G (site gripperframe)      [ 0.0806 -0.0290 -0.0205]              1.4e-17
+camera C (camera wrist_cam)       [-0.0064 -0.0011 -0.1508]              4.1e-17
+trap: sensor with reftype='body' (base INERTIAL frame) reads [-0.0044  0.0397  0.2032], 295.5 mm away from the base-frame value
+closed-form T^-1 vs np.linalg.inv, max abs diff: 1.1e-15
+T_WG == T_WB @ T_BG, max abs diff: 5.6e-17
+camera fovy 61 deg -> f = 407.4 px at 640x480; cube centre projects to u = 302.7, v = 242.8 px
+rendered cube mask centroid: u = 299.3, v = 240.3 px (a blob centroid is not the projected centre: perspective)
+silhouette: rendered 9454 px, hand-projected 9643 px, IoU = 0.979, centroid offset = 0.74 px
+
+== B. Sweep shoulder_pan (other joints fixed): cube coordinates in each frame (cm) ==
+pan (deg)            in B: x y z            in G: x y z            in C: x y z      gripper site in W
+    -40.0    22.00   0.00   1.50     5.30   2.62  11.15    12.62   2.90  -9.83    18.88   9.21   8.26
+    -20.0    22.00   0.00   1.50     7.42   1.41   5.36     6.81   3.10 -12.23    22.74   6.58   8.26
+      0.0    22.00   0.00   1.50     8.16  -1.46  -0.19     1.23   1.14 -14.39    25.47   2.79   8.26
+     20.0    22.00   0.00   1.50     7.42  -5.66  -4.81    -3.43  -2.75 -16.05    26.74  -1.70   8.26
+     40.0    22.00   0.00   1.50     5.30 -10.68  -7.96    -6.62  -8.08 -17.01    26.40  -6.36   8.26
+
+== C. Each arm joint swept +-30 deg around the pose: max change of cube coordinates (mm) ==
+         joint     in W     in B     in G     in C  T_GC drift
+  shoulder_pan     0.00     0.00    93.77    93.77     7.8e-16
+ shoulder_lift     0.00     0.00    93.44    93.44     7.8e-16
+    elbow_flex     0.00     0.00   150.07   150.07     7.8e-16
+    wrist_flex     0.00     0.00   124.53   124.53     5.6e-16
+    wrist_roll     0.00     0.00    15.74    15.74     5.6e-16
+
+== Break it. Common frame mistakes, cube position in the gripper frame (error vs sensor, mm) ==
+correct: T_WG^-1 p                          0.0
+used T_WG instead of its inverse          424.4
+R instead of R^T: R (p - t)               101.0
+forgot the translation: R^T p             274.3
+wrong order: (T_BG T_WB)^-1 p             103.2

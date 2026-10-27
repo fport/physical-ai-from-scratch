@@ -1,0 +1,43 @@
+mujoco 3.17.0 · numpy 2.5.4 · python 3.14.7 · arm64
+[A] Hub artifacts (config.json + safetensors headers only; no weights downloaded)
+
+  lerobot/smolvla_base config: inputs state [6], images.camera1 [3, 256, 256], images.camera2 [3, 256, 256], images.camera3 [3, 256, 256] + language (max 48 tokens)
+    output action [6] (padded to max_action_dim 32); chunk_size 50, n_action_steps 50, flow-matching num_steps 10
+    VLM HuggingFaceTB/SmolVLM2-500M-Video-Instruct, num_vlm_layers 16, attention_mode cross_attn, self_attn_every_n_layers 2, expert_width_multiplier 0.75, freeze_vision_encoder True, train_expert_only True
+  lerobot/pi0_base config: inputs images.base_0_rgb [3, 224, 224], images.left_wrist_0_rgb [3, 224, 224], images.right_wrist_0_rgb [3, 224, 224], state [32] + language (max 48 tokens)
+    output action [32]; chunk_size 50, num_inference_steps 10; paligemma_variant gemma_2b, action_expert_variant gemma_300m, dtype float32
+  openvla/openvla-7b config: image_sizes [224, 224], n_action_bins 256, LLM meta-llama/Llama-2-7b-hf, 25 datasets in norm_stats, action dims 7
+
+  parameters per component (from tensor shapes)    smolvla_base       pi0_base     openvla-7b
+  LM output head(s)                                       47.3M         790.0M         131.3M
+  action expert                                           98.2M         311.5M           0.0M
+  vision encoder                                          86.4M         412.4M         730.9M
+  vision-language connector                               11.8M           2.4M          71.4M
+  language model                                         204.6M        1981.9M        6607.6M
+  action / state / time projections                        1.6M           3.2M           0.0M
+  other                                                    0.0M           0.0M           0.0M
+  total                                                  450.0M        3501.4M        7541.2M
+  tensors / header bytes fetched                    500 / 73056   777 / 129872   982 / 126432
+  dtypes                                               BF16,F32            F32           BF16
+  LM-head tensors in smolvla_base: model.vlm_with_expert.vlm.lm_head.weight 47.3M
+  LM-head tensors in pi0_base: paligemma_with_expert.gemma_expert.lm_head.weight 263.3M, paligemma_with_expert.paligemma.lm_head.weight 526.6M
+  LM-head tensors in openvla-7b: language_model.lm_head.weight 131.3M
+
+  values per inference call (from the configs):
+    smolvla_base: one chunk of 50 x 32 continuous values (10 flow steps); executes n_action_steps = 50 before re-planning
+    pi0_base:     one chunk of 50 x 32 continuous values (10 flow steps)
+    openvla-7b:   one action = 7 tokens, one of 256 bins each, decoded autoregressively; 7 decoder passes for one control step
+
+[B] Action tokenization on lesson 16's scripted SO-101 pick (6-D joint-position targets, 50 Hz)
+  demonstration: 229 actions x 6 dims (4.58 s), original pick success True, cube bottom 7.37 cm
+  replay of the un-tokenized 50 Hz actions: success True, cube bottom 7.25 cm
+  bins span the 1st..99th percentile per dimension; 0.00% of action values fall outside and are clipped
+    bins bits/dim  RMS joint err deg  max joint err deg  mean tip err mm  max tip err mm  replay success  cube bottom cm
+       4        2              3.161              8.672            15.69           40.36           False           -0.00
+       8        3              1.566              4.336             8.83           19.75            True            5.19
+      16        4              0.745              2.168             3.51            9.54            True            6.68
+      32        5              0.429              1.084             2.39            4.51            True            6.67
+      64        6              0.209              0.542             1.24            2.00            True            6.96
+     128        7              0.099              0.271             0.56            1.23            True            7.10
+     256        8              0.048              0.136             0.26            0.60            True            7.21
+    1024       10              0.012              0.034             0.07            0.17            True            7.24

@@ -1,0 +1,16 @@
+torch 2.14.1 · python 3.14.7 · arm64 · 26.3.1 · MPS available: True · CPU threads 4
+median (min) latency of one forward pass in ms, 50 timed runs after 10 warm-up runs; heavily loaded machine, not a benchmark
+
+mlp (83974 parameters), input [64]
+  batch                CPU ms              MPS ms  CPU / MPS
+      1         0.010 (0.010)       0.344 (0.274)       0.03
+      8         0.022 (0.021)       0.338 (0.282)       0.07
+     64         0.039 (0.034)       0.433 (0.312)       0.09
+    256         0.290 (0.131)       0.439 (0.407)       0.66
+
+cnn (352492 parameters), input [3, 96, 96]
+  batch                CPU ms              MPS ms  CPU / MPS
+      1         0.534 (0.408)       1.159 (0.979)       0.46
+      8         3.722 (2.748)       2.714 (2.408)       1.37
+     64     473.753 (278.449)       4.280 (3.333)     110.69
+    256   1894.905 (1054.068)     11.946 (11.118)     158.62

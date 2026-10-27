@@ -1,0 +1,51 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | Python 3.14.7 | arm64
+
+== A. Hand FK vs mj_kinematics, gripperframe site, 1000 random joint vectors within limits ==
+chain: base -> shoulder -> upper_arm -> lower_arm -> wrist -> gripper -> site gripperframe
+max position error 3.3e-16 m, max rotation-matrix entry error 1.2e-15
+site offset from the wrist_roll axis in the MJCF: 12.0 mm; site moves 24.0 mm when wrist_roll goes 0 -> 180 deg
+
+== B. Degrees of freedom ==
+nq = 6, nv = 6, actuators = 6
+  shoulder_pan   hinge  range   -110.0 ..  110.0 deg
+  shoulder_lift  hinge  range   -100.0 ..  100.0 deg
+  elbow_flex     hinge  range    -96.8 ..   96.8 deg
+  wrist_flex     hinge  range    -95.0 ..   95.0 deg
+  wrist_roll     hinge  range   -157.2 ..  162.8 deg
+  gripper        hinge  range    -10.0 ..  100.0 deg
+arm joints that move the gripper frame: 5; the 6th ('gripper') only opens the jaw
+
+== B. Workspace of the gripperframe site by uniform joint sampling (no collision filtering) ==
+  samples  vol 1 cm vox (L)  vol 2 cm vox (L)  hull vol (L)  max reach (m)  below z=0
+     1000               1.0               7.6         234.5          0.471      25.4%
+    10000               9.5              60.9         269.7          0.473      25.2%
+   100000              71.8             222.2         283.6          0.473      24.9%
+  1000000             230.4             282.9         289.6          0.473      25.1%
+
+pitch axes parallel: max |n x a| = 4.6e-16; n = [-0.0201  0.9998  0.    ]; a0 . n = -7.9e-17
+
+== C. Sweep beta = angle of the required approach direction out of the arm's vertical plane ==
+target point [0.22 0.   0.08] m; a_req = cos(beta) a0 + sin(beta) n; 12 seeds, joint limits enforced
+beta (deg)  pos err (mm)  approach err (deg)
+         0         0.000               0.098
+         5         0.000               3.086
+        10         0.000               8.083
+        20         0.000              18.077
+        30         0.000              28.070
+        45         0.000              43.058
+        60         0.000              58.036
+        90         0.000              87.682
+
+== C. 200 uniformly random full target orientations at the same point (6-D task, 5 joints) ==
+orientation error: median 72.0 deg, min 0.65 deg, max 165.5 deg; median pos err 0.000 mm
+  reachable within  1 deg:   2 / 200
+  reachable within  5 deg:   5 / 200
+  reachable within 10 deg:   8 / 200
+  reachable within 30 deg:  33 / 200
+
+== C. Same test on a 7-DoF arm: Franka Panda (Menagerie), body 'hand', point (0.5, 0, 0.4) m ==
+orientation error: median 0.00 deg, max 33.6 deg
+  reachable within  1 deg: 181 / 200
+  reachable within  5 deg: 187 / 200
+  reachable within 10 deg: 189 / 200
+  reachable within 30 deg: 199 / 200

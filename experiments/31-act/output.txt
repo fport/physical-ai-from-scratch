@@ -1,0 +1,35 @@
+MuJoCo 3.17.0 | NumPy 2.5.4 | PyTorch 2.14.1 | Python 3.14.7 | arm64 | torch threads 2
+
+100 demos x 150 steps at 50 Hz; demonstrator pauses 25 steps (0.5 s) at the target; torque noise 0.2 N m
+policy: MLP 6-256-256-2k, L1 loss, 3000 Adam steps (cosine lr from 0.001), batch 512, training seeds (0, 1, 2); eval per seed: 200 new targets, 200 steps (4.0 s), same eval seed for every row
+success = within 3 cm of the target for >= 10 steps (0.2 s), then within 3 cm of the drop point at 4.0 s
+miss = never reached the target; short = reached, left before 0.2 s; stuck = still at the target at 4.0 s; pause s = median longest stay at the target (successes); jerk = RMS third difference of the commanded joint targets, rad/s^3
+
+policy                success    rate          95% CI     per seed   miss  short  stuck  other  pause s     jerk
+demonstrator          200/200  100.0%  [ 98.1, 100.0]          200      0      0      0      0     0.66     3506
+k=1  open-loop         18/600    3.0%  [  1.9,   4.7]        5/7/6      2     26    543     11     0.44     2443
+k=4  open-loop         20/600    3.3%  [  2.2,   5.1]       16/0/4      0     27    535     18     0.33     1734
+k=4  ensembled         14/600    2.3%  [  1.4,   3.9]       12/0/2      1     23    545     17     0.59      677
+k=8  open-loop         32/600    5.3%  [  3.8,   7.4]       27/0/5      3     25    534      6     0.37     1694
+k=8  ensembled         23/600    3.8%  [  2.6,   5.7]       21/0/2      2     34    538      3     0.82      376
+k=16 open-loop        431/600   71.8%  [ 68.1,  75.3]  134/129/168     62     87      6     14     0.48     3085
+k=16 ensembled        160/600   26.7%  [ 23.3,  30.3]    110/13/37      5      1    362     72     0.81      543
+k=32 open-loop        297/600   49.5%  [ 45.5,  53.5]    91/116/90    200    103      0      0     0.38     3875
+k=32 ensembled        552/600   92.0%  [ 89.6,  93.9]  185/191/176     39      9      0      0     0.58      433
+
+Chunk predicted at rest on the goal (training seed 0, 200 targets): first index whose target leaves the goal by > 0.02 rad
+  k  chunks with a departure  median first departure index
+  1                  0/200                           nan
+  4                  0/200                           nan
+  8                  8/200                           6.0
+ 16                200/200                           9.0
+ 32                200/200                           8.0
+
+Break it · longer pause, k=32 ensembled, training seed 0; budget = pause + 3.5 s
+policy                success    rate          95% CI     per seed   miss  short  stuck  other  pause s     jerk
+pause 0.5 s           185/200   92.5%  [ 88.0,  95.4]          185     11      4      0      0     0.58      437
+pause 1.0 s            65/200   32.5%  [ 26.4,  39.3]           65      5      3      1    126     1.20      549
+pause 1.5 s             2/200    1.0%  [  0.3,   3.6]            2      0      0    196      2     1.06      286
+pause 2.0 s             0/200    0.0%  [  0.0,   1.9]            0     26      7    154     13      nan      288
+
+(wall time: 131 s training, 218 s total, on a heavily loaded machine; timings approximate)

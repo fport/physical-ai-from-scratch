@@ -1,24 +1,21 @@
 # Katkı
 
-Bu kitap yazılıyor ve katkıya açık: GitHub'da bir issue ya da pull request aç.
+Bu kitap katkıya açık: GitHub'da bir issue ya da pull request aç.
 
-## Bir dersi tamamlamak
+## Bir sayıyı düzeltmek
 
-Bir iskelet dersi (🚧) tama çevirmek için:
+Bir dersteki her sayı yeniden üretilebilir olmalı. Tutmayan bir sayı varsa dersi, kütüphane sürümlerini ve çıktını yaz. Yeniden üretilemeyen bir sayı bir hatadır.
 
-1. **Deneyi koştur.** Dersin "Planlanan deney" bölümündeki sweep'i yaz; en az 5 değer dene. Sürümleri yazdır, varsa seed'i sabitle, sonucu `results/NN/result.json` dosyasına yaz.
-2. **Sayfayı şablona göre yaz:** [Bir ders nasıl okunur](getting-started/how-to-read-a-lesson.md). Hazır örnekler: [01](phase-0-world-frame-by-frame/01-world-as-text.md), [02](phase-0-world-frame-by-frame/02-timestep.md), [04](phase-0-world-frame-by-frame/04-friction.md).
-3. **Her iddiaya kaynak koy.** [Sayı ve kaynak kuralları](getting-started/numbers-and-sources.md).
-4. **Kodu ekle:** Mac'te koşan script `experiments/NN-slug/experiment.py`, Colab notebook'u `notebooks/NN-slug.ipynb`.
-5. Künyede durumu güncelle ve [SUMMARY.md](SUMMARY.md) ile faz sayfasındaki durumu eşitle.
-6. **İki dil.** Varsayılan dil İngilizce (repo kökü); Türkçe sürüm aynı dosya adlarıyla `tr/` altında. Türkçede teknik terimler İngilizce kalır.
+## Bir ders yazmak ya da iyileştirmek
+
+1. Yazım kılavuzunu oku: [`tools/AUTHORING.md`](../tools/AUTHORING.md) (şablon, dürüstlük kuralları, Türkçe kuralları).
+2. Ders yapısı [`curriculum.yaml`](../curriculum.yaml)'dan gelir; onu değiştirdikten sonra `python tools/build_book.py` çalıştır. Bu komut `SUMMARY.md`'yi, bölüm sayfalarını ve her dersin künye bloğunu yeniden üretir. Üretilen kısımları elle düzenleme.
+3. Deneyi `experiments/NN-slug/experiment.py` olarak yaz (İngilizce kod, sabit seed'ler, tablo yazdırır) ve tam stdout'unu `output.txt` olarak kaydet.
+4. Dersi İngilizce (`part-…/NN-slug.md`) ve Türkçe (`tr/part-…/NN-slug.md`) yaz. Türkçede teknik terimler İngilizce kalır.
+5. Her göreli bağlantının çalıştığını ve sitenin derlendiğini kontrol et: `cd site && npm run build`.
 
 ## Kod kuralları
 
-- Kod, değişken adları ve yorumlar İngilizce.
-- Bağımlılık sürümleri sabit (`mujoco==3.17.0`).
-- Bir script tek bir sweep koşturur ve sonucu tablo olarak yazdırır.
-
-## Hata bildirmek
-
-Bir sayı tutmuyorsa: dersi, kullandığın sürümleri ve çıktını yaz. Kitaptaki her sayının yeniden üretilebilir olması gerekiyor; tutmayan bir sayı bir hatadır.
+- İngilizce identifier, yorum ve çıktı.
+- Sabit sürümlü bağımlılıklar (`requirements.txt`).
+- Robot modelleri `experiments/common/menagerie.py` üzerinden.

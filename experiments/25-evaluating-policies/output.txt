@@ -1,0 +1,34 @@
+mujoco 3.17.0 · numpy 2.5.4 · scipy 1.18.1
+
+[A] Pools of 300 simulated trials, cube uniform in x 16-28 cm, y -8..8 cm
+  policy  aim noise   success   rate      Wilson 95%   jaw closed on cube
+       A       9 mm   221/300  0.737  [0.684, 0.783]      259/300 (0.863)
+       B       6 mm   263/300  0.877  [0.835, 0.909]      288/300 (0.960)
+(the pool rate is used as the long-run rate p below)
+
+[B] Number of trials n: 2000 evaluations of n trials drawn from pool A (p = 0.737)
+    n  mean Wilson width  Wilson covers p  Wald covers p  exact Wilson cov.  exact Wald cov.   k/n range (5-95%)
+    5              0.577            0.987          0.764              0.981            0.764           0.40-1.00
+   10              0.463            0.971          0.928              0.975            0.927           0.50-0.90
+   20              0.354            0.967          0.919              0.962            0.908           0.55-0.90
+   50              0.235            0.951          0.916              0.947            0.914           0.62-0.84
+  100              0.169            0.942          0.942              0.946            0.945           0.66-0.81
+
+[C] A '9/10' claim
+Wilson 95% for 9/10: [0.596, 0.982];  for 10/10: [0.722, 1.000];  Wald for 10/10: [1.000, 1.000];  Wilson for 18/20: [0.699, 0.972]
+policy A (p = 0.737): P(>= 9/10) = 0.215 binomial, 0.208 drawn from the pool
+policy B (p = 0.877): P(>= 9/10) = 0.645 binomial, 0.634 drawn from the pool
+
+[D] Trials needed for a Wilson 95% half-width target
+ observed rate  +-0.10  +-0.05  +-0.02
+          0.50      93     381    2398
+          0.70      78     320    2014
+          0.90      34     141     864
+          0.95      24      82     465
+
+[E] A (p = 0.737) vs B (p = 0.877): n trials each, 1000 evaluation pairs drawn from the pools
+    n  Fisher p < 0.05  Wilson intervals disjoint  B looks worse or equal
+   10            0.037                      0.006                   0.286
+   20            0.113                      0.025                   0.170
+   50            0.335                      0.152                   0.041
+  100            0.673                      0.423                   0.005

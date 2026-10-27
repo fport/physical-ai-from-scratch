@@ -1,6 +1,8 @@
 // @ts-check
 import { defineConfig } from 'astro/config'
 import starlight from '@astrojs/starlight'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import sidebar from './src/sidebar.generated.json' with { type: 'json' }
 
 const REPO = 'https://github.com/fport/physical-ai-from-scratch'
@@ -8,6 +10,7 @@ const REPO = 'https://github.com/fport/physical-ai-from-scratch'
 export default defineConfig({
   site: process.env.SITE_URL,
   base: process.env.SITE_BASE || '/',
+  markdown: { remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex] },
   integrations: [
     starlight({
       title: { en: 'Physical AI', tr: 'Fiziksel AI' },
@@ -24,6 +27,7 @@ export default defineConfig({
         '@fontsource/jetbrains-mono/400.css',
         '@fontsource/jetbrains-mono/700.css',
         '@fontsource/silkscreen/400.css',
+        'katex/dist/katex.min.css',
         './src/styles/custom.css',
       ],
       components: {

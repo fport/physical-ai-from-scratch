@@ -150,7 +150,7 @@ for (const [lang, L] of Object.entries(LANGS)) {
   }
 
   // landing page: README + phase cards
-  const cards = groups.filter((g) => g.items[0]?.file.includes('phase-')).map((g) => {
+  const cards = groups.filter((g) => /(^|\/)(part-\d+|capstone)[^/]*\/README\.md$/.test(g.items[0]?.file || '')).map((g) => {
     const m = motto(splitTitle(read(g.items[0].file)).body) || ''
     const nums = g.items.slice(1).map((x) => x.label.split(' · ')[0])
     const range = nums.length > 1 ? `${nums[0]}–${nums[nums.length - 1]}` : nums[0]
@@ -161,8 +161,8 @@ for (const [lang, L] of Object.entries(LANGS)) {
     hero: {
       tagline: L.tagline,
       actions: [
-        { text: L.start, link: route(`${L.dir}phase-0-world-frame-by-frame/02-timestep.md`), icon: 'right-arrow' },
-        { text: L.setup, link: route(`${L.dir}getting-started/setup.md`), variant: 'minimal' },
+        { text: L.start, link: route(`${L.dir}part-1-simulation/01-world-as-text.md`), icon: 'right-arrow' },
+        { text: L.setup, link: route(`${L.dir}start-here/setup.md`), variant: 'minimal' },
       ],
     },
   })

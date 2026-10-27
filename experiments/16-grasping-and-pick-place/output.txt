@@ -1,0 +1,41 @@
+mujoco 3.17.0 · numpy 2.5.4
+
+single pick at the nominal position (mu 1.0, 30 g): success True, lift 7.37 cm, IK error 0.18 mm, jaw normal force at the end 39.84 / 39.83 N, 2287 recorded steps
+
+All sweeps: 10 cube positions uniform in a 2 x 2 cm square around (22, 0) cm, seed 0.
+close = time spent in the close state; squeeze = jaw normal force on the cube when it ends
+(both: mean over the trials where the jaw closed; close times out after 4 s);
+friction cone (lesson 04): the cube can hang in the jaws only if mu (N1 + N2) / (m g) >= 1.
+
+[A] Friction sweep: 30 g cube, jaw torque cap 0.5 N m
+       mu  success     Wilson 95%  close s  squeeze N1+N2 N  mu (N1+N2) / mg   outcomes (held / not closed / dropped; ejected > 30 cm)
+    0.005     0/10   [0.00, 0.28]        -                -                -   0 / 10 / 0; 10
+     0.01     0/10   [0.00, 0.28]        -                -                -   0 / 10 / 0; 10
+    0.015     0/10   [0.00, 0.28]        -                -                -   0 / 10 / 0; 10
+     0.02     0/10   [0.00, 0.28]     1.59            14.21             0.97   0 / 9 / 1; 8
+     0.03     2/10   [0.06, 0.51]     1.62            12.29             1.25   2 / 8 / 0; 7
+     0.05    10/10   [0.72, 1.00]     1.63            12.74             2.16   10 / 0 / 0; 0
+      0.1    10/10   [0.72, 1.00]     1.63            13.26             4.51   10 / 0 / 0; 0
+      0.3    10/10   [0.72, 1.00]     1.58            14.24            14.52   10 / 0 / 0; 0
+        1    10/10   [0.72, 1.00]     1.56            14.91            50.65   10 / 0 / 0; 0
+
+[B] Jaw torque cap sweep: 30 g cube, mu = 0.05 (Menagerie default cap 2.94 N m)
+  cap N m  success     Wilson 95%  close s  squeeze N1+N2 N  mu (N1+N2) / mg   outcomes (held / not closed / dropped; ejected > 30 cm)
+     2.94     7/10   [0.40, 0.89]     0.96            88.93            15.11   7 / 1 / 2; 3
+        1    10/10   [0.72, 1.00]     0.91            27.23             4.63   10 / 0 / 0; 0
+      0.5    10/10   [0.72, 1.00]     1.63            12.74             2.16   10 / 0 / 0; 0
+      0.3    10/10   [0.72, 1.00]     2.65             7.04             1.20   10 / 0 / 0; 0
+      0.2     0/10   [0.00, 0.28]        -                -                -   0 / 10 / 0; 5
+     0.15     0/10   [0.00, 0.28]        -                -                -   0 / 10 / 0; 0
+      0.1     0/10   [0.00, 0.28]        -                -                -   0 / 10 / 0; 0
+
+[C] Mass sweep: mu = 0.3, jaw torque cap 0.5 N m
+  mass kg  success     Wilson 95%  close s  squeeze N1+N2 N  mu (N1+N2) / mg   outcomes (held / not closed / dropped; ejected > 30 cm)
+     0.03    10/10   [0.72, 1.00]     1.58            14.24            14.52   10 / 0 / 0; 0
+      0.1    10/10   [0.72, 1.00]     1.56            14.95             4.57   10 / 0 / 0; 0
+      0.2    10/10   [0.72, 1.00]     1.55            15.52             2.37   10 / 0 / 0; 0
+      0.3    10/10   [0.72, 1.00]     1.55            15.87             1.62   10 / 0 / 0; 0
+      0.4    10/10   [0.72, 1.00]     1.55            16.25             1.24   10 / 0 / 0; 0
+     0.45     0/10   [0.00, 0.28]     1.55            16.47             1.12   0 / 0 / 10; 0
+      0.5     0/10   [0.00, 0.28]     1.55            16.61             1.02   0 / 0 / 10; 0
+      0.7     0/10   [0.00, 0.28]     1.55            16.90             0.74   0 / 0 / 10; 0

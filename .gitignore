@@ -5,3 +5,5 @@ __pycache__/
 .DS_Store
 results/
 mujoco_menagerie/
+.cache/
+MUJOCO_LOG.TXT

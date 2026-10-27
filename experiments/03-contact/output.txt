@@ -1,0 +1,54 @@
+mujoco 3.17.0 · numpy 2.5.4
+cube 10 cm, 1 kg · timestep 0.002 s · default solimp 0.9 0.95 0.001 0.5 2
+
+sweep 1: timeconst (dampratio 1) -> steady penetration at rest
+ timeconst(s)  cube(mm)  #contacts  sphere(mm)  d(sphere)  g*(1-d)*tc^2 (mm)  g*(1-d)*(dw/d)^2*tc^2 (mm)
+   0.001       0.0044     4        0.0175    0.9000       0.0157            0.0175
+   0.002       0.0044     4        0.0175    0.9000       0.0157            0.0175
+   0.004       0.0044     4        0.0175    0.9000       0.0157            0.0175
+   0.005       0.0068     4        0.0273    0.9001       0.0245            0.0273
+   0.010       0.0273     4        0.1078    0.9012       0.0970            0.1078
+   0.020       0.1078     4        0.3672    0.9135       0.3395            0.3672
+   0.050       0.4914     4        1.2262    0.9500       1.2263            1.2263
+   0.100       1.2263     4        4.9050    0.9500       4.9050            4.9050
+
+sweep 2: constant impedance solimp='d d 0.001' (timeconst 0.02) -> steady penetration of the cube
+  d 0.50 · penetration  0.4905 mm · (1-d) 0.500
+  d 0.90 · penetration  0.0981 mm · (1-d) 0.100
+  d 0.95 · penetration  0.0490 mm · (1-d) 0.050
+  d 0.99 · penetration  0.0098 mm · (1-d) 0.010
+
+sweep 3: dampratio (timeconst 0.02) -> 10 cm drop
+ dampratio  peak penetration(mm)  rebound(mm)  final penetration(mm)
+    0.1           2.220           56.504          0.008
+    0.2           3.503           24.202          0.025
+    0.3           4.629           13.766          0.041
+    0.5           6.236            3.339          0.027
+    0.7           7.288            0.055          0.053
+    1.0           8.283            0.000          0.108
+    2.0           9.723            0.000          0.367
+
+sweep 4: timeconst (dampratio 1) -> 10 cm drop
+  timeconst 0.004 · peak penetration   0.297 mm · rebound  0.055 mm
+  timeconst 0.010 · peak penetration   3.295 mm · rebound  0.000 mm
+  timeconst 0.020 · peak penetration   8.283 mm · rebound  0.000 mm
+  timeconst 0.050 · peak penetration  23.248 mm · rebound  0.000 mm
+  timeconst 0.100 · peak penetration  48.314 mm · rebound  0.000 mm
+
+break it 1: timeconst below 2*timestep = 0.004 s (dampratio 1, 10 cm drop)
+ timeconst  refsafe  peak pen(mm)  rebound(mm)  max height(m)  jitter last 0.5 s(mm)
+  0.0005    on         0.297        0.055        0.100          0.000
+  0.0005    off        0.297     7833.706        7.834        497.278
+  0.0010    on         0.297        0.055        0.100          0.000
+  0.0010    off        2.327    13809.134       13.809       2084.273
+  0.0020    on         0.297        0.055        0.100          0.000
+  0.0020    off        6.308      725.323        0.894        267.969
+  0.0030    on         0.297        0.055        0.100          0.000
+  0.0030    off        0.578        2.581        0.100          0.000
+  0.0040    on         0.297        0.055        0.100          0.000
+  0.0040    off        0.297        0.055        0.100          0.000
+
+break it 2: refsafe on, timeconst 0.02, small dampratio (natural frequency 1/(timeconst*dampratio))
+  dampratio 0.10 · timestep*w 1.00 · rebound    56.504 mm · max height   0.100 m · jitter     0.011 mm
+  dampratio 0.07 · timestep*w 1.43 · rebound   105.891 mm · max height   0.106 m · jitter     2.597 mm
+  dampratio 0.05 · timestep*w 2.00 · rebound  3146.979 mm · max height   3.147 m · jitter   458.636 mm

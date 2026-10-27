@@ -1,0 +1,28 @@
+mujoco 3.17.0 · numpy 2.5.4
+
+[A] Panda joint move, |dq|max = 0.6 rad, T = 1.0 s, PD + g(q), Kp = [600, 600, 600, 600, 250, 150, 50], Kd = [50.0, 50.0, 50.0, 50.0, 20.0, 12.0, 4.0]
+  ref = reference peak (largest joint); robot = measured in simulation; err = max |q_ref - q| during the move
+shape                             ref acc   ref jerk  robot acc  robot jerk  err deg saturated %  err at T+0.5 s deg
+step                                  inf        inf      739.2      175025    34.35         5.5               0.001   (worst joint 7)
+linear                                inf        inf      220.9      110475     0.78         0.0               0.030   (worst joint 7)
+trapezoid                            2.70        inf        3.0        1003     1.08         0.0               0.002   (worst joint 7)
+cubic                                3.59        inf        3.6        1337     1.05         0.0               0.003   (worst joint 7)
+quintic                              3.46      35.78        3.7          35     1.32         0.0               0.005   (worst joint 7)
+quintic + M qdd_ref - passive        3.46      35.78        3.5          48     0.01         0.0               0.000   (worst joint 1)
+  units: rad/s^2 (acc), rad/s^3 (jerk); control and physics at 2 ms
+
+[B] Sweep the duration T (same move)
+   T s    shape   ref acc   ref jerk  robot jerk  err deg saturated %
+  0.25    cubic     56.68        inf       21311     4.46         0.0
+  0.25  quintic     55.41     2249.0        2107     5.52         0.0
+  0.50    cubic     14.28        inf        5317     2.16         0.0
+  0.50  quintic     13.86      284.6         234     2.73         0.0
+  1.00    cubic      3.59        inf        1337     1.05         0.0
+  1.00  quintic      3.46       35.8          35     1.32         0.0
+  2.00    cubic      0.90        inf         335     0.52         0.0
+  2.00  quintic      0.87        4.5           4     0.65         0.0
+
+[C] Hand (TCP) from A to B: 50 cm straight line along y, orientation held; IK residual at A and B < 0.001 mm
+interpolation                 max distance from line cm  hand path cm  joint path rad
+joint space (quintic in q)                         5.38         51.53           1.089
+Cartesian (IK per waypoint)                        0.00         50.00           1.256

@@ -1,0 +1,55 @@
+mujoco 3.17.0 · numpy 2.5.4
+
+[A] PD on one joint, no gravity. I = 0.0901 kg m^2, Kp = 20 N m/rad, step 0 -> 0.5 rad, dt 1 ms
+  zeta      Kd  overshoot %  theory %  t_settle 2% s
+   0.1   0.268        72.91     72.92          2.573
+   0.3   0.805        37.14     37.23          0.751
+   0.5   1.342        16.16     16.30          0.538
+   0.7   1.879         4.45      4.60          0.398
+   1.0   2.685         0.00      0.00          0.393
+   1.5   4.027         0.00      0.00          0.716
+  Kp sweep at zeta = 0.7 (settling time should scale as 1/omega_n = sqrt(I/Kp)):
+    Kp  omega_n rad/s  t_settle 2% s
+     5           7.45          0.799
+    20          14.90          0.398
+    80          29.80          0.197
+
+[B] Same joint under gravity (m g l = 2.943 N m). Step from hanging (90 deg) to horizontal (0 deg), zeta 0.7
+    Kp  sag deg (sim)  sag deg (Kp e = mgl cos e)
+     5         29.385                      29.385
+    10         16.193                      16.193
+    20          8.342                       8.342
+    40          4.204                       4.204
+    80          2.106                       2.106
+  Kp = 20, Kd = 1.879: three ways to remove the sag (4 s simulated)
+controller             final err deg  overshoot deg  t into 0.5 deg s
+PD                             8.342          0.000             never
+PID Ki=10                      0.603          0.365             never
+PID Ki=40                     -0.001         12.359             1.310
+PID Ki=160                     0.000         46.016             1.520
+PD + qfrc_bias                -0.000          3.994             0.463
+
+[C] SO-101 (Menagerie) position actuator: force = kp (ctrl - q) - kv qdot, kp = 998.22, kv = 2.731, forcerange = [-2.94, 2.94] N m
+  Arm stretched forward (all joints 0, gripper ~39 cm from the base), payload at the gripper frame, 3 s hold
+ payload kg  gravity torque N m  shoulder sag deg  actuator force N m  gripper drop cm
+       0.00              -0.573             0.033              -0.573             0.03
+       0.25              -1.363             0.078              -1.364             0.09
+       0.50              -2.153             0.124              -2.156             0.14
+       0.70              -2.785             0.160              -2.789             0.18
+       0.80              -3.101            37.403              -2.940            22.30
+       1.00              -3.733            37.403              -2.940            22.30
+
+[D] Unitree Go2 (Menagerie): lie -> stand with tau = Kp (q* - q) - Kd qdot on all 12 joints, 3 s
+case                       start cm  peak cm t_peak s feet@peak final cm overshoot % saturated %
+20 / 0.5 (unitree_rl_gym)      10.0     25.6     0.45         4     25.2         3.0         0.0
+5 / 0.5                         9.9     11.1     2.92         4     11.1         0.8         0.0
+10 / 0.5                       10.0     19.7     2.75         4     19.6         0.1         0.0
+40 / 0.5                       10.0     36.0     0.28         2     29.1        36.4         0.5
+80 / 0.5                       10.0     50.8     0.33         0     29.9       104.5         2.9
+20 / 0                         10.0     26.3     0.31         4     24.7        11.0         0.0
+20 / 2                         10.0     25.3     1.04         4     25.2         1.2         0.0
+60 / 5 (sdk2 stand ex.)        10.0     29.9     1.11         4     29.8         0.2         0.9
+20 / 0.5 + 5 kg on base         9.8     22.7     0.38         4     21.8         7.4         0.0
+  (Go2 timestep 2 ms; final = mean height over 2.5-3 s; feet@peak = feet touching the floor;
+   saturated % = share of control steps where some joint hit its torque limit; overshoot = (peak-final)/(final-start))
+  target stance, geometry only (cm): FL 32.35  FR 32.35  RL 31.39  RR 31.39

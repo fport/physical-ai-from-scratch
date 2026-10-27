@@ -1,0 +1,37 @@
+mujoco 3.17.0 · numpy 2.5.4 · 15 lines
+defaults: timestep 0.002 s · density 0.0 · viscosity 0.0 · integrator mjINT_EULER
+inertia of the 100 g, 20 cm cube inferred from its geom: [0.00066667 0.00066667 0.00066667] kg·m² (analytic m*(a^2+a^2)/12 = 0.000667)
+body quaternion of 'light' (w x y z): [1. 0. 0. 0.]
+
+vacuum (100 g, 1 kg) · light step 143 · heavy step 143 · diff 0.00 ms · light is 0.00 cm higher when heavy lands
+air    (100 g, 1 kg) · light step 145 · heavy step 143 · diff 4.08 ms · light is 1.10 cm higher when heavy lands
+analytic fall time sqrt(2*0.40/9.81) = 0.2856 s
+
+sweep: mass of the light cube (heavy is always 1 kg)
+  light      5 g · vacuum   0.00 ms · air  93.44 ms
+  light     10 g · vacuum   0.00 ms · air  46.25 ms
+  light     20 g · vacuum   0.00 ms · air  22.59 ms
+  light     50 g · vacuum   0.00 ms · air   8.65 ms
+  light    100 g · vacuum   0.00 ms · air   4.08 ms
+  light    200 g · vacuum   0.00 ms · air   1.81 ms
+  light    500 g · vacuum   0.00 ms · air   0.45 ms
+  light   1000 g · vacuum   0.00 ms · air   0.00 ms
+hand estimate of the air gap: (k/m)*g^2*T^4/12 = 1.28 cm (light) - 0.13 cm (heavy) = 1.15 cm
+
+SO-101 (Menagerie robotstudio_so101/so101.xml), compiled
+  bodies (incl. world) 9 · joints 6 (mjJNT_HINGE) · dof 6 · actuators 6 · geoms 50 · sensors 0
+  bodies with an explicit <inertial> in the file: 7 of 8 · inferred from geoms: camera_mount
+  total mass 0.6454 kg · timestep 0.005 s · integrator mjINT_IMPLICITFAST · cone mjCONE_ELLIPTIC
+  actuator shoulder_pan  gain mjGAIN_FIXED bias mjBIAS_AFFINE kp 998.22 kv 2.731 -> <position> servo
+  actuator shoulder_lift gain mjGAIN_FIXED bias mjBIAS_AFFINE kp 998.22 kv 2.731 -> <position> servo
+  actuator elbow_flex    gain mjGAIN_FIXED bias mjBIAS_AFFINE kp 998.22 kv 2.731 -> <position> servo
+  actuator wrist_flex    gain mjGAIN_FIXED bias mjBIAS_AFFINE kp 998.22 kv 2.731 -> <position> servo
+  actuator wrist_roll    gain mjGAIN_FIXED bias mjBIAS_AFFINE kp 998.22 kv 2.731 -> <position> servo
+  actuator gripper       gain mjGAIN_FIXED bias mjBIAS_AFFINE kp 998.22 kv 2.731 -> <position> servo
+  body masses (kg): base 0.1470 · shoulder 0.1000 · upper_arm 0.1030 · lower_arm 0.1040 · wrist 0.0790 · gripper 0.0870 · camera_mount 0.0134 · moving_jaw_so101_v1 0.0120
+
+break it: same file compiled with inertiafromgeom='true'
+  total mass 2.3565 kg (x3.65)
+  shoulder  mass 0.1000 -> 0.4018 kg · largest principal inertia 8.378e-05 -> 3.507e-04 kg·m²
+  upper_arm mass 0.1030 -> 0.4551 kg · largest principal inertia 1.509e-04 -> 9.178e-04 kg·m²
+  wrist     mass 0.0790 -> 0.2755 kg · largest principal inertia 3.683e-05 -> 1.602e-04 kg·m²

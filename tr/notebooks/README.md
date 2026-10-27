@@ -1,15 +1,13 @@
 # Notebook'lar
 
-Her deneyin Colab'de ya da yerel Jupyter'de koşan notebook'u. İlk hücre bağımlılıkları kurar; son hücre sonucu `results/NN/result.json` dosyasına yazar.
+Bazı önceki deneylerin Colab notebook'ları. Türkçe Koddan Kasa video serisi için yazıldılar; metinleri Türkçe ve hâlâ video etiketlerini ("Levha NN") ve eski ders numaralarını kullanıyorlar. Her dersin bakımı yapılan İngilizce deneyi `experiments/` altındaki script'tir; onu tercih et.
 
-| Notebook | Ders | Gereken | Not |
-|---|---|---|---|
-| [01-world-as-text.ipynb](../../notebooks/01-world-as-text.ipynb) | [01 · Dünya bir metin dosyası](../phase-0-world-frame-by-frame/01-world-as-text.md) | MuJoCo 3.17, CPU | |
-| [02-timestep.ipynb](../../notebooks/02-timestep.ipynb) | [02 · Timestep](../phase-0-world-frame-by-frame/02-timestep.md) | MuJoCo 3.17, CPU | |
-| [04-friction.ipynb](../../notebooks/04-friction.ipynb) | [04 · Friction](../phase-0-world-frame-by-frame/04-friction.md) | MuJoCo 3.17, CPU | |
-| [11-go2-two-numbers.ipynb](../../notebooks/11-go2-two-numbers.ipynb) | [11 · 12 eklem, iki sayı](../phase-2-muscle/11-pd-control.md) | MuJoCo, Menagerie `unitree_go2` (notebook klonlar) | |
-| [19-replay.ipynb](../../notebooks/19-replay.ipynb) | [19 · Replay öğrenme değildir](../phase-4-learning-from-demonstration/19-replay.md) | MuJoCo 3.17, Menagerie `robotstudio_so101` (notebook klonlar) | |
-| [24-two-right-answers.ipynb](../../notebooks/24-two-right-answers.ipynb) | [24 · İki doğru](../phase-4-learning-from-demonstration/24-two-right-answers.md) | NumPy, CPU (~1 dk) | |
-| [31-strands-agent.ipynb](../../notebooks/31-strands-agent.ipynb) | [31 · Strands](../phase-5-agents/31-strands-agent.md) | `strands-robots` 0.5.3, MuJoCo **3.16.0**, Ollama ya da Claude API | Notebook'ta künye "Levha 32" |
-
-> Notebook'lar Koddan Kasa video serisi için yazıldı ve buraya olduğu gibi kopyalandı. İçlerinde "videodaki deney", "Levha NN" gibi ifadeler ve video reposundaki betiklere (`src/v6/...`) göndermeler var; deneyin kendisi notebook'un içinde eksiksiz.
+| Notebook | Ders | Gerekenler |
+|---|---|---|
+| [01-world-as-text.ipynb](../../notebooks/01-world-as-text.ipynb) | [01 · Dünya bir metin dosyası](../part-1-simulation/01-world-as-text.md) | MuJoCo, CPU |
+| [02-timestep.ipynb](../../notebooks/02-timestep.ipynb) | [02 · Time integration ve timestep](../part-1-simulation/02-timestep.md) | MuJoCo, CPU |
+| [04-friction.ipynb](../../notebooks/04-friction.ipynb) | [04 · Friction ve friction cone](../part-1-simulation/04-friction.md) | MuJoCo, CPU |
+| [12-joint-control.ipynb](../../notebooks/12-joint-control.ipynb) | [12 · Joint control](../part-4-dynamics-and-control/12-joint-control.md) | MuJoCo, Menagerie `unitree_go2` (notebook klonlar) |
+| [26-teleop-replay-data.ipynb](../../notebooks/26-teleop-replay-data.ipynb) | [26 · Teleoperation, replay ve data collection](../part-7-learning-from-demonstration/26-teleop-replay-data.md) | MuJoCo, Menagerie `robotstudio_so101` (notebook klonlar) |
+| [30-diffusion-and-flow-policies.ipynb](../../notebooks/30-diffusion-and-flow-policies.ipynb) | [30 · Multimodal action'lar](../part-7-learning-from-demonstration/30-diffusion-and-flow-policies.md) | NumPy, CPU |
+| [42-llm-agents.ipynb](../../notebooks/42-llm-agents.ipynb) | [42 · Robot tool'ları olan LLM agent'ları](../part-10-foundation-models-and-agents/42-llm-agents.md) (vaka çalışması) | `strands-robots` 0.5.3, MuJoCo 3.16.0, Ollama ya da hosted model |

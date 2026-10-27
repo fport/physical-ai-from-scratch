@@ -1,0 +1,248 @@
+# Single source of truth for the book's structure.
+# tools/build_book.py turns this into SUMMARY.md, tr/SUMMARY.md, part index pages,
+# start-here/prerequisites.md and the metadata block at the top of every lesson.
+#
+# status: skeleton | draft | done
+# run:    CPU (Mac / Colab CPU) | GPU (Colab GPU) | ART (shipped logs/checkpoint) | HW (real arm)
+
+aiefs_base: https://aiengineeringfromscratch.com/lesson?path=phases/
+
+aiefs:
+  setup: [00-setup-and-tooling/01-dev-environment, Dev Environment]
+  pyenv: [00-setup-and-tooling/06-python-environments, Python Environments]
+  python: [00-setup-and-tooling/13-python-for-ai-engineering, Python for AI Engineering]
+  linalg: [01-math-foundations/01-linear-algebra-intuition, Linear Algebra Intuition]
+  vectors: [01-math-foundations/02-vectors-matrices-operations, "Vectors, Matrices & Operations"]
+  transforms: [01-math-foundations/03-matrix-transformations, Matrix Transformations]
+  calculus: [01-math-foundations/04-calculus-for-ml, Calculus for Machine Learning]
+  probability: [01-math-foundations/06-probability-and-distributions, Probability and Distributions]
+  bayes: [01-math-foundations/07-bayes-theorem, "Bayes' Theorem"]
+  optimization: [01-math-foundations/08-optimization, Optimization]
+  svd: [01-math-foundations/11-singular-value-decomposition, Singular Value Decomposition]
+  numerics: [01-math-foundations/13-numerical-stability, Numerical Stability]
+  statistics: [01-math-foundations/15-statistics-for-ml, Statistics for Machine Learning]
+  linsys: [01-math-foundations/17-linear-systems, Linear Systems]
+  convex: [01-math-foundations/18-convex-optimization, Convex Optimization]
+  stochastic: [01-math-foundations/22-stochastic-processes, Stochastic Processes]
+  evaluation: [02-ml-fundamentals/09-model-evaluation, Model Evaluation]
+  biasvar: [02-ml-fundamentals/10-bias-variance, Bias-Variance Tradeoff]
+  mlp: [03-deep-learning-core/02-multi-layer-networks, Multi-Layer Networks and Forward Pass]
+  backprop: [03-deep-learning-core/03-backpropagation, Backpropagation from Scratch]
+  losses: [03-deep-learning-core/05-loss-functions, Loss Functions]
+  pytorch: [03-deep-learning-core/11-intro-to-pytorch, Introduction to PyTorch]
+  jax: [03-deep-learning-core/12-intro-to-jax, Introduction to JAX]
+  images: [04-computer-vision/01-image-fundamentals, "Image Fundamentals — Pixels, Channels, Color Spaces"]
+  detection: [04-computer-vision/06-object-detection-yolo, "Object Detection — YOLO from Scratch"]
+  clip: [04-computer-vision/18-open-vocab-clip, "Open-Vocabulary Vision — CLIP"]
+  sam: [04-computer-vision/24-sam3-open-vocab-segmentation, "SAM 3 & Open-Vocabulary Segmentation"]
+  depth: [04-computer-vision/26-monocular-depth, "Monocular Depth & Geometry Estimation"]
+  worldmodels: [04-computer-vision/28-world-models-video-diffusion, "World Models & Video Diffusion"]
+  transformer: [07-transformers-deep-dive/05-full-transformer, "The Full Transformer — Encoder + Decoder"]
+  vae: [08-generative-ai/02-autoencoders-vae, "Autoencoders & Variational Autoencoders (VAE)"]
+  ddpm: [08-generative-ai/06-diffusion-ddpm-from-scratch, "Diffusion Models — DDPM from Scratch"]
+  flow: [08-generative-ai/13-flow-matching-rectified-flows, "Flow Matching & Rectified Flows"]
+  mdp: [09-reinforcement-learning/01-mdps-states-actions-rewards, "MDPs, States, Actions & Rewards"]
+  dp: [09-reinforcement-learning/02-dynamic-programming, "Dynamic Programming — Policy Iteration & Value Iteration"]
+  qlearning: [09-reinforcement-learning/04-q-learning-sarsa, "Temporal Difference — Q-Learning & SARSA"]
+  reinforce: [09-reinforcement-learning/06-policy-gradients-reinforce, "Policy Gradient — REINFORCE from Scratch"]
+  actorcritic: [09-reinforcement-learning/07-actor-critic-a2c-a3c, "Actor-Critic — A2C and A3C"]
+  ppo: [09-reinforcement-learning/08-ppo, Proximal Policy Optimization (PPO)]
+  sim2real: [09-reinforcement-learning/11-sim-to-real-transfer, Sim-to-Real Transfer]
+  vla: [12-multimodal-ai/21-embodied-vlas-openvla-pi0-groot, "Embodied VLAs: RT-2, OpenVLA, π0, GR00T"]
+  mcp: [13-tools-and-protocols/06-mcp-fundamentals, "MCP Fundamentals: Stateless Requests and JSON-RPC"]
+  mcpserver: [13-tools-and-protocols/07-building-an-mcp-server, "Building an MCP Server: Stateless Python and TypeScript"]
+  agentloop: [14-agent-engineering/01-the-agent-loop, "The Agent Loop: Observe, Think, Act"]
+  tooluse: [14-agent-engineering/06-tool-use-and-function-calling, Tool Use and Function Calling]
+
+parts:
+  - id: 1
+    dir: part-1-simulation
+    en: Simulation
+    tr: Simulation
+    goal_en: How a physics engine describes a world and steps it forward, and which numbers decide whether the result is trustworthy.
+    goal_tr: Bir physics engine'in dünyayı nasıl tarif edip adım adım ilerlettiği ve sonucun güvenilir olup olmadığını hangi sayıların belirlediği.
+    aiefs: [setup, pyenv, python, numerics]
+    lessons:
+      - {n: 1, aiefs: [python, pyenv], slug: 01-world-as-text, run: CPU, time: 30, status: done, prereq: [],
+         en: "The world as text: MJCF and URDF", tr: "Dünya bir metin dosyası: MJCF ve URDF"}
+      - {n: 2, aiefs: [calculus, numerics], slug: 02-timestep, run: CPU, time: 30, status: done, prereq: [1],
+         en: "Time integration and the timestep", tr: "Time integration ve timestep"}
+      - {n: 3, aiefs: [numerics], slug: 03-contact, run: CPU, time: 40, status: done, prereq: [2],
+         en: "Contact: soft constraints, solref and solimp", tr: "Contact: soft constraint, solref ve solimp"}
+      - {n: 4, aiefs: [vectors], slug: 04-friction, run: CPU, time: 40, status: done, prereq: [3],
+         en: "Friction and friction cones", tr: "Friction ve friction cone"}
+      - {n: 5, aiefs: [calculus], slug: 05-joints-and-actuators, run: CPU, time: 45, status: done, prereq: [1, 2],
+         en: "Joints and actuators", tr: "Joint'ler ve actuator'ler"}
+  - id: 2
+    dir: part-2-spatial-math
+    en: Spatial math
+    tr: Spatial math
+    goal_en: Representing orientation and pose without ambiguity, and moving points between frames.
+    goal_tr: Orientation ve pose'u belirsizlik olmadan temsil etmek ve noktaları frame'ler arasında taşımak.
+    aiefs: [linalg, vectors, transforms]
+    lessons:
+      - {n: 6, aiefs: [linalg, transforms], slug: 06-rotations, run: CPU, time: 60, status: done, prereq: [1],
+         en: "Rotations: matrices, Euler angles, axis-angle, quaternions", tr: "Rotation: matrix, Euler açıları, axis-angle, quaternion"}
+      - {n: 7, aiefs: [vectors, transforms], slug: 07-rigid-transforms, run: CPU, time: 45, status: done, prereq: [6],
+         en: "Rigid transforms and frame trees", tr: "Rigid transform'lar ve frame tree'leri"}
+  - id: 3
+    dir: part-3-kinematics
+    en: Kinematics
+    tr: Kinematics
+    goal_en: From joint angles to the gripper pose and back, with velocities and the places where the math breaks.
+    goal_tr: Eklem açılarından gripper pose'una ve geri; hızlar ve matematiğin bozulduğu yerler.
+    aiefs: [linsys, svd, optimization]
+    lessons:
+      - {n: 8, aiefs: [transforms], slug: 08-forward-kinematics, run: CPU, time: 45, status: done, prereq: [7],
+         en: "Forward kinematics, degrees of freedom and workspace", tr: "Forward kinematics, degrees of freedom ve workspace"}
+      - {n: 9, aiefs: [calculus, linsys], slug: 09-jacobians, run: CPU, time: 45, status: done, prereq: [8],
+         en: "Jacobians and differential kinematics", tr: "Jacobian ve differential kinematics"}
+      - {n: 10, aiefs: [svd, optimization, linsys], slug: 10-inverse-kinematics, run: CPU, time: 60, status: done, prereq: [9],
+         en: "Inverse kinematics and singularities", tr: "Inverse kinematics ve singularity"}
+  - id: 4
+    dir: part-4-dynamics-and-control
+    en: Dynamics and control
+    tr: Dynamics ve control
+    goal_en: Why bodies move the way they do, and how controllers turn a target into torques safely.
+    goal_tr: Cisimlerin neden öyle hareket ettiği ve controller'ların bir hedefi güvenli şekilde torka nasıl çevirdiği.
+    aiefs: [calculus, linsys]
+    lessons:
+      - {n: 11, aiefs: [calculus, linsys], slug: 11-rigid-body-dynamics, run: CPU, time: 60, status: done, prereq: [9],
+         en: "Rigid-body dynamics", tr: "Rigid-body dynamics"}
+      - {n: 12, aiefs: [calculus], slug: 12-joint-control, run: CPU, time: 60, status: done, prereq: [5, 11],
+         en: "Joint control: PD, PID, gravity feedforward and position servos", tr: "Joint control: PD, PID, gravity feedforward ve position servo"}
+      - {n: 13, aiefs: [calculus], slug: 13-trajectory-generation, run: CPU, time: 45, status: done, prereq: [10, 12],
+         en: "Trajectory generation", tr: "Trajectory generation"}
+      - {n: 14, aiefs: [linsys], slug: 14-impedance-control, run: CPU, time: 60, status: done, prereq: [11, 12],
+         en: "Operational-space and impedance control", tr: "Operational-space ve impedance control"}
+      - {n: 15, aiefs: [], slug: 15-safety, run: CPU, time: 40, status: done, prereq: [12],
+         en: "Safety: limits, torque caps, e-stop and watchdogs", tr: "Safety: limit'ler, torque cap, e-stop ve watchdog"}
+      - {n: 16, aiefs: [], slug: 16-grasping-and-pick-place, run: CPU, time: 60, status: done, prereq: [10, 13],
+         en: "Grasping and scripted pick-and-place", tr: "Grasping ve scripted pick-and-place"}
+  - id: 5
+    dir: part-5-perception-and-estimation
+    en: Perception and estimation
+    tr: Perception ve estimation
+    goal_en: Turning noisy sensors and camera pixels into a state the controller can trust.
+    goal_tr: Noisy sensor'leri ve kamera pixel'lerini controller'ın güvenebileceği bir state'e çevirmek.
+    aiefs: [probability, bayes, stochastic, images, detection, clip, sam, depth]
+    lessons:
+      - {n: 17, aiefs: [probability, stochastic], slug: 17-sensors-noise-filtering, run: CPU, time: 45, status: done, prereq: [12],
+         en: "Sensors, noise and filtering", tr: "Sensor'ler, noise ve filtering"}
+      - {n: 18, aiefs: [probability, bayes], slug: 18-kalman-filter, run: CPU, time: 60, status: done, prereq: [17],
+         en: "The Kalman filter", tr: "Kalman filter"}
+      - {n: 19, aiefs: [images, linsys], slug: 19-camera-calibration, run: CPU, time: 60, status: done, prereq: [7],
+         en: "Camera model, calibration and hand-eye calibration", tr: "Camera model, calibration ve hand-eye calibration"}
+      - {n: 20, aiefs: [linsys, depth], slug: 20-pixels-to-table, run: CPU, time: 45, status: done, prereq: [19],
+         en: "From pixels to the table: homography and depth back-projection", tr: "Pixel'den masaya: homography ve depth back-projection"}
+      - {n: 21, aiefs: [images, detection, clip, sam], slug: 21-object-perception, run: CPU, time: 60, status: done, prereq: [16, 20],
+         en: "Object perception for manipulation", tr: "Manipulation için object perception"}
+  - id: 6
+    dir: part-6-planning-and-optimal-control
+    en: Planning and optimal control
+    tr: Planning ve optimal control
+    goal_en: Finding collision-free motions and computing controls by optimization instead of hand-tuning.
+    goal_tr: Çarpışmasız hareket bulmak ve control'ü elle ayar yerine optimization ile hesaplamak.
+    aiefs: [optimization, convex]
+    lessons:
+      - {n: 22, aiefs: [probability], slug: 22-motion-planning, run: CPU, time: 60, status: done, prereq: [10],
+         en: "Configuration space and sampling-based planning", tr: "Configuration space ve sampling-based planning"}
+      - {n: 23, aiefs: [optimization], slug: 23-trajectory-optimization, run: CPU, time: 60, status: done, prereq: [13, 22],
+         en: "Trajectory optimization", tr: "Trajectory optimization"}
+      - {n: 24, aiefs: [optimization, convex], slug: 24-lqr-and-mpc, run: CPU, time: 75, status: done, prereq: [11, 23],
+         en: "LQR and model predictive control", tr: "LQR ve model predictive control"}
+  - id: 7
+    dir: part-7-learning-from-demonstration
+    en: Learning from demonstration
+    tr: Learning from demonstration
+    goal_en: Teaching a policy by showing it, and measuring honestly whether it learned.
+    goal_tr: Bir policy'yi göstererek öğretmek ve gerçekten öğrenip öğrenmediğini dürüstçe ölçmek.
+    aiefs: [statistics, evaluation, mlp, backprop, losses, pytorch, transformer, vae, ddpm, flow]
+    lessons:
+      - {n: 25, aiefs: [statistics, evaluation], slug: 25-evaluating-policies, run: CPU, time: 40, status: done, prereq: [16],
+         en: "Evaluating robot policies", tr: "Robot policy'lerini evaluate etmek"}
+      - {n: 26, aiefs: [], slug: 26-teleop-replay-data, run: CPU, time: 45, status: done, prereq: [16, 25],
+         en: "Teleoperation, replay and data collection", tr: "Teleoperation, replay ve data collection"}
+      - {n: 27, aiefs: [], slug: 27-robot-datasets, run: CPU, time: 40, status: done, prereq: [26],
+         en: "Robot datasets", tr: "Robot dataset'leri"}
+      - {n: 28, aiefs: [mlp, losses, pytorch], slug: 28-behavior-cloning, run: CPU, time: 60, status: done, prereq: [27],
+         en: "Behavior cloning", tr: "Behavior cloning"}
+      - {n: 29, aiefs: [biasvar], slug: 29-dagger, run: CPU, time: 45, status: done, prereq: [28],
+         en: "Distribution shift and DAgger", tr: "Distribution shift ve DAgger"}
+      - {n: 30, aiefs: [ddpm, flow, losses], slug: 30-diffusion-and-flow-policies, run: CPU, time: 75, status: done, prereq: [28],
+         en: "Multimodal actions: diffusion and flow policies", tr: "Multimodal action'lar: diffusion ve flow policy'ler"}
+      - {n: 31, aiefs: [transformer, vae], slug: 31-act, run: CPU, time: 75, status: done, prereq: [28, 30],
+         en: "Action chunking and ACT", tr: "Action chunking ve ACT"}
+  - id: 8
+    dir: part-8-rl-for-robots
+    en: Reinforcement learning for robots
+    tr: Robotlar için reinforcement learning
+    goal_en: Learning behavior from reward in simulation, and the design choices that make it work on robots.
+    goal_tr: Simülasyonda reward'dan davranış öğrenmek ve bunu robotlarda çalıştıran tasarım kararları.
+    aiefs: [mdp, dp, qlearning, reinforce, actorcritic, ppo, jax]
+    lessons:
+      - {n: 32, aiefs: [mdp], slug: 32-rl-environment, run: CPU, time: 45, status: done, prereq: [12, 25],
+         en: "A MuJoCo RL environment", tr: "Bir MuJoCo RL environment'ı"}
+      - {n: 33, aiefs: [reinforce, actorcritic, ppo], slug: 33-ppo, run: CPU, time: 75, status: done, prereq: [32],
+         en: "PPO for continuous control", tr: "Continuous control için PPO"}
+      - {n: 34, aiefs: [ppo], slug: 34-observation-action-design, run: CPU, time: 60, status: done, prereq: [33],
+         en: "Observation and action design", tr: "Observation ve action tasarımı"}
+      - {n: 35, aiefs: [mdp], slug: 35-reward-design, run: CPU, time: 60, status: done, prereq: [33],
+         en: "Reward design and reward hacking", tr: "Reward tasarımı ve reward hacking"}
+      - {n: 36, aiefs: [jax, ppo], slug: 36-legged-locomotion, run: GPU, time: 90, status: done, prereq: [34, 35],
+         en: "Legged locomotion and massively parallel training", tr: "Legged locomotion ve massively parallel training"}
+  - id: 9
+    dir: part-9-sim-to-real
+    en: Sim to real
+    tr: Sim-to-real
+    goal_en: Measuring and closing the gap between simulation and hardware.
+    goal_tr: Simülasyon ile donanım arasındaki farkı ölçmek ve kapatmak.
+    aiefs: [sim2real, biasvar]
+    lessons:
+      - {n: 37, aiefs: [stochastic], slug: 37-latency, run: CPU, time: 45, status: done, prereq: [12, 17],
+         en: "Control rate and end-to-end latency", tr: "Control rate ve end-to-end latency"}
+      - {n: 38, aiefs: [optimization], slug: 38-system-identification, run: CPU, time: 60, status: done, prereq: [11, 37],
+         en: "System identification", tr: "System identification"}
+      - {n: 39, aiefs: [sim2real, biasvar], slug: 39-domain-randomization, run: CPU, time: 60, status: done, prereq: [33, 38],
+         en: "Domain randomization", tr: "Domain randomization"}
+      - {n: 40, aiefs: [], slug: 40-real-so101, run: HW, time: 120, status: done, prereq: [15, 28, 38],
+         en: "Deploying on the real SO-101", tr: "Gerçek SO-101'e deploy etmek"}
+  - id: 10
+    dir: part-10-foundation-models-and-agents
+    en: Foundation models and agents
+    tr: Foundation model'ler ve agent'lar
+    goal_en: Large pretrained policies, language-model agents that call robot skills, and learned world models.
+    goal_tr: Büyük pretrained policy'ler, robot becerilerini çağıran LLM agent'ları ve öğrenilmiş world model'ler.
+    aiefs: [vla, agentloop, tooluse, mcp, mcpserver, worldmodels]
+    lessons:
+      - {n: 41, aiefs: [vla, transformer], slug: 41-vla, run: ART, time: 60, status: done, prereq: [31],
+         en: "Vision-language-action models", tr: "Vision-language-action model'leri"}
+      - {n: 42, aiefs: [agentloop, tooluse, mcp, mcpserver], slug: 42-llm-agents, run: CPU, time: 75, status: done, prereq: [10, 15, 21],
+         en: "LLM agents with robot tools", tr: "Robot tool'ları olan LLM agent'ları"}
+      - {n: 43, aiefs: [worldmodels, mlp], slug: 43-world-models, run: CPU, time: 60, status: done, prereq: [28],
+         en: "World models: learned dynamics", tr: "World model'ler: öğrenilmiş dynamics"}
+  - id: 11
+    dir: capstone
+    en: Capstone
+    tr: Bitirme projesi
+    goal_en: Putting the whole stack together on one task.
+    goal_tr: Bütün stack'i tek bir görevde birleştirmek.
+    aiefs: []
+    lessons:
+      - {n: 44, aiefs: [], slug: 44-capstone, run: CPU, time: 180, status: done, prereq: [21, 24, 31, 39, 42],
+         en: "Say, see, plan, grasp", tr: "Söyle, gör, planla, tut"}
+
+appendix:
+  - {key: A, slug: a-large-robot-models, en: "Large robot models: π0, GR00T, Gemini Robotics", tr: "Büyük robot model'leri: π0, GR00T, Gemini Robotics"}
+  - {key: B, slug: b-smolvla-finetuning, en: "Fine-tuning SmolVLA", tr: "SmolVLA fine-tuning"}
+  - {key: C, slug: c-inference-speed-on-mac, en: "Inference speed on a Mac", tr: "Mac'te inference hızı"}
+  - {key: D, slug: d-segmentation-for-grasping, en: "Segmentation for grasp points", tr: "Grasp point için segmentation"}
+
+start_here:
+  - {slug: physical-ai-stack, en: The physical AI stack, tr: Physical AI stack'i}
+  - {slug: prerequisites, en: Prerequisites, tr: Önkoşullar}
+  - {slug: setup, en: Setup, tr: Kurulum}
+  - {slug: how-to-read-a-lesson, en: How to read a lesson, tr: Bir ders nasıl okunur}
+  - {slug: numbers-and-sources, en: Numbers and sources, tr: Sayı ve kaynak kuralları}
+  - {slug: reading-paths, en: Reading paths, tr: Okuma yolları}
+  - {slug: video-map, en: Videos and lessons, tr: Videolar ve dersler}

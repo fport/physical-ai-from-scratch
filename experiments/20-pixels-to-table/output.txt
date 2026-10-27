@@ -1,0 +1,30 @@
+mujoco 3.17.0 · opencv 5.0.0 · numpy 2.5.4 · seed 0
+
+[1] camera height 0.6 m, tilt 30 deg; model extent 0.497 m -> near 5.0 mm, far 24.9 m
+    rendered depth vs z-depth along optical axis: median |diff| 0.001 mm, max 0.008 mm
+    rendered depth vs Euclidean ray length:      median |diff| 45.8 mm, max 138.0 mm
+    back-projection error (depth used as z):          median 0.001 mm, max 0.009 mm
+    back-projection error (depth misused as ray len): median 45.8 mm, max 138.0 mm
+
+[2] homography, camera height 0.6 m: table-point error vs pixel noise (200 test pixels, 50 trials, median mm)
+ noise px  H from 4 pts  H from 12 pts  depth back-proj
+        0          0.00           0.00             0.00
+      0.5          2.15           1.81             0.81
+        1          4.33           3.27             1.60
+        2          8.90           7.67             3.21
+        4         17.08          14.17             6.37
+
+[3] camera height sweep, 1 px pixel noise (12-point H; 50 trials, median mm)
+ height m  mm per px at target  homography  depth back-proj
+      0.3                 0.67        1.13             0.88
+      0.5                 1.12        2.76             1.43
+      0.8                 1.79        5.13             2.18
+      1.2                 2.69        9.56             3.28
+      2.0                 4.49       13.92             5.72
+
+[4] break it: pixel on the top face of a box, camera height 0.6 m, no pixel noise
+ box height mm  homography xy err mm  depth back-proj err mm
+            10                   4.7                    0.00
+            20                  10.8                    0.00
+            50                  36.7                    0.00
+           100                  88.5                    0.01

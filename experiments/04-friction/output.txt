@@ -1,0 +1,31 @@
+mujoco 3.17.0
+slip angle, pyramidal cone (criterion: v2 > 2 cm/s and accelerating)
+  μ 0.3 · theory arctan μ = 16.70° · measured (0.1 / 1 / 10 kg): [16.75, 16.75, 16.75] · max deviation +0.05°
+    max |speed difference| 0.1 kg vs 10 kg over the sweep: 2.1e-12 cm/s
+  μ 0.5 · theory arctan μ = 26.57° · measured (0.1 / 1 / 10 kg): [26.6, 26.6, 26.6] · max deviation +0.03°
+    max |speed difference| 0.1 kg vs 10 kg over the sweep: 4.4e-13 cm/s
+  μ 0.8 · theory arctan μ = 38.66° · measured (0.1 / 1 / 10 kg): [38.7, 38.7, 38.7] · max deviation +0.04°
+    max |speed difference| 0.1 kg vs 10 kg over the sweep: 2.1e-13 cm/s
+
+creep: largest steady downhill speed v2 at least 1° below arctan μ (1 kg)
+  μ 0.3 · max v2 0.30 cm/s · max (v2 - v1) 0.023 cm/s
+  μ 0.5 · max v2 0.60 cm/s · max (v2 - v1) 0.020 cm/s
+  μ 0.8 · max v2 1.42 cm/s · max (v2 - v1) 0.048 cm/s
+
+speed-only criterion (v2 > 2 cm/s, no acceleration check), 1 kg
+  μ 0.3 · 16.35° (-0.35° vs theory)
+  μ 0.5 · 26.25° (-0.32° vs theory)
+  μ 0.8 · 38.70° (+0.04° vs theory)
+
+elliptic cone, 1 kg
+  μ 0.3 · 16.75° (theory 16.70°)
+  μ 0.5 · 26.60° (theory 26.57°)
+  μ 0.8 · 38.70° (theory 38.66°)
+
+cube rotated 45° about the ramp normal, 1 kg
+  μ 0.5 · pyramidal · slip angle 26.30° (-0.27°) · max v2 at least 0.5° below theory  7.40 cm/s
+  μ 0.5 · elliptic  · slip angle 26.60° (+0.03°) · max v2 at least 0.5° below theory  0.18 cm/s
+  μ 0.8 · pyramidal · slip angle 37.70° (-0.96°) · max v2 at least 0.5° below theory 27.24 cm/s
+  μ 0.8 · elliptic  · slip angle 38.60° (-0.06°) · max v2 at least 0.5° below theory  0.34 cm/s
+
+μ 1.0, 1 kg, pyramidal: 44.90° (theory 45.00°)

@@ -1,0 +1,32 @@
+mujoco 3.17.0 · numpy 2.5.4 · seed 0 · dt 2 ms
+measurement noise R = 1.002e-04 rad^2 (sigma 10.01 mrad)
+
+[1] lesson 17 baselines on the same data
+    MA N=5  : pos RMS 5.17 mrad, delay 4.0 ms
+    MA N=65 : vel RMS 0.120 rad/s (best velocity in lesson 17)
+
+[2] sweep process noise q (constant-velocity model)
+       q  pos RMS mrad  delay ms  vel RMS rad/s   K_pos   K_vel  2sigma cover %
+   0.001         20.71      16.0          0.250  0.0235   0.140             8.0
+    0.01          6.91       4.0          0.138  0.0414   0.437            32.4
+     0.1          3.23       0.0          0.084  0.0724   1.361            91.0
+       1          3.15       0.0          0.093  0.1251   4.179            97.8
+      10          4.02       0.0          0.203  0.2116  12.545            98.1
+     100          5.22       0.0          0.482  0.3448  36.165            97.8
+    1000          6.61       0.0          1.136  0.5285  97.018            97.3
+    best position RMS at q = 1: 3.15 mrad, velocity RMS 0.093 rad/s
+
+[3] break it: wrong R (true R fixed, filter uses R_used), q = 1
+ R_used/R  pos RMS mrad  vel RMS rad/s  2sigma cover %
+     0.01          5.22          0.482            17.5
+      0.1          4.02          0.203            53.9
+        1          3.15          0.093            97.8
+       10          3.23          0.084           100.0
+      100          6.91          0.138           100.0
+
+[4] break it: unmodeled acceleration, a 0.3 rad step command at t = 5 s
+    true peak velocity after the step: 4.05 rad/s
+       q  max pos err mrad  max vel err rad/s  pos RMS (smooth part) mrad
+       1              44.1               2.92                        3.22
+     100              19.6               2.57                        5.26
+   10000              22.3               7.74                        7.98

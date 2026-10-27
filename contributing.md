@@ -1,24 +1,21 @@
 # Contributing
 
-This book is being written and is open to contributions: open an issue or a pull request on GitHub.
+This book is open to contributions: open an issue or a pull request on GitHub.
 
-## Finishing a lesson
+## Fixing a number
 
-To turn a skeleton lesson (🚧) into a finished one:
+Every number in a lesson must be reproducible. If one doesn't match: name the lesson, your library versions and your output. A number that doesn't reproduce is a bug.
 
-1. **Run the experiment.** Write the sweep from the lesson's "Planned experiment" section; try at least 5 values. Print versions, fix the seed if there is one, and write the result to `results/NN/result.json`.
-2. **Write the page following the template:** [How to read a lesson](getting-started/how-to-read-a-lesson.md). Finished examples: [01](phase-0-world-frame-by-frame/01-world-as-text.md), [02](phase-0-world-frame-by-frame/02-timestep.md), [04](phase-0-world-frame-by-frame/04-friction.md).
-3. **Give every claim a source.** [Numbers and sources](getting-started/numbers-and-sources.md).
-4. **Add the code:** a script that runs on a Mac at `experiments/NN-slug/experiment.py`, a Colab notebook at `notebooks/NN-slug.ipynb`.
-5. Update the status in the metadata table, and keep [SUMMARY.md](SUMMARY.md) and the phase page in sync.
-6. **Both languages.** English is the default (repo root); the Turkish version lives under [`tr/`](tr/README.md) with the same file names. In Turkish, technical terms stay in English.
+## Writing or improving a lesson
+
+1. Read the authoring guide: [`tools/AUTHORING.md`](tools/AUTHORING.md) (template, honesty rules, Turkish rules).
+2. Lesson structure comes from [`curriculum.yaml`](curriculum.yaml); after changing it run `python tools/build_book.py`, which regenerates `SUMMARY.md`, part pages and each lesson's metadata block. Don't edit those generated parts by hand.
+3. Write the experiment in `experiments/NN-slug/experiment.py` (English code, fixed seeds, prints a table) and save its exact stdout as `output.txt`.
+4. Write the lesson in English (`part-…/NN-slug.md`) and Turkish (`tr/part-…/NN-slug.md`). In Turkish, technical terms stay in English.
+5. Check that every relative link resolves and the site builds: `cd site && npm run build`.
 
 ## Code conventions
 
-- Code, identifiers and comments in English.
-- Pinned dependency versions (`mujoco==3.17.0`).
-- One script runs one sweep and prints the result as a table.
-
-## Reporting a bug
-
-If a number doesn't match: tell us the lesson, the versions you used and your output. Every number in the book must be reproducible; a number that doesn't match is a bug.
+- English identifiers, comments and output.
+- Pinned dependencies (`requirements.txt`).
+- Robot models through `experiments/common/menagerie.py`.

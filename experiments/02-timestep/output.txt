@@ -1,0 +1,30 @@
+mujoco 3.17.0 · numpy 2.5.4
+impact speed on the tabletop (free fall): 4.37 m/s · tabletop mid-plane 29.5 cm
+
+sweep: timestep (Euler)
+ dt(ms) steps/s step(cm) | default solref 0.02 1: centre at 1st overlap(cm)  contact?  lowest centre(cm)  result       | solref 0.005 1: result
+   0.5    2000    0.22  |   32.32 (above)            yes          -           WENT THROUGH |  stayed
+   1.0    1000    0.44  |   32.21 (above)            yes          -           WENT THROUGH |  stayed
+   2.0     500    0.87  |   31.99 (above)            yes        29.60         stayed       |  stayed
+   3.0     333    1.31  |   31.34 (above)            yes          -           WENT THROUGH |  stayed
+   4.0     250    1.75  |   32.43 (above)            yes        30.54         stayed       |  stayed
+   6.0     167    2.62  |   32.00 (above)            yes        30.84         stayed       |  stayed
+   8.0     125    3.50  |   29.80 (above)            yes        29.65         stayed       |  stayed
+  10.0     100    4.37  |   28.47 (below)            yes          -           WENT THROUGH |  WENT THROUGH
+  12.0      83    5.25  |   30.69 (above)            yes        30.69         stayed       |  stayed
+  15.0      67    6.56  |   27.36 (below)            yes          -           WENT THROUGH |  WENT THROUGH
+  20.0      50    8.75  |   30.72 (above)            yes        30.72         stayed       |  stayed
+  25.0      40   10.93  |     -   (  -  )            no           -           WENT THROUGH |  WENT THROUGH
+  30.0      33   13.12  |     -   (  -  )            no           -           WENT THROUGH |  WENT THROUGH
+  40.0      25   17.49  |     -   (  -  )            no           -           WENT THROUGH |  WENT THROUGH
+  50.0      20   21.87  |     -   (  -  )            no           -           WENT THROUGH |  WENT THROUGH
+
+dt 10 ms: first table contact at t = 0.460 s · depth 1.97 cm · z of the contact normal acting on the cube -1.00 · normal first points down at t = 0.460 s, cube centre 28.47 cm
+dt  1 ms: first table contact at t = 0.447 s · depth 0.29 cm · z of the contact normal acting on the cube +1.00 · normal first points down at t = 0.463 s, cube centre 29.49 cm
+
+same drop, every integrator (default solref): lowest centre if it stayed (cm) / result
+  dt  1 ms · euler           -   THROUGH · implicitfast    -   THROUGH · rk4             -   THROUGH · discrete        -   THROUGH
+  dt  2 ms · euler         29.60 stayed  · implicitfast  29.60 stayed  · rk4             -   THROUGH · discrete        -   THROUGH
+  dt  8 ms · euler         29.65 stayed  · implicitfast  29.65 stayed  · rk4             -   THROUGH · discrete        -   THROUGH
+  dt 10 ms · euler           -   THROUGH · implicitfast    -   THROUGH · rk4             -   THROUGH · discrete        -   THROUGH
+  dt 25 ms · euler           -   THROUGH · implicitfast    -   THROUGH · rk4             -   THROUGH · discrete        -   THROUGH

@@ -1,0 +1,64 @@
+mujoco 3.17.0 · numpy 2.5.4
+
+[A] One joint (I = 0.0901 kg m^2), PD at 1 kHz, Kp 20, Kd 1.879 (zeta 0.7), step 0 -> 0.5 rad, 4 s
+    analytic: crossover w_c = 22.99 rad/s, phase margin 65.2 deg, delay margin PM/w_c = 49.5 ms
+    delay ms | overshoot % | settle 2% s | stable
+           0 |        4.45 |       0.398 | yes
+           5 |        4.47 |       0.376 | yes
+          10 |        4.51 |       0.351 | yes
+          20 |        5.02 |       0.291 | yes
+          30 |       11.51 |       0.331 | yes
+          40 |       31.23 |       0.926 | yes
+          50 |      215.84 |       never | NO
+          60 |    diverges |       never | NO
+          70 |    diverges |       never | NO
+          80 |    diverges |       never | NO
+         100 |    diverges |       never | NO
+    measured boundary: stable at 48 ms, unstable at 49 ms (oscillation period at 49 ms: 272 ms, 2*pi/w_c = 273 ms)
+
+[B] Same joint, no added delay, controller at f Hz (zero-order hold); physics at 1 kHz
+    rate Hz |   T ms | overshoot % | stable | +1 tick compute: overshoot % | stable | A at T/2 | A at 3T/2
+       1000 |    1.0 |        4.45 |    yes |                         4.46 |    yes |     4.45 |      4.46
+        500 |    2.0 |        4.46 |    yes |                         4.46 |    yes |     4.46 |      4.46
+        200 |    5.0 |        4.46 |    yes |                         4.49 |    yes |     4.46 |      4.49
+        100 |   10.0 |        4.48 |    yes |                         4.61 |    yes |     4.47 |      4.62
+         50 |   20.0 |        4.55 |    yes |                        10.31 |    yes |     4.51 |     11.51
+         30 |   33.3 |        4.75 |    yes |                        78.07 |     NO |     4.72 |    215.84
+         20 |   50.0 |        5.34 |    yes |                     diverges |     NO |     6.66 |  diverges
+         10 |  100.0 |    diverges |     NO |                     diverges |     NO |   215.84 |  diverges
+
+[C] Delay 40 ms; predict the present state with a model before applying PD
+    controller                                   | overshoot % | settle 2% s
+    no delay (reference)                         |        4.45 |       0.398
+    delay, no prediction                         |       31.23 |       0.926
+    delay + prediction, exact model              |        4.45 |       0.398
+    delay + prediction, inertia +50%             |        0.00 |       0.223
+    delay + prediction, inertia -30%             |        9.44 |       0.491
+    delay + prediction, assumed delay 20 ms      |        4.70 |       0.300
+    delay + extrapolation q + qd*d (no torques)  |       15.15 |       1.902
+
+[D] SO-101 shoulder_pan servo (Menagerie, 2 ms step). Outer loop at 30 Hz: target += K*T*(goal - q_delayed), K = 10 1/s, 4 s
+    servo alone, step 0.02 rad: 50% after 18 ms, overshoot 39.8%
+    servo alone, step 0.10 rad: 50% after 44 ms, overshoot 33.2%
+    servo alone, step 0.50 rad: 50% after 110 ms, overshoot 15.7%
+    estimates for an ideal servo: continuous K*(d + T/2) = pi/2 -> d = 140 ms; discrete -> unstable from 5 ticks = 167 ms
+    delay ms | goal 0.1: overshoot % | late |e|/goal | goal 0.5: overshoot % | late |e|/goal
+           0 |                   0.0 |         0.000 |                  36.3 |         0.000
+          17 |                   0.0 |         0.000 |                  49.6 |         0.000
+          33 |                   0.1 |         0.000 |                  69.1 |         0.000
+          50 |                  12.3 |         0.000 |                 146.9 |         1.744
+          67 |                  30.8 |         0.000 |                 290.3 |         2.903
+          83 |                  51.3 |         0.000 |                 289.8 |         3.366
+         100 |                  70.9 |         0.001 |                 290.0 |         3.391
+         117 |                  80.8 |         0.004 |                 289.7 |         3.493
+         133 |                  94.7 |         0.267 |                 289.9 |         2.899
+
+[Break it] Fixed delay 30 ms, raise Kp at zeta = 0.7 (Kd scaled with it)
+       Kp |     Kd | w_c rad/s | delay margin ms | overshoot % | stable
+        5 |  0.940 |     11.49 |            98.9 |        4.73 | yes
+       10 |  1.329 |     16.25 |            70.0 |        5.30 | yes
+       20 |  1.879 |     22.99 |            49.5 |       11.51 | yes
+       40 |  2.658 |     32.51 |            35.0 |       37.78 | yes
+       80 |  3.759 |     45.97 |            24.7 |    diverges | NO
+      160 |  5.316 |     65.01 |            17.5 |    diverges | NO
+

@@ -2,104 +2,111 @@
 
 * [Introduction](README.md)
 
-## Getting started
+## Start here
 
-* [Setup: one Mac, zero cost](getting-started/setup.md)
-* [How to read a lesson](getting-started/how-to-read-a-lesson.md)
-* [Numbers and sources](getting-started/numbers-and-sources.md)
-* [Reading order](getting-started/reading-order.md)
+* [The physical AI stack](start-here/physical-ai-stack.md)
+* [Prerequisites](start-here/prerequisites.md)
+* [Setup](start-here/setup.md)
+* [How to read a lesson](start-here/how-to-read-a-lesson.md)
+* [Numbers and sources](start-here/numbers-and-sources.md)
+* [Reading paths](start-here/reading-paths.md)
+* [Videos and lessons](start-here/video-map.md)
 
-## Phase 0 · World, frame by frame
+## Part 1 · Simulation
 
-* [Introduction](phase-0-world-frame-by-frame/README.md)
-  * [01 · The world is a text file](phase-0-world-frame-by-frame/01-world-as-text.md)
-  * [02 · Timestep: why did the cube go through the table?](phase-0-world-frame-by-frame/02-timestep.md)
-  * [03 · In simulation the table is a sponge: soft contact](phase-0-world-frame-by-frame/03-soft-contact.md)
-  * [04 · Friction: does a heavier cube slip later?](phase-0-world-frame-by-frame/04-friction.md)
+* [Overview](part-1-simulation/README.md)
+  * [01 · The world as text: MJCF and URDF](part-1-simulation/01-world-as-text.md)
+  * [02 · Time integration and the timestep](part-1-simulation/02-timestep.md)
+  * [03 · Contact: soft constraints, solref and solimp](part-1-simulation/03-contact.md)
+  * [04 · Friction and friction cones](part-1-simulation/04-friction.md)
+  * [05 · Joints and actuators](part-1-simulation/05-joints-and-actuators.md)
 
-## Phase 1 · Space and body
+## Part 2 · Spatial math
 
-* [Introduction](phase-1-space-and-body/README.md)
-  * [05 · There is no "left" for a robot: coordinate frames](phase-1-space-and-body/05-coordinate-frames.md)
-  * [06 · 6 motors, but not 6 degrees of freedom](phase-1-space-and-body/06-degrees-of-freedom.md)
-  * [07 · Two angles, one point: forward kinematics](phase-1-space-and-body/07-forward-kinematics.md)
-  * [08 · Can this arm touch its own base? Workspace](phase-1-space-and-body/08-workspace.md)
-  * [09 · Same point, two different elbows: inverse kinematics](phase-1-space-and-body/09-inverse-kinematics.md)
+* [Overview](part-2-spatial-math/README.md)
+  * [06 · Rotations: matrices, Euler angles, axis-angle, quaternions](part-2-spatial-math/06-rotations.md)
+  * [07 · Rigid transforms and frame trees](part-2-spatial-math/07-rigid-transforms.md)
 
-## Phase 2 · Muscle
+## Part 3 · Kinematics
 
-* [Introduction](phase-2-muscle/README.md)
-  * [10 · You give the motor an angle, not a force: position servos](phase-2-muscle/10-position-servo.md)
-  * [11 · 12 joints, two numbers: 20 and 0.5](phase-2-muscle/11-pd-control.md)
-  * [12 · The arm isn't weak, physics makes it sag: gravity](phase-2-muscle/12-gravity.md)
-  * [13 · Joints moved in a straight line, the tip drew a curve: trajectories](phase-2-muscle/13-trajectory.md)
-  * [14 · A robot's first rule: being able to stop itself](phase-2-muscle/14-safety.md)
+* [Overview](part-3-kinematics/README.md)
+  * [08 · Forward kinematics, degrees of freedom and workspace](part-3-kinematics/08-forward-kinematics.md)
+  * [09 · Jacobians and differential kinematics](part-3-kinematics/09-jacobians.md)
+  * [10 · Inverse kinematics and singularities](part-3-kinematics/10-inverse-kinematics.md)
 
-## Phase 3 · Senses
+## Part 4 · Dynamics and control
 
-* [Introduction](phase-3-senses/README.md)
-  * [15 · I cleaned the noise, the robot got late: filtering and latency](phase-3-senses/15-noise-and-latency.md)
-  * [16 · Your camera sees straight lines as curves: calibration](phase-3-senses/16-camera-calibration.md)
-  * [17 · I clicked on the screen, the arm touched that spot](phase-3-senses/17-pixel-to-table.md)
-  * [18 · I turned on the lamp, the robot couldn't see red](phase-3-senses/18-color-vs-open-vocabulary.md)
+* [Overview](part-4-dynamics-and-control/README.md)
+  * [11 · Rigid-body dynamics](part-4-dynamics-and-control/11-rigid-body-dynamics.md)
+  * [12 · Joint control: PD, PID, gravity feedforward and position servos](part-4-dynamics-and-control/12-joint-control.md)
+  * [13 · Trajectory generation](part-4-dynamics-and-control/13-trajectory-generation.md)
+  * [14 · Operational-space and impedance control](part-4-dynamics-and-control/14-impedance-control.md)
+  * [15 · Safety: limits, torque caps, e-stop and watchdogs](part-4-dynamics-and-control/15-safety.md)
+  * [16 · Grasping and scripted pick-and-place](part-4-dynamics-and-control/16-grasping-and-pick-place.md)
 
-## Phase 4 · Learning from demonstration
+## Part 5 · Perception and estimation
 
-* [Introduction](phase-4-learning-from-demonstration/README.md)
-  * [19 · Replay is not learning](phase-4-learning-from-demonstration/19-replay.md)
-  * [20 · What does a robot dataset look like?](phase-4-learning-from-demonstration/20-datasets.md)
-  * [21 · Nobody wrote code: behavior cloning](phase-4-learning-from-demonstration/21-behavior-cloning.md)
-  * [22 · I said 90% success. How sure am I? Evaluation](phase-4-learning-from-demonstration/22-evaluation.md)
-  * [23 · Does a perfect imitator sink at the first mistake? Distribution shift](phase-4-learning-from-demonstration/23-distribution-shift.md)
-  * [24 · The average of two right answers is wrong](phase-4-learning-from-demonstration/24-two-right-answers.md)
-  * [25 · The robot changed its mind every frame: action chunking](phase-4-learning-from-demonstration/25-action-chunking.md)
-  * [26 · End-to-end imitation on a real arm](phase-4-learning-from-demonstration/26-end-to-end-imitation.md)
+* [Overview](part-5-perception-and-estimation/README.md)
+  * [17 · Sensors, noise and filtering](part-5-perception-and-estimation/17-sensors-noise-filtering.md)
+  * [18 · The Kalman filter](part-5-perception-and-estimation/18-kalman-filter.md)
+  * [19 · Camera model, calibration and hand-eye calibration](part-5-perception-and-estimation/19-camera-calibration.md)
+  * [20 · From pixels to the table: homography and depth back-projection](part-5-perception-and-estimation/20-pixels-to-table.md)
+  * [21 · Object perception for manipulation](part-5-perception-and-estimation/21-object-perception.md)
 
-## Phase 5 · Agents
+## Part 6 · Planning and optimal control
 
-* [Introduction](phase-5-agents/README.md)
-  * [27 · The agent loop in 25 lines](phase-5-agents/27-agent-loop.md)
-  * [28 · The big model doesn't move the arm, it gives orders](phase-5-agents/28-two-brains.md)
-  * [29 · I told the agent "reach under the table"](phase-5-agents/29-agent-safety.md)
-  * [30 · Three agents, one arm: MCP](phase-5-agents/30-mcp.md)
-  * [31 · Getting a robot to work by talking: Strands](phase-5-agents/31-strands-agent.md)
+* [Overview](part-6-planning-and-optimal-control/README.md)
+  * [22 · Configuration space and sampling-based planning](part-6-planning-and-optimal-control/22-motion-planning.md)
+  * [23 · Trajectory optimization](part-6-planning-and-optimal-control/23-trajectory-optimization.md)
+  * [24 · LQR and model predictive control](part-6-planning-and-optimal-control/24-lqr-and-mpc.md)
 
-## Phase 6 · Learning by trial
+## Part 7 · Learning from demonstration
 
-* [Introduction](phase-6-learning-by-trial/README.md)
-  * [32 · No directions, just rewards: Q-learning](phase-6-learning-by-trial/32-q-learning.md)
-  * [33 · Thousands of robots falling at once: PPO intuition](phase-6-learning-by-trial/33-parallel-rl.md)
-  * [34 · When the agent games the reward: reward hacking](phase-6-learning-by-trial/34-reward-hacking.md)
+* [Overview](part-7-learning-from-demonstration/README.md)
+  * [25 · Evaluating robot policies](part-7-learning-from-demonstration/25-evaluating-policies.md)
+  * [26 · Teleoperation, replay and data collection](part-7-learning-from-demonstration/26-teleop-replay-data.md)
+  * [27 · Robot datasets](part-7-learning-from-demonstration/27-robot-datasets.md)
+  * [28 · Behavior cloning](part-7-learning-from-demonstration/28-behavior-cloning.md)
+  * [29 · Distribution shift and DAgger](part-7-learning-from-demonstration/29-dagger.md)
+  * [30 · Multimodal actions: diffusion and flow policies](part-7-learning-from-demonstration/30-diffusion-and-flow-policies.md)
+  * [31 · Action chunking and ACT](part-7-learning-from-demonstration/31-act.md)
 
-## Phase 7 · Sim to real
+## Part 8 · Reinforcement learning for robots
 
-* [Introduction](phase-7-sim-to-real/README.md)
-  * [35 · How many milliseconds behind is the robot's brain?](phase-7-sim-to-real/35-latency-and-control-rate.md)
-  * [36 · My simulated motor wasn't like the real one: system identification](phase-7-sim-to-real/36-system-identification.md)
-  * [37 · Breaking the sim on purpose: domain randomization](phase-7-sim-to-real/37-domain-randomization.md)
+* [Overview](part-8-rl-for-robots/README.md)
+  * [32 · A MuJoCo RL environment](part-8-rl-for-robots/32-rl-environment.md)
+  * [33 · PPO for continuous control](part-8-rl-for-robots/33-ppo.md)
+  * [34 · Observation and action design](part-8-rl-for-robots/34-observation-action-design.md)
+  * [35 · Reward design and reward hacking](part-8-rl-for-robots/35-reward-design.md)
+  * [36 · Legged locomotion and massively parallel training](part-8-rl-for-robots/36-legged-locomotion.md)
 
-## Phase 8 · Big models
+## Part 9 · Sim to real
 
-* [Introduction](phase-8-big-models/README.md)
-  * [38 · Inside a VLA: image + sentence → action](phase-8-big-models/38-vla.md)
-  * [39 · Paths from noise: diffusion and flow](phase-8-big-models/39-diffusion-and-flow.md)
+* [Overview](part-9-sim-to-real/README.md)
+  * [37 · Control rate and end-to-end latency](part-9-sim-to-real/37-latency.md)
+  * [38 · System identification](part-9-sim-to-real/38-system-identification.md)
+  * [39 · Domain randomization](part-9-sim-to-real/39-domain-randomization.md)
+  * [40 · Deploying on the real SO-101](part-9-sim-to-real/40-real-so101.md)
 
-## Phase 9 · Capstone
+## Part 10 · Foundation models and agents
 
-* [Introduction](phase-9-capstone/README.md)
-  * [40 · "Put the blue cube in the box"](phase-9-capstone/40-capstone.md)
+* [Overview](part-10-foundation-models-and-agents/README.md)
+  * [41 · Vision-language-action models](part-10-foundation-models-and-agents/41-vla.md)
+  * [42 · LLM agents with robot tools](part-10-foundation-models-and-agents/42-llm-agents.md)
+  * [43 · World models: learned dynamics](part-10-foundation-models-and-agents/43-world-models.md)
+
+## Capstone
+
+* [Overview](capstone/README.md)
+  * [44 · Say, see, plan, grasp](capstone/44-capstone.md)
 
 ## Appendix
 
-* [Appendix lessons](appendix/README.md)
-  * [Appendix A · Singularities: why does the arm go crazy when fully stretched?](appendix/a-singularities.md)
-  * [Appendix B · Gimbal lock and quaternions](appendix/b-gimbal-lock.md)
-  * [Appendix C · Kalman intuition: fusing two noisy measurements](appendix/c-kalman.md)
-  * [Appendix D · Grasp points with SAM](appendix/d-sam-grasp-points.md)
-  * [Appendix E · Fine-tuning SmolVLA on your own data](appendix/e-smolvla-finetuning.md)
-  * [Appendix F · World models: a small model that learns "what happens next"](appendix/f-world-models.md)
-  * [Appendix G · π0, GR00T, Gemini Robotics: three scales of the same idea](appendix/g-big-robot-models.md)
-  * [Appendix H · How many Hz on a Mac? Inference speed on CPU and MPS](appendix/h-inference-speed-on-mac.md)
+* [Appendix](appendix/README.md)
+  * [A · Large robot models: π0, GR00T, Gemini Robotics](appendix/a-large-robot-models.md)
+  * [B · Fine-tuning SmolVLA](appendix/b-smolvla-finetuning.md)
+  * [C · Inference speed on a Mac](appendix/c-inference-speed-on-mac.md)
+  * [D · Segmentation for grasp points](appendix/d-segmentation-for-grasping.md)
 
 ## Reference
 
