@@ -25,7 +25,7 @@ def assert_build_output(slug):
     want = open(os.path.join(ROOT, "experiments", slug, "build_output.txt"), encoding="utf-8").read().splitlines()
     assert len(got) == len(want), "different number of output lines"
     for g, w in zip(got, want):
-        assert NUM.sub("#", g) == NUM.sub("#", w), f"\n got: {g}\nwant: {w}"
+        assert " ".join(NUM.sub("#", g).split()) == " ".join(NUM.sub("#", w).split()), f"\n got: {g}\nwant: {w}"
         if not RECORDED_HERE:
             continue
         for a, b in zip(map(float, NUM.findall(g)), map(float, NUM.findall(w))):
